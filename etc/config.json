@@ -1,0 +1,20 @@
+{
+    "tag": "utrade_hft",
+    "log": {
+        "level": "info",
+        "log_path": "/logs"
+    },
+    "redis": {
+        "host": "localhost",
+        "port": 9379,
+        "password":"refZa2KcTj$QjyXk"
+    },
+    "dbp": {
+        "topics": []
+    },
+    "op": {
+        "strategyOp": "AlgoPairStrategy",
+        "timerInterval": 1000,
+        "strategyIds": ["test1"]
+    }
+}
