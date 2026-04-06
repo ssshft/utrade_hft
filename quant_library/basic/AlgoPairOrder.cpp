@@ -647,7 +647,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (ttCSSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
             } else {
-                LOG_INFI("");
+                LOG_INFO("");
             }
         } else if (expectVolume <= -minVolume + stra::MIN_FLOAT) {
             if (ttOLSwitch && ttCLSwitch) {

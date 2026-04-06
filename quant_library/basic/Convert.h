@@ -5,6 +5,7 @@
 #include "PairManager.h"
 #include "AlgoPairOrder.h"
 #include "AlgoFishingOrder.h"
+#include "AlgoRebalanceOrder.h"
 #include <string>
 
 inline stra::QuantSpread ConvertTdSpreadToStraSpread(const stra::MdSpread& tdSpread) {
@@ -251,7 +252,7 @@ inline void WriteAlgoFishingOrder(AlgoFishingOrder* order) {
 }
 
 inline void WriteAlgoRebalanceOrder(AlgoRebalanceOrder* order) {
-    
+
 }
 
 #endif

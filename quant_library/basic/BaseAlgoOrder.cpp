@@ -295,8 +295,8 @@ double BaseAlgoOrder::GetExpectPassiveVolume() {
     stra::QuantAccount& accountMakerTaker = posMgrMakerTaker.GetAccount();
     stra::QuantAccount& accountTakerTaker = posMgrTakerTaker.GetAccount();
     double frozenPassiveVolume = accountMakerTaker.mPosition[passiveInstrumentKey].frozenLongPosition - accountMakerTaker.mPosition[passiveInstrumentKey].frozenShortPosition;
-    frozenActiveVolume += accountTakerTaker.mPosition[passiveInstrumentKey].frozenLongPosition - accountTakerTaker.mPosition[passiveInstrumentKey].frozenShortPosition;
-    return pairPassiveTotalVolume + frozenActiveVolume;
+    frozenPassiveVolume += accountTakerTaker.mPosition[passiveInstrumentKey].frozenLongPosition - accountTakerTaker.mPosition[passiveInstrumentKey].frozenShortPosition;
+    return pairPassiveTotalVolume + frozenPassiveVolume;
 }
 
 double BaseAlgoOrder::GetLockedSpread() {
@@ -1918,4 +1918,17 @@ PairOrder BaseAlgoOrder::CreatePairOrder(stra::TradingType tradingType) {
 PairOrder BaseAlgoOrder::CreatePairOrder(stra::TradingType tradingType, stra::Direction activeDirection) {
     PairOrder pairOrder;
     return pairOrder;
+}
+
+bool BaseAlgoOrder::passInfoParameterCheck() {
+    bool pass = true;
+    if (activeInfo.tickSize < stra::MIN_FLOAT || activeInfo.lotSize < stra::MIN_FLOAT || activeInfo.minSize < stra::MIN_FLOAT) {
+        pass = false;
+    }
+
+    if (passiveInfo.tickSize < stra::MIN_FLOAT || passiveInfo.lotSize < stra::MIN_FLOAT || passiveInfo.minSize < stra::MIN_FLOAT) {
+        pass = false;
+    } 
+    
+    return pass;
 }

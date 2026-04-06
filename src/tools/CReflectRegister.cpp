@@ -4,7 +4,7 @@
 //定义一个全局的map保存字符串到动态类生成的函数指针的映射表
 std::map<std::string, PF_CREATE_OBJECT> g_ReflectRegisterMap;
 
-HFTStrategy_Base* ClassNameCreateObj(std::string _ClassName){
+BaseStrategy* ClassNameCreateObj(std::string _ClassName){
     //先判断是否已经初始化，不支持线程安全，如果需要涉及，该初始化请放到主线程中或者加个临界锁
     if (0 == g_ReflectRegisterMap.size()){
         InitClassReflect();

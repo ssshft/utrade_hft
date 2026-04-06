@@ -84,8 +84,10 @@ struct PairOrder {
     double pairTargetSpread{0.0};
     double pairTargetSpreadProfit{0.0};
 
-    double minOrderAmount(5);
+    double minOrderAmount{5};
     bool reduceOnly{false};
+
+    char pairInstrumentKey[stra::INST_KEY_LEN]{""};
 
     void Init();
     stra::QuantOrder CreateActiveOrder(int64_t strategyOrderId);

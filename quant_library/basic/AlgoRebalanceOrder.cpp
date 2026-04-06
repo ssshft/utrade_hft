@@ -193,7 +193,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
             }
         }
         else if (activeInfo.calculateType == 1) {
-           if (midPrice > 0 && activeInfo.multiple > 0) {
+           if (activeInfo.multiple > 0) {
                 double volume = minOrderAmount / activeInfo.multiple;
                 if (fabs(targetActiveVolume) > stra::MIN_FLOAT) {
                     targetVolume = max(targetVolume, volume);
@@ -212,7 +212,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
             }
         }
         else if (passiveInfo.calculateType == 1) {
-           if (midPrice > 0 && passiveInfo.multiple > 0) {
+           if (passiveInfo.multiple > 0) {
                 double volume = minOrderAmount / passiveInfo.multiple;
                 if (fabs(targetActiveVolume) > stra::MIN_FLOAT) {
                     targetVolume = max(targetVolume, volume);
@@ -345,7 +345,7 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (ttCSSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
                 } else {
-                    LOG_INFI("");
+                    LOG_INFO("");
                 }
             } else if (expectActiveVolume <= stra::MIN_FLOAT) {
                 if (ttCLSwitch) {
@@ -360,7 +360,7 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (ttCLSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
                 } else {
-                    LOG_INFI("");
+                    LOG_INFO("");
                 }
             } else if (expectPassiveVolume <= stra::MIN_FLOAT) {
                 if (ttCSSwitch) {
@@ -376,7 +376,7 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (mtCSSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
                 } else {
-                    LOG_INFI("");
+                    LOG_INFO("");
                 }
             } else if (expectActiveVolume <= stra::MIN_FLOAT) {
                 if (mtCLSwitch) {
@@ -391,7 +391,7 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (mtCLSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
                 } else {
-                    LOG_INFI("");
+                    LOG_INFO("");
                 }
             } else if (expectPassiveVolume <= stra::MIN_FLOAT) {
                 if (mtCSSwitch) {
@@ -409,7 +409,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
     updateTime = eventTime;
     if (activeTrade == 1 && pairOrder.activeTotalVolumeOnOrder > stra::MIN_FLOAT) {
         double activeVolume = pairOrder.activeTotalVolumeOnOrder;
-        double activePrice = pairOrder.activePriceVolumeOnOrder;
+        double activePrice = pairOrder.activeTotalPriceOnOrder;
 
         double totalActiveVolume = pairTotalVolume;
         double totalActivePrice = pairActiveTotalPrice;
@@ -467,7 +467,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
     }
     else if (activeTrade == 0 && pairOrder.passiveTotalVolumeOnOrder > stra::MIN_FLOAT) {
         double passiveVolume = pairOrder.passiveTotalVolumeOnOrder;
-        double passivePrice = pairOrder.passivePriceVolumeOnOrder;
+        double passivePrice = pairOrder.passiveTotalPriceOnOrder;
 
         double totalPassiveVolume = pairPassiveTotalVolume;
         double totalPassivePrice = pairPassiveTotalPrice;
@@ -493,16 +493,16 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
             if (pairOrder.passiveDirection == stra::Direction_SHORT) {
                 pairPassiveTotalVolume -= passiveVolume;
                 if (passiveInfo.calculateType == 0) {
-                    pairPassiveTotalPrice = (totalActivePrice * totalPassiveVolume - passivePrice * passiveVolume) / (totalPassiveVolume - passiveVolume);
+                    pairPassiveTotalPrice = (totalPassivePrice * totalPassiveVolume - passivePrice * passiveVolume) / (totalPassiveVolume - passiveVolume);
                 }
                 else if (passiveInfo.calculateType == 1) {
-                    pairPassiveTotalPrice = 1 / ((1 / totalActivePrice * totalPassiveVolume - 1 / passivePrice * passiveVolume) / (totalPassiveVolume - passiveVolume));
+                    pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume - 1 / passivePrice * passiveVolume) / (totalPassiveVolume - passiveVolume));
                 }
             }
             else if (pairOrder.passiveDirection == stra::Direction_LONG) {
                 pairPassiveTotalVolume += passiveVolume;
                 if (pairPassiveTotalVolume > stra::MIN_FLOAT) {
-                    pairActipairPassiveTotalPriceveTotalPrice = passivePrice;
+                    pairPassiveTotalPrice = passivePrice;
                 }
             }     
         }

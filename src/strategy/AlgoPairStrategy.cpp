@@ -97,8 +97,8 @@ void AlgoPairStrategy::on_total_account(pubsub::TotalAccount &totalAccount) {
 
 // rest，报单撤单返回的回报
 //订单成交变化
-void AlgoPairStrategy::on_ordertrade(pubsb::OrderResponse &orderResponse){
-    //DEBUGLINE
+void AlgoPairStrategy::on_ordertrade(pubsub::OrderResponse& orderResponse){
+    /*
     int64_t currentTime = GetCurrentTimeUs();
     stra::TdOrder order;
 
@@ -137,6 +137,7 @@ void AlgoPairStrategy::on_ordertrade(pubsb::OrderResponse &orderResponse){
     order.isMaker = orderTrade.isMaker;
 
     context.OnOrder(order, currentTime);
+    */
 }
 
 void AlgoPairStrategy::pre_stop(){

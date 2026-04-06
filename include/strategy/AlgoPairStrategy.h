@@ -29,7 +29,7 @@ protected:
     void on_total_account(pubsub::TotalAccount &totalAccount);
 
     //订单，成交推送
-    void on_ordertrade(pubsub::OrderResponse &orderResponse);
+    void on_ordertrade(pubsub::OrderResponse& orderResponse);
 
     void on_dbpdata(const dbp::DbpTopic* topic,const dbp::DbpData* pdata, uint32_t jumpedNum);
 

@@ -16,8 +16,19 @@ add_definitions("-D_TURN_OFF_PLATFORM_STRING")
 # add_definitions("-DUSE_BINANCE_UNIFIED")
 
 
-file(READ /inc/version.inc COMPILE_VERSION LIMIT 8 OFFSET 33)
-message(${COMPILE_VERSION})
+# 读取整个文件
+file(READ /inc/version.inc FILE_CONTENT)
+
+# 查找 COMPILE_VERSION= 之后的内容
+string(FIND "${FILE_CONTENT}" "COMPILE_VERSION=" COMPILE_POS)
+if(COMPILE_POS GREATER -1)
+    math(EXPR VALUE_START "${COMPILE_POS} + 16")  # "COMPILE_VERSION=" 的长度是 16
+    string(SUBSTRING "${FILE_CONTENT}" ${VALUE_START} -1 COMPILE_VERSION)
+    
+    # 去除换行符
+    string(REGEX REPLACE "\n.*$" "" COMPILE_VERSION "${COMPILE_VERSION}")
+    message("COMPILE_VERSION = ${COMPILE_VERSION}")
+endif()
 set(COMPILE_PATH ${COMPILE_VERSION})
 
 set(3RD_PATH /opt/version/3rd)
@@ -29,6 +40,7 @@ set(BASIC_DIR              ${CMAKE_CURRENT_SOURCE_DIR}/quant_library/basic)
 set(SYSTEM_INC_DIR          ${COMPILE_PATH}/include)
 set(FMT_INCLUDE_DIR          ${3RD_PATH}/fmt/include)
 set(DBP_INCLUDE_DIR        ${COMPILE_PATH}/dbp/sig)
+set(SHMQUEUE_INC_DIR          ${COMPILE_PATH}/include/shmqueue)
 
 
 #link
@@ -41,8 +53,8 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/src/strategy   DIR_STRATEGY_SRC
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/src/tools     DIR_TOOLS_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/quant_library/algo     DIR_ALGO_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/quant_library/basic     DIR_BASIC_SRCS)
-
-
+aux_source_directory(${SHMQUEUE_INC_DIR}                   DIR_SHMQUEUE_SRCS)
+aux_source_directory(${DBP_INCLUDE_DIR}/src                   DIR_DBP_SRCS)
 
 include_directories(
         ${3RD_PATH}
@@ -52,6 +64,7 @@ include_directories(
         ${DBP_INCLUDE_DIR}
         ${QUANT_LIBRARY_DIR}
         ${BASIC_DIR}
+        ${SHMQUEUE_INC_DIR}
 )
 
 link_directories(
@@ -82,4 +95,6 @@ add_executable(utrade_hft
         ${DIR_TOOLS_SRCS}
         ${DIR_ALGO_SRCS}
         ${DIR_BASIC_SRCS}
+        ${DIR_SHMQUEUE_SRCS}
+        ${DIR_DBP_SRCS}
 )

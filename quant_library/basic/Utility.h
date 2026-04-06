@@ -1,8 +1,6 @@
 #ifndef _UTILITY_H
 #define _UTILITY_H
 
-#include "NanoLogLite/Log.h"
-#include "NanoLogLite/NanoLog.h"
 #include "fmt/core.h"
 #include "ConcurrentQueue.h"
 #include "time_util.h"
@@ -91,22 +89,6 @@ inline int DiffPeriod(int64_t preDateTime, int64_t currentTime, int period) {
     int64_t curPeriod = currentTime / period;
     int64_t prePeriod = currentTime / period;
     return curPeriod - prePeriod;
-}
-
-inline void InitLog(int logLevel) {
-	time_t now;
-    struct tm *tm_now;
-    time(&now);
-    tm_now = localtime(&now);
-    char logName[128];
-
-    sprintf(logName,"logstrategy_%4d%02d%02d.log",
-            tm_now->tm_year + 1900,
-            tm_now->tm_mon + 1,
-            tm_now->tm_mday);
-
-    NanoLog::setLogFile(logName);
-    NanoLog::setLogLevel((NanoLog::LogLevel)logLevel);
 }
 
 inline int64_t GenerateStrategyOrderId() {

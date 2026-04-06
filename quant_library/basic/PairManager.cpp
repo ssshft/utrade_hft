@@ -1209,7 +1209,7 @@ string PairOrder::GetStr() {
         string sId = fmt::format("{}|", *iter);
         passiveOrderId += sId;
     }
-
+    /*
     string s = fmt::format("{},{},{},{},{},{},{},"
                           "{},{},{},{},{},{},{},"
                           "{},{},{},{},{},{},{},"
@@ -1229,6 +1229,8 @@ string PairOrder::GetStr() {
                           pairTotalVolume, pairPassiveTotalPrice, pairActiveFeeAmount, pairPassiveFeeAmount, activeBidPrice1, activeBidVolume1, activeAskPrice1, 
                           activeAskVolume1, passiveBidPrice1, passiveBidVolume1, passiveAskPrice1, passiveAskVolume1, status);
     return s;
+    */
+    return "";
 }
 
 PairOrderManager::PairOrderManager() {

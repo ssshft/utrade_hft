@@ -5,13 +5,13 @@
 #include "pubsub_protocol.h"
 #include "pubsub/pubsub.h"
 #include "shm_global.h"
-#include "file_util.h"
 #include "program_util.h"
 #include "command_helper.h"
 #include "config.h"
-#include "databox.h"
 #include "dbp/dbpreader.h"
 #include "concurrent_queue.h"
+#include "redis_client.h"
+#include <unordered_map>
 
 using namespace pubsub;
 using namespace md;
@@ -74,24 +74,24 @@ private:
                 if (rcmdQueue->pop(rcmd)) {
                     if (crypto::convert_rcmd_2_ordertrade(rcmd, orderResponse)) {
                         auto found = _strategyIds.find(orderResponse.strategyId);
-                        if (found) {
+                        if (found != _strategyIds.end()) {
                             on_ordertrade(orderResponse);
                         }
                     }
                     else if (crypto::convert_rcmd_2_balance(rcmd, balance)) {
                         auto found = _strategyIds.find(balance.strategyId);
-                        if (found) {
+                        if (found != _strategyIds.end()) {
                             on_balance(balance);
                         }
                     }
                     else if (crypto::convert_rcmd_2_position(rcmd, position)) {
                         auto found = _strategyIds.find(balance.strategyId);
-                        if (found) {
+                        if (found != _strategyIds.end()) {
                             on_position(position);
                         }
                     } else if (crypto::convert_rcmd_2_total_account(rcmd, totalAccount)) {
                         auto found = _strategyIds.find(balance.strategyId);
-                        if (found) {
+                        if (found != _strategyIds.end()) {
                             on_total_account(totalAccount);
                         }
                     }
@@ -157,7 +157,7 @@ protected:
             if(configValue["redis"].HasMember("passwd")){
                 redisPasswd = configValue["redis"]["passwd"].GetString();
             }
-            redisClient = new RedisClient(redisIp.c_str(), redisPort, redisPasswd.c_str());
+            redisClient = new RedisClient(redisIp.c_str(), redisPort, redisPasswd.c_str(), false, true);
         }
         else{
             cryptothrow("your config not found redis configuration!", -1);

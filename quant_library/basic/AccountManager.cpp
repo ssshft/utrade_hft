@@ -72,7 +72,7 @@ void AccountManager::OnPosition(const stra::TdPosition& position) {
         pos.longAvgPrice = -1;
         pos.shortAvgPrice = position.avgPrice;
     }
-    if (position.instType == stra::SWAP || position.instType == stra::FUTURES || position.instType == stra::USDT_SWAP || position.instType == stra::BUSD_SWAP || position.instType == stra::USDT_FUTURES || position.instType == stra::C_SWAP || position.instType == stra::C_FUTURES) {
+    if (position.instType == stra::SWAP || position.instType == stra::FUTURES || position.instType == stra::InstType_USDT_SWAP || position.instType == stra::InstType_BUSD_SWAP || position.instType == stra::InstType_USDT_FUTURES || position.instType == stra::InstType_C_SWAP || position.instType == stra::InstType_C_FUTURES) {
         double positionValue = 0.0;
         if (info.calculateType == 0) {
             positionValue = (fabs(pos.longPosition) + fabs(pos.shortPosition)) * lastPrice * info.multiple;

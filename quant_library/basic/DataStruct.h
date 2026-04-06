@@ -12,6 +12,7 @@
 #include "StraException.h"
 #include "crypto_errors.h"
 #include "json/nlohmann/json.hpp"
+#include "log_engine.h"
 
 using namespace std;
 using json = nlohmann::json;
@@ -100,6 +101,7 @@ namespace stra {
         ET_MEXC,
         ET_DERIBIT,
         ET_KUCOIN,
+        ET_BITGET,
         ET_MAX
     };
 
@@ -117,6 +119,7 @@ namespace stra {
         {ET_MEXC, "MEXC"},
         {ET_DERIBIT, "DERIBIT"},
         {ET_KUCOIN, "KUCOIN"},
+        {ET_BITGET, "BITGET"},
 	    {ET_MAX, "MAX"}
     };
 
@@ -134,6 +137,7 @@ namespace stra {
         {"MEXC", ET_MEXC},
         {"DERIBIT", ET_DERIBIT},
         {"KUCOIN", ET_KUCOIN},
+        {"BITGET", ET_BITGET},
 	    {"MAX", ET_MAX}
     };
 
@@ -605,6 +609,7 @@ namespace stra {
         AlgoType_Basic,
         AlgoType_PairTrading,
         AlgoType_FishingTrading,
+        AlgoType_Rebalance,
         AlgoType_MAX
     };
 
@@ -613,6 +618,7 @@ namespace stra {
         {AlgoType_Basic, "AlgoType_Basic"},
         {AlgoType_PairTrading, "AlgoType_PairTrading"},
         {AlgoType_FishingTrading, "AlgoType_FishingTrading"},
+        {AlgoType_Rebalance, "AlgoType_Rebalance"},
         {AlgoType_MAX, "AlgoType_MAX"}
     };
 
@@ -621,6 +627,7 @@ namespace stra {
         {"AlgoType_Basic", AlgoType_Basic},
         {"AlgoType_PairTrading", AlgoType_PairTrading},
         {"AlgoType_FishingTrading", AlgoType_FishingTrading},
+        {"AlgoType_Rebalance", AlgoType_Rebalance},
         {"AlgoType_MAX", AlgoType_MAX}
     };
 
@@ -1517,7 +1524,7 @@ namespace stra {
             queryCount += 1;
             // 报单状态更新
             // 状态转换需要过滤
-            if (tdOrder.errorId == ERROR_OrderNotFoundError && strlen(exchangeOrderId) <= 0) {
+            if (tdOrder.errorId == OrderNotFoundError && strlen(exchangeOrderId) <= 0) {
                 orderStatus = stra::OrderStatus_REJECTED;
                 char msg[stra::MSG_LEN];
                 sprintf(msg, "strategyName:%s algoPairId:%ld strategyOrderId:%ld", strategyName, algoPairId, strategyOrderId);
@@ -1701,6 +1708,7 @@ namespace stra {
         }
 
         string GetStr() const {
+            /*
             string s = fmt::format("{},{},{},{},{},{},"
                             "{},{},{},{},{},{},{},"
                             "{},{},{},{},{},{},{},{},"
@@ -1715,6 +1723,8 @@ namespace stra {
                             tradeFee, tradeFeeCurrency, tradeShortFee.GetStr(), tradeLongFee.GetStr(), totalShortFee.GetStr(), totalLongFee.GetStr(), 
                             orderTimeStatus.GetEnumStr(), errorId, originErrorMsg, strategyName, reduceOnly, isActiveOrder, rebalance, orderTime, updateTime, killTime, queryCount);          
             return s;
+            */
+            return "";
         }
     };
 

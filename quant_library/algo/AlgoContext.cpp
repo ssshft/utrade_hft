@@ -9,6 +9,7 @@
 #include "basic/AlgoPairOrder.h"
 #include "basic/AlgoFishingOrder.h"
 #include "basic/AlgoRebalanceOrder.h"
+#include "basic/AlgoRebalanceOrder.h"
 
 
 unordered_map<string, int> mAccountNameAccountId;
@@ -172,7 +173,7 @@ void AlgoContext::OnCommand(string s) {
                             return;
                         }
 
-                        if (strcmp(iter->second->pairInstrumentKey pairInstrumentKey.c_str()) == 0) {
+                        if (strcmp(iter->second->pairInstrumentKey, pairInstrumentKey.c_str()) == 0) {
                             if (algoType != stra::AlgoType_FishingTrading) {
                                 json pub;
                                 pub["sccId"] = std::string(sccId);
@@ -217,7 +218,7 @@ void AlgoContext::OnCommand(string s) {
                     } else if (algoType == stra::AlgoType_FishingTrading) {
                         pAlgoOrder = new AlgoFishingOrder();
                     } else if (algoType == stra::AlgoType_Rebalance) {
-                        pAlgoOrder = new AlgoRebalance()；
+                        pAlgoOrder = new AlgoRebalanceOrder();
                     }
                 } else if (commandType == stra::CommandType_CANCEL || commandType == stra::CommandType_MODIFY || commandType == stra::CommandType_QUERY) {
                     int64_t algoOrderId = stoll(body["systemOrderId"].GetString());
@@ -697,7 +698,7 @@ void AlgoContext::OnCommand(string s) {
                         pFishingOrder->fishingSlippagePct = stod(body["fishingSlippagePct"].GetString());
                     }
                 } else if (algoType == stra::AlgoType_Rebalance) {
-                    pRebalanceOrder = (AlgoRebalance*)pAlgoOrder;
+                    pRebalanceOrder = (AlgoRebalanceOrder*)pAlgoOrder;
                     if (body.HasMember("activeTrade")) {
                         pRebalanceOrder->activeTrade = stoi(body["activeTrade"].GetString());
                     }
@@ -789,15 +790,15 @@ void AlgoContext::OnCommand(string s) {
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoFishingOrder(pFishingOrder);
                         } else if (pAlgoOrder->algoType == stra::AlgoType_Rebalance) {
-                            AlgoRebalance* pRebalanceOrder = (AlgoRebalanceOrder*)pAlgoOrder;
+                            AlgoRebalanceOrder* pRebalanceOrder = (AlgoRebalanceOrder*)pAlgoOrder;
                             if (body.HasMember("activeTrade")) {
                                 pRebalanceOrder->activeTrade = stoi(body["activeTrade"].GetString());
                             }
 
-                            string pubMsg = pFishingOrder->GeneratePubStr();
+                            string pubMsg = pRebalanceOrder->GeneratePubStr();
                             QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
-                            WriteAlgoRebalanceOrder(pFishingOrder);
+                            WriteAlgoRebalanceOrder(pRebalanceOrder);
                         }
                     }
                     else {
@@ -837,7 +838,7 @@ void AlgoContext::OnSpread(const stra::MdSpread& spread, int64_t eventTime) {
     OnSpreadTrade(quantSpread, eventTime);
 }
     
-void AlgoContext::OnSpreadTrade(const stra::QuantSpread& spread, int64_t eventTime) {
+void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t eventTime) {
     try {
         // if (quantSpread.spreadDrive == stra::SpreadDrive_Active) {
         stra::QuantMarketDepth activeDepth = DataManager::Instance().GetLastDepth(quantSpread.activeInstumentKey);
@@ -861,7 +862,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& spread, int64_t eventTi
         if (timeVal < curSpreadDelay) {
             curDelay = true;
         } else {
-            LOG_INFO("OnSpread delay > {} ---  nowTime:{}  generateTs:{}  now - genetateTs: {} pairInstrumentKey:{}", curSpreadDelay, nowTime, quantSpread.generateTs, timeValm, quantSpread.pairInstrumentKey);
+            LOG_INFO("OnSpread delay > {} ---  nowTime:{}  generateTs:{}  now - genetateTs: {} pairInstrumentKey:{}", curSpreadDelay, nowTime, quantSpread.generateTs, timeVal, quantSpread.pairInstrumentKey);
         }
 
         int64_t timeDepthVal = nowTime - min(quantSpread.activeDepthTs, quantSpread.passiveDepthTs);
@@ -1480,14 +1481,14 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
 
                 // 订单状态适配
                 if (order.apiSource == stra::ApiSource_CANCEL_ORDER && order.orderStatus == stra::OrderStatus_REJECTED) {
-                    if (order.exchangType == stra::BYBIT || order.exchangType == stra::BITGET) {
+                    if (order.exchangType == stra::ET_BYBIT || order.exchangType == stra::ET_BITGET) {
                         order.orderStatus = stra::OrderStatus_REJECTED;
                     }
                     else {
                         order.orderStatus = stra::OrderStatus_FAILED;
                     }
                 } else if (order.apiSource == stra::ApiSource_QUERY_ORDER && order.orderStatus == stra::OrderStatus_REJECTED && strlen(quantOrder.exchangeOrderId) > 0){
-                    if (order.exchangType == stra::BYBIT || order.exchangType == stra::BITGET) {
+                    if (order.exchangType == stra::ET_BYBIT || order.exchangType == stra::ET_BITGET) {
                         order.orderStatus = stra::OrderStatus_REJECTED;
                     }
                     else {
@@ -1631,7 +1632,7 @@ void AlgoContext::OnFundingRate() {
 }
 
 void AlgoContext::OnTimerTrade(int64_t eventTime) {
-    auto& allAlgoOrders = algoOrderManager.GetAllAlgoOrders();
+    auto& allAlgoOrders = alogOrderManager.GetAllAlgoOrders();
     for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end(); ++it) {
         BaseAlgoOrder* pAlgoOrder = it->second;
         const stra::QuantSpread& quantSpread = SpreadManager::Instance().GetLastSpread(pAlgoOrder->pairInstrumentKey);
@@ -1779,7 +1780,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 double price = DataManager::Instance().GetMidPrice(it->second->activeInstrumentKey);
                 if (price > 0) {
                     if (it->second->algoType == stra::AlgoType_Rebalance) {
-                        AlgoRebalanceOrder* pRebalanceOrder = (AlgoRebalanceOrdder*)(it->second);
+                        AlgoRebalanceOrder* pRebalanceOrder = (AlgoRebalanceOrder*)(it->second);
                         if (pRebalanceOrder->activeTrade == 1) {
                             orderAmount = fabs(it->second->pairTotalVolume);
                         }
