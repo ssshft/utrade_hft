@@ -48,7 +48,7 @@ namespace pt {
         double askAskDQ;
         int count{0};
         double avgDepthVolume{0};
-        bool vaild{false};
+        bool valid{false};
 
         bool IsValid() {
             return valid && count > 0 && !std::isnan(bidBidUQ);
@@ -57,7 +57,7 @@ namespace pt {
 
     // 实时价差快照
     struct RealTimeSpread {
-        double spreadBidAsk
+        double spreadBidAsk;
         double spreadBidBid;
         double spreadAskBid;
         double spreadAskAsk;
@@ -82,7 +82,7 @@ namespace pt {
     };
 
     // 开平仓触发价差参数
-    struct OrderParamas {
+    struct OrderParams {
         double ttOLStartSpread{0.0};
         double ttOLEndSptread{0.0};
         double ttOLStartVolume{0.0};
@@ -165,7 +165,7 @@ namespace pt {
 
         double activeRealPosition{0.0};
         double passiveRealPosition{0.0};
-        double activeAvgPrice{-1.0}
+        double activeAvgPrice{-1.0};
         double passiveAvgPrice{-1.0};
 
         double floatPnl{0.0};

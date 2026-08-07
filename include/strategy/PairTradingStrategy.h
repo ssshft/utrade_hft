@@ -4,9 +4,7 @@
 #include "algo/AlgoContext.h"
 #include "algo/PairTradingContext.h"
 
-using namespace monster;
-
-class PairTradingStrategy : public HFTStrategy_Base {
+class PairTradingStrategy : public BaseStrategy {
 public:
     PairTradingStrategy();
     ~PairTradingStrategy();
