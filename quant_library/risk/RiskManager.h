@@ -53,7 +53,7 @@
 
         AbnormalCloseType riskType{AbnormalClose_NONE};
         int targetTier{0};
-        double frogoProfit{0.0};
+        double forgoProfit{0.0};
 
         std::string reason;
     };

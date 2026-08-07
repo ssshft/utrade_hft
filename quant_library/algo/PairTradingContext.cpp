@@ -134,7 +134,7 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
         return;
     }
 
-    if (pi.HasActiveAlgoOrder) {
+    if (pi.hasActiveAlgoOrder) {
         return;
     }
 

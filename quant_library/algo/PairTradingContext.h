@@ -92,7 +92,7 @@ private:
     void ProcessRisk(PairInfo& pi, int64_t nowUs);
 
     // direction : OL/OS/CL/CS;   algoMode: TT/MT
-    void SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;
+    void SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;
 
     std::string BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;
 

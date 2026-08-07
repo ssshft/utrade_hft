@@ -68,7 +68,7 @@ public:
     void RecalcOrderParams(PairInfo& pi) const;
 
     // 根据实时价差与orderParams判断当前时刻是否有信号，在每个价差tick到来时调用
-    SignalResult CheckSignal(const PairInfo* pi) const;
+    SignalResult CheckSignal(const PairInfo& pi) const;
 
     bool CanOpen(const PairInfo& pi, std::string& reason) const;
 
