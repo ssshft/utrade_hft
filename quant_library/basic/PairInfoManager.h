@@ -73,7 +73,7 @@
 
         void ApplyCommand(const std::string& pairKey, PairCommandType cmd, const std::unordered_map<std::string, double>& params = {});
 
-        double ceil2min(double val,, double minUnit);
+        double ceil2min(double val, double minUnit);
 
     private:
         PairInfoManager() = default;
