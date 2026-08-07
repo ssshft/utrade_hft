@@ -14,19 +14,19 @@
 namespace pt {
 
     enum PairCommandType {
-        PairCmd_NONE = 0;
-        PairCmd_STOP = 1; // 停止开仓
-        PairCmd_CLOSE = 2; // 强制平仓
-        PairCmd_RESUME = 3; // 恢复自动
-        PairCmd_MODIFY = 4; // 修改参数
+        PairCmd_NONE = 0,
+        PairCmd_STOP = 1, // 停止开仓
+        PairCmd_CLOSE = 2, // 强制平仓
+        PairCmd_RESUME = 3, // 恢复自动
+        PairCmd_MODIFY = 4 // 修改参数
     };
 
     // 异常平仓类型
     enum AbnormalCloseType {
-        AbnormalClose_NONE = 0;
-        AbnormalClose_ADL = 1;
-        AbnormalClose_SREAD_REGRESSION = 2;
-        AbnormalClose_FUNDING_ABNORMAL = 3;
+        AbnormalClose_NONE = 0,
+        AbnormalClose_ADL = 1,
+        AbnormalClose_SREAD_REGRESSION = 2,
+        AbnormalClose_FUNDING_ABNORMAL = 3
     };
 
     struct InstrumentParam {
