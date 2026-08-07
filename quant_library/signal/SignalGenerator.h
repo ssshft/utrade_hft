@@ -72,7 +72,7 @@ public:
 
     bool CanOpen(const PairInfo& pi, std::string& reason) const;
 
-    bool CanClose(const PairInfo& pi, std::string reason) const;
+    bool CanClose(const PairInfo& pi, std::string& reason) const;
 
 private:
     SignalGenerator() = default;

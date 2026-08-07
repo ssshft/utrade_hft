@@ -178,7 +178,7 @@ namespace pt {
 
         auto [tier, shouldAttempt] = GetCurrentTier(pi.spreadNoRegression, nowUs);
         r.targetTier = tier;
-        r.forgotProfit = CalcForgoSpread(pi, tier);
+        r.forgoProfit = CalcForgoSpread(pi, tier);
         r.needForceClose = shouldAttempt;
 
         // LOG_INFO spreadBidBid spreadAskAsk
@@ -221,7 +221,7 @@ namespace pt {
 
         auto [tier, shouldAttempt] = GetCurrentTier(pi.fundingAbnormal, nowUs);
         r.targetTier = tier;
-        r.forgotProfit = CalcForgoSpread(pi, tier);
+        r.forgoProfit = CalcForgoSpread(pi, tier);
         r.needForceClose = shouldAttempt;
 
         // LOG_INFO spreadBidBid spreadAskAsk
