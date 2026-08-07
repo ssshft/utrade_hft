@@ -280,8 +280,8 @@ void PairTradingContext::OnPosition(const stra::TdPosition& position) {
     PairInfoManager::Instance().UpdateLiquidStatus(position);
 }
 
-void PairTradingContext::OnBalance(const stra::TdBalance& balance, const std::string& baseAsset) {
-    PairInfoManager::Instance().UpdateOnBalance(balance, baseAsset);
+void PairTradingContext::OnBalance(const stra::TdBalance& balance) {
+    PairInfoManager::Instance().UpdateOnBalance(balance, "baseAsset");
 }
 
 void PairTradingContext::OnTotalAccount(const stra::TdTotalAccount& totalAccount) {

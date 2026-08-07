@@ -9,26 +9,26 @@ public:
     PairTradingStrategy();
     ~PairTradingStrategy();
 
-    void pre_start(Config* config) override;
+    void pre_start(Config* config);
 
-    void pre_stop() override;
+    void pre_stop();
 
 protected:
-    void on_command(const std::string& cmdStr) override;
+    void on_command(const std::string& cmdStr);
 
-    void on_timer(const long& utcTime) override;
+    void on_timer(const long& utcTime);
 
-    void on_marketdata(md::CryptoMarketData& cmd) override;
+    void on_marketdata(md::CryptoMarketData& cmd);
 
-    void on_ordertrade(om::OrderTrade& orderTrade) override;
+    void on_ordertrade(om::OrderTrade& orderTrade);
 
-    void on_balance(om::Balance& balance) override;
+    void on_balance(om::Balance& balance);
     
-    void on_position(om::Position& position) override;
+    void on_position(om::Position& position);
 
-    void on_total_account(om::TotalAccount& totalAccount) override;
+    void on_total_account(om::TotalAccount& totalAccount);
 
-    void on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum) override;
+    void on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum);
 
 private:
     AlgoContext algoContext;

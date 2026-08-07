@@ -2023,3 +2023,7 @@ void AlgoContext::OnTotalAccount(const stra::TdTotalAccount& totalAccount) {
 // algoOrder在每次创建和终结一个pairOrder时需要持久化
 // pairOrder在被创建和终结时需要持久化
 // quantOrder在被创建和终结时需要持久化
+
+BaseAlgoOrder* AlgoContext::GetAlgoOrder(int64_t algoOrderId) {
+    return alogOrderManager.SeletAlgoOrderByAlgoOrderId(algoOrderId);
+}

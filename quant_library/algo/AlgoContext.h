@@ -36,6 +36,8 @@ public:
     void OnPosition(const stra::TdPosition& position);
     void OnTotalAccount(const stra::TdTotalAccount& totalAccount);
 
+    BaseAlgoOrder* GetAlgoOrder(int64_t algoOrderId);
+
 private:
     AlgoOrderManager alogOrderManager;
     double pendToPendingTimeSpan; // 根据on_order进行更新

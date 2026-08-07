@@ -60,7 +60,7 @@ public:
 
     void OnPosition(const stra::TdPosition& position);
 
-    void OnBalance(const stra::TdBalance& balance, const std::string& baseAsset);
+    void OnBalance(const stra::TdBalance& balance);
 
     void OnTotalAccount(const stra::TdTotalAccount& totalAccount);
 
@@ -100,6 +100,8 @@ private:
     static int64_t NowUs();
 
     static std::string GenerateAlgoOrderId();
+
+    std::string baseAsset{"USDT"};
 };
 
 }

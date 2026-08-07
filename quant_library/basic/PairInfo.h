@@ -90,7 +90,7 @@ namespace pt {
         bool ttOLSwitch{false};
 
         double ttCLStartSpread{0.0};
-        double ttCLEndSptread{0.0};
+        double ttCLEndSpread{0.0};
         double ttCLStartVolume{0.0};
         double ttCLEndVolume{0.0};
         bool ttCLSwitch{false};
