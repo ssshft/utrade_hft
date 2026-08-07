@@ -26,7 +26,7 @@ struct PairTradingConfig {
     double maxAmount{50};
     double targetAmount{50};
     double exposureMaxLimit{10}; // 敞口上限
-    double exposureMaxLmitCoff{1.0}; // 敞口系数
+    double exposureMaxLimitCoff{1.0}; // 敞口系数
 
     // 价差统计分位数
     double quantileUp{0.9};

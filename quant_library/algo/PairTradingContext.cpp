@@ -158,7 +158,7 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     }
 }
 
-void PairTradingContext::SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) {
+void PairTradingContext::SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
     if (!m_algoCommandCb) {
         return;
     }
@@ -175,7 +175,7 @@ void PairTradingContext::SubmitAlgoOrder(const PairInfo& pi, const std::string& 
     m_algoCommandCb(json);
 }
 
-std::string PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) {
+std::string PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
     const auto& op = pi.orderParams;
     bool isTT = (algoMode == "TT");
 
@@ -298,7 +298,7 @@ void PairTradingContext::OnAlgoOrderUpdate(const std::string& pairKey, const std
     pim.ClearActiveAlgoOrder(pairKey);
 
     if (isFinished && std::abs(volumeFilled) > 1e-9) {
-        pim.UpdatOnAlgoOrderFinished(pairKey, activePriceFilled, volumeFilled, passivePriceFilled);
+        pim.UpdateOnAlgoOrderFinished(pairKey, activePriceFilled, volumeFilled, passivePriceFilled);
 
         if (pi->HasPosition()) {
             if (std::isnan(pi->openSmallSpreadBidBidUQ)) {
