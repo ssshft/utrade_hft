@@ -384,7 +384,7 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
         }
         else {
             double a_target = ceil2min(targetAmount / aP.multiple, aMinVol);
-            double p_target = ceil2min(targetAmount / pP.multiple, pMinVol) * pP.multiple / ap.multiple;
+            double p_target = ceil2min(targetAmount / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
 
             double a_max = ceil2min(std::min(maxAmount, pi.activeDailyAmount * 0.025) / aP.multiple, aMinVol);
             double p_max = ceil2min(std::min(maxAmount, pi.passiveDailyAmount * 0.025) / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
