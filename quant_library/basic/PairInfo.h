@@ -84,7 +84,7 @@ namespace pt {
     // 开平仓触发价差参数
     struct OrderParams {
         double ttOLStartSpread{0.0};
-        double ttOLEndSptread{0.0};
+        double ttOLEndSpread{0.0};
         double ttOLStartVolume{0.0};
         double ttOLEndVolume{0.0};
         bool ttOLSwitch{false};
@@ -96,38 +96,38 @@ namespace pt {
         bool ttCLSwitch{false};
 
         double ttOSStartSpread{0.0};
-        double ttOSEndSptread{0.0};
+        double ttOSEndSpread{0.0};
         double ttOSStartVolume{0.0};
         double ttOSEndVolume{0.0};
         bool ttOSSwitch{false};
 
         double ttCSStartSpread{0.0};
-        double ttCSEndSptread{0.0};
+        double ttCSEndSpread{0.0};
         double ttCSStartVolume{0.0};
         double ttCSEndVolume{0.0};
         bool ttCSSwitch{false};
 
 
         double mtOLStartSpread{0.0};
-        double mtOLEndSptread{0.0};
+        double mtOLEndSpread{0.0};
         double mtOLStartVolume{0.0};
         double mtOLEndVolume{0.0};
         bool mtOLSwitch{false};
 
         double mtCLStartSpread{0.0};
-        double mtCLEndSptread{0.0};
+        double mtCLEndSpread{0.0};
         double mtCLStartVolume{0.0};
         double mtCLEndVolume{0.0};
         bool mtCLSwitch{false};
 
         double mtOSStartSpread{0.0};
-        double mtOSEndSptread{0.0};
+        double mtOSEndSpread{0.0};
         double mtOSStartVolume{0.0};
         double mtOSEndVolume{0.0};
         bool mtOSSwitch{false};
 
         double mtCSStartSpread{0.0};
-        double mtCSEndSptread{0.0};
+        double mtCSEndSpread{0.0};
         double mtCSStartVolume{0.0};
         double mtCSEndVolume{0.0};
         bool mtCSSwitch{false};
