@@ -35,14 +35,14 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
         if (bim.GetInstrumentInfo(activeKey, activeInfo)) {
             pi.activeParam.multiple = activeInfo.multiple;
             pi.activeParam.minMove = activeInfo.tickSize;
-            pi.activeParam.minVolume = activeInfo.minVolume;
+            pi.activeParam.minVolume = activeInfo.minSize;
             pi.activeParam.calcType = activeInfo.calculateType;
         }
 
         if (bim.GetInstrumentInfo(passiveKey, passiveInfo)) {
             pi.passiveParam.multiple = passiveInfo.multiple;
             pi.passiveParam.minMove = passiveInfo.tickSize;
-            pi.passiveParam.minVolume = passiveInfo.minVolume;
+            pi.passiveParam.minVolume = passiveInfo.minSize;
             pi.passiveParam.calcType = passiveInfo.calculateType;
         }
 
@@ -56,7 +56,7 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
 }
 
 
-bool PairInfoManager::SaveToCsv(const std::string& csvPath) const {
+bool PairInfoManager::SaveToCSV(const std::string& csvPath) {
     std::ofstream ofs(csvPath);
     if (!ofs) {
         LOG_ERROR("");
@@ -148,14 +148,14 @@ void PairInfoManager::UpdateRtSpread(const std::string& pairKey, const stra::MdS
     rt.lastGenerateTs = spread.generateTs;
     rt.valid = true;
 
-    if (spread.activeFundingRateTime > rt.activeFundingRateTime) {
+    if (spread.activeFundingTs > rt.activeFundingRateTime) {
         rt.activeFundingRate = spread.activeFundingRate;
-        rt.activeFundingRateTime = spread.activeFundingRateTime;
+        rt.activeFundingRateTime = spread.activeFundingTs;
     }
 
-    if (spread.passiveFundingRateTime > rt.passiveFundingRateTime) {
+    if (spread.passiveFundingTs > rt.passiveFundingRateTime) {
         rt.passiveFundingRate = spread.passiveFundingRate;
-        rt.passiveFundingRateTime = spread.passiveFundingRateTime;
+        rt.passiveFundingRateTime = spread.passiveFundingTs;
     }
 
     pi->modifyTime = GetCurrentTimeUs();
@@ -183,7 +183,7 @@ void PairInfoManager::UpdateSmallStats(const std::string& pairKey, const SpreadS
 }
 
 
-void PairInfoManager::UpdateOnPosition(const star::TdPosition& pos) {
+void PairInfoManager::UpdateOnPosition(const stra::TdPosition& pos) {
     std::string instrKey = std::string(pos.exchId) + "," + std::string(pos.instType) + "," + std::string(pos.instId);
 
     const auto* pairs = FindPairsByInstrument(instrKey);
@@ -228,7 +228,7 @@ void PairInfoManager::UpdateOnPosition(const star::TdPosition& pos) {
 }
 
 
-void PairInfoManager::UpdateLiquidStatus(const star::TdPosition& pos) {
+void PairInfoManager::UpdateLiquidStatus(const stra::TdPosition& pos) {
     UpdateOnPosition(pos);
 }
 
@@ -246,7 +246,7 @@ static void UpdateSideLiquidStatus(PairInfo& pi, bool isActive, double liquidPri
             status = 1;  // 警告: 不足60%
         }
         else {
-            status = 0
+            status = 0;
         }
     }
     else {
@@ -282,7 +282,7 @@ void PairInfoManager::UpdateOnTotalAccount(const stra::TdTotalAccount& totalAcco
 
 // 算法单同步
 void PairInfoManager::UpdateOnAlgoOrderFinished(const std::string& pairKey, double activePriceFilled, double volumeFilled, double passivePriceFilled) {
-    auto* pi = GetPairInfo(pk);
+    auto* pi = GetPairInfo(pairKey);
     if (!pi) {
         return;
     } 

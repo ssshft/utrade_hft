@@ -221,3 +221,12 @@ bool BasicInfoMgr::GetAllInstrumentInfo(string& value) {
 unordered_map<string, stra::InstrumentInfo>& BasicInfoMgr::GetAllInstrumentInfo() {
     return mInstrumentInfo;
 }
+
+bool BasicInfoMgr::GetInstrumentInfo(string key, stra::InstrumentInfo& info) {
+    bool find = false;
+    if (mInstrumentInfo.find(key) != mInstrumentInfo.end()) {
+        info = mInstrumentInfo[key];
+        find = true;
+    }
+    return find;
+}
