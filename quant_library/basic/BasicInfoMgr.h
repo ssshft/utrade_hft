@@ -82,7 +82,7 @@ public:
     bool GetAllInstrumentInfo(string& value);
     void UpdateInstrumentInfo();
     unordered_map<string, stra::InstrumentInfo>& GetAllInstrumentInfo();
-    bool GetInstrumentInfo(string key, stra::InstrumentInfo& info)
+    bool GetInstrumentInfo(string key, stra::InstrumentInfo& info);
 
 private:
 	BasicInfoMgr();
