@@ -5,7 +5,7 @@ namespace pt {
 
 std::pair<double, double> SignalGenerator::CalcExpectSpread(double quantileBound, double activeFee, double passiveFee, bool isTaker, double slippage, double extraBuffer, int direction) const {
     double totalCost = activeFee + passiveFee + slippage + extraBuffer;
-    double startSpread = quantileBound * m_cfg.spreadAdjPct - direction * totalCost
+    double startSpread = quantileBound * m_cfg.spreadAdjPct - direction * totalCost;
     double endSpread = startSpread - direction * 0.000005; // 5e-6 缓冲带
 }
 
@@ -155,7 +155,7 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
 
 // 用实时价差与orderParams比较，生成信号
 SignalResult SignalGenerator::CheckSignal(const PairInfo& pi) const {
-    SignalGenerator result;
+    SignalResult result;
 
     if (!pi.rtSpread.valid) {
         return result;

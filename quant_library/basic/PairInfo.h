@@ -50,7 +50,7 @@ namespace pt {
         double avgDepthVolume{0};
         bool valid{false};
 
-        bool IsValid() {
+        bool IsValid() const {
             return valid && count > 0 && !std::isnan(bidBidUQ);
         }
     };
