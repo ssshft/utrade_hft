@@ -61,6 +61,8 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/src/strategy   DIR_STRATEGY_SRC
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/src/tools     DIR_TOOLS_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/quant_library/algo     DIR_ALGO_SRCS)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/quant_library/basic     DIR_BASIC_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/quant_library/risk     DIR_RISK_SRCS)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/quant_library/signal    DIR_SIGNAL_SRCS)
 aux_source_directory(${SHMQUEUE_INC_DIR}                   DIR_SHMQUEUE_SRCS)
 aux_source_directory(${DBP_INCLUDE_DIR}/src                   DIR_DBP_SRCS)
 
@@ -103,6 +105,8 @@ add_executable(utrade_hft
         ${DIR_TOOLS_SRCS}
         ${DIR_ALGO_SRCS}
         ${DIR_BASIC_SRCS}
+        ${DIR_RISK_SRCS}
+        ${DIR_SIGNAL_SRCS}
         ${DIR_SHMQUEUE_SRCS}
         ${DIR_DBP_SRCS}
 )
