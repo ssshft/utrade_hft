@@ -71,7 +71,7 @@ bool PairInfoManager::SaveToCSV(const std::string& csvPath) {
           << p.pairTotalVolume << ","
           << p.pairActiveTotalPrice << ","
           << p.pairPassiveTotalPrice << ","
-          << p.pairPassiveTotalVolume << ",\n"
+          << p.pairPassiveTotalVolume << ",\n";
     }
     return true;
 }
@@ -184,7 +184,7 @@ void PairInfoManager::UpdateSmallStats(const std::string& pairKey, const SpreadS
 
 
 void PairInfoManager::UpdateOnPosition(const stra::TdPosition& pos) {
-    std::string instrKey = std::string(ExchangeTypeEnum2Str[pos.exchangType]) + "," + std::string(InstTypeEnum2Str[pos.instType]) + "," + std::string(pos.instrument);
+    std::string instrKey = std::string(stra::ExchangeTypeEnum2Str[pos.exchangType]) + "," + std::string(stra::InstTypeEnum2Str[pos.instType]) + "," + std::string(pos.instrument);
 
     const auto* pairs = FindPairsByInstrument(instrKey);
     if (!pairs) {
@@ -333,7 +333,7 @@ void PairInfoManager::ClearActiveAlgoOrder(const std::string& pairKey) {
     pi->hasActiveAlgoOrder = false;
 }
 
-double PairInfoManager::ceil2min(double val,, double minUnit) {
+double PairInfoManager::ceil2min(double val, double minUnit) {
     if (minUnit <= 0) {
         return val;
     }
@@ -378,7 +378,7 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
 
             pi.ttTargetVolume = std::max(a_target, p_target);
             pi.mtTargetVolume = pi.ttTargetVolume;
-            pi.maxVolume = std::min(a_max,, p_max);
+            pi.maxVolume = std::min(a_max, p_max);
             pi.minVolume = std::max(a_min, p_min);
             pi.maxExposure = std::max(exposureMaxLimit * exposureMaxLimitCoff, pi.minVolume * ap * aP.multiple);
         }
@@ -394,7 +394,7 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
 
             pi.ttTargetVolume = std::max(a_target, p_target);
             pi.mtTargetVolume = pi.ttTargetVolume;
-            pi.maxVolume = std::min(a_max,, p_max);
+            pi.maxVolume = std::min(a_max, p_max);
             pi.minVolume = std::max(a_min, p_min);
             pi.maxExposure = std::max(exposureMaxLimit * exposureMaxLimitCoff, pi.minVolume * aP.multiple);     
         }
@@ -416,7 +416,7 @@ void PairInfoManager::UpdateKlineStats(const std::string& instrKey, double daily
             return;
         }   
 
-        if (instrKey == pi->activeInstrmentKey) {
+        if (instrKey == pi->activeInstrumentKey) {
             pi->activeDailyAmount = dailyAmount;
             pi->activeMeanClose = meanClose;
             pi->activeOI = oi;
@@ -478,7 +478,7 @@ void PairInfoManager::ApplyCommand(const std::string& pairKey, PairCommandType c
         case PairCmd_MODIFY:
             for (const auto& kv : params) {
                 if (kv.first == "profit") {
-                    pi->profit = kv.second;
+                    pi->profitPct = kv.second;
                 }
                 if (kv.first == "maxVolume") {
                     pi->maxVolume = kv.second;

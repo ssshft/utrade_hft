@@ -25,7 +25,7 @@ namespace pt {
     enum AbnormalCloseType {
         AbnormalClose_NONE = 0,
         AbnormalClose_ADL = 1,
-        AbnormalClose_SREAD_REGRESSION = 2,
+        AbnormalClose_SPREAD_REGRESSION = 2,
         AbnormalClose_FUNDING_ABNORMAL = 3
     };
 
