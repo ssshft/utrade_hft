@@ -15,7 +15,7 @@ namespace pt {
             return {2, true};
         }
 
-        if (tier == 2 && elapsed > m_cfg.tier1WaitUs + m_cfg.tier2WaitUs && staate.tier2Times > 0) {
+        if (tier == 2 && elapsed > m_cfg.tier1WaitUs + m_cfg.tier2WaitUs && state.tier2Times > 0) {
             return {3, true};
         }
 
@@ -71,7 +71,7 @@ namespace pt {
     }
 
     bool RiskManager::CheckTinyClose(const PairInfo& pi) const {
-        if (!pi.HasPositin()) {
+        if (!pi.HasPosition()) {
             return false;
         }
 
@@ -86,7 +86,7 @@ namespace pt {
     // 持仓阈值持续4天 + ADL分位数过高 -》渐进式平仓
     RiskCheckResult RiskManager::CheckADLRisk(PairInfo& pi, int64_t nowUs) const {
         RiskCheckResult r;
-        if (!pi.HasPositin()) {
+        if (!pi.HasPosition()) {
             return r;
         }
 
@@ -129,7 +129,7 @@ namespace pt {
     // 回归判断：当前实时价差未超过小周期分位数（开仓方向反转）
     RiskCheckResult RiskManager::CheckSpreadNoRegression(PairInfo& pi, int64_t nowUs) const {
         RiskCheckResult r;
-        if (!pi.HasPosition) {
+        if (!pi.HasPosition()) {
             pi.spreadNoRegressionStartTime = 0;
             return r;
         }
@@ -178,7 +178,7 @@ namespace pt {
 
         auto [tier, shouldAttempt] = GetCurrentTier(pi.spreadNoRegression, nowUs);
         r.targetTier = tier;
-        r.forgotPorfit = CalcForgoSpread(pi, tier);
+        r.forgotProfit = CalcForgoSpread(pi, tier);
         r.needForceClose = shouldAttempt;
 
         // LOG_INFO spreadBidBid spreadAskAsk
@@ -207,7 +207,7 @@ namespace pt {
         }
 
         double posVal = pi.CalcPositionValue();
-        double fundingLoss = netFundingCose * posVal;
+        double fundingLoss = netFundingCost * posVal;
         double threshold = m_cfg.fundingAbnormalThreshold * m_cfg.fundingMaxAmount;
 
         if (fundingLoss < threshold) {
@@ -221,7 +221,7 @@ namespace pt {
 
         auto [tier, shouldAttempt] = GetCurrentTier(pi.fundingAbnormal, nowUs);
         r.targetTier = tier;
-        r.forgotPorfit = CalcForgoSpread(pi, tier);
+        r.forgotProfit = CalcForgoSpread(pi, tier);
         r.needForceClose = shouldAttempt;
 
         // LOG_INFO spreadBidBid spreadAskAsk
