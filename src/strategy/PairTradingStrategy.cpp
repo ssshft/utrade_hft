@@ -196,7 +196,7 @@ void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic,const dbp::DbpDa
 
     algoContext.OnSpread(mdSpread, currentTime);
 
-    ptContext.OnSpread(mdSpread, currentTime)；
+    ptContext.OnSpread(mdSpread, currentTime);
 }
 
 
@@ -239,8 +239,8 @@ void PairTradingStrategy::on_position(om::Position &position){
     pos.markPrice = position.markPrice;
     pos.updateTime = position.updateTime;
 
-    algoContext.OnPosition(ba);
-    ptContext.OnPosition(ba);
+    algoContext.OnPosition(pos);
+    ptContext.OnPosition(pos);
 }
 
 //账户总览推送
