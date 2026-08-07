@@ -67,9 +67,13 @@
         // 流动性检查 --- 强平价格监控
         void UpdateLiquidStatus(const stra::TdPosition& pos);
 
+        void UpdateLiquidStatus(PairInfo& pi, bool isActive, const stra::TdPosition& pos);
+
         void ResetAbnormalCloseState(const std::string& pairKey, AbnormalCloseType type);
 
         void ApplyCommand(const std::string& pairKey, PairCommandType cmd, const std::unordered_map<std::string, double>& params = {});
+
+        double ceil2min(double val,, double minUnit);
 
     private:
         PairInfoManager() = default;

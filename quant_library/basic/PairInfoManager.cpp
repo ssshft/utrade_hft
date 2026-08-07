@@ -68,7 +68,7 @@ bool PairInfoManager::SaveToCSV(const std::string& csvPath) {
     for (const auto& kv : m_pairInfoMap) {
         const PairInfo& p = kv.second;
         ofs << p.pairInstrumentKey << ","
-          << p.pairTotalVolume< ","
+          << p.pairTotalVolume << ","
           << p.pairActiveTotalPrice << ","
           << p.pairPassiveTotalPrice << ","
           << p.pairPassiveTotalVolume << ",\n"
@@ -184,7 +184,7 @@ void PairInfoManager::UpdateSmallStats(const std::string& pairKey, const SpreadS
 
 
 void PairInfoManager::UpdateOnPosition(const stra::TdPosition& pos) {
-    std::string instrKey = std::string(pos.exchId) + "," + std::string(pos.instType) + "," + std::string(pos.instId);
+    std::string instrKey = std::string(ExchangeTypeEnum2Str[pos.exchangType]) + "," + std::string(InstTypeEnum2Str[pos.instType]) + "," + std::string(pos.instrument);
 
     const auto* pairs = FindPairsByInstrument(instrKey);
     if (!pairs) {
@@ -329,10 +329,17 @@ void PairInfoManager::ClearActiveAlgoOrder(const std::string& pairKey) {
         return;
     } 
 
-    pi->currentAlgoOrderId = '\0';
+    memset(pi->currentAlgoOrderId, 0, 128);
     pi->hasActiveAlgoOrder = false;
 }
 
+double PairInfoManager::ceil2min(double val,, double minUnit) {
+    if (minUnit <= 0) {
+        return val;
+    }
+
+    return std::ceil(val / minUnit) * minUnit; 
+}
 
 // 报单量参数计算
 void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, double exposureMaxLimit, double exposureMaxLimitCoff) {
@@ -358,18 +365,10 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
         double aMinVol = aP.minVolume;
         double pMinVol = pP.minVolume;
 
-        auto ceil2min = [](double val,, double minUnit) -> double {
-            if (minUnit <= 0) {
-                return val;
-            }
-
-            return std::ceil(val / minUnit) * minUnit;
-        };
-
 
         if (aP.calcType == 0) {
             double a_target = ceil2min(targetAmount / ap / aP.multiple, aMinVol);
-            double p_target = ceil2min(targetAmount / pp / pP.multiple, pMinVol) * pP.multiple / ap.multiple;
+            double p_target = ceil2min(targetAmount / pp / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
 
             double a_max = ceil2min(std::min(maxAmount, pi.activeDailyAmount * 0.025) / ap / aP.multiple, aMinVol);
             double p_max = ceil2min(std::min(maxAmount, pi.passiveDailyAmount * 0.025) / pp / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
@@ -405,7 +404,7 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
 }
 
 
-void PairInfoManager::UpdateKlineStatus(const std::string& instrKey, double dailyAmount, double meanClose, double oi, double oiUsdt) {
+void PairInfoManager::UpdateKlineStats(const std::string& instrKey, double dailyAmount, double meanClose, double oi, double oiUsdt) {
     const auto* pairs = FindPairsByInstrument(instrKey);
     if (!pairs) {
         return;
@@ -433,7 +432,7 @@ void PairInfoManager::UpdateKlineStatus(const std::string& instrKey, double dail
 }
 
 
-void PairInfoManager::ResetAbnormalCloseStats(const std::string& pairKey, AbnormalCloseType type) {
+void PairInfoManager::ResetAbnormalCloseState(const std::string& pairKey, AbnormalCloseType type) {
     auto* pi = GetPairInfo(pairKey);
     if (!pi) {
         return;
@@ -478,16 +477,16 @@ void PairInfoManager::ApplyCommand(const std::string& pairKey, PairCommandType c
             break;
         case PairCmd_MODIFY:
             for (const auto& kv : params) {
-                if (kv.first = "profit") {
+                if (kv.first == "profit") {
                     pi->profit = kv.second;
                 }
-                if (kv.first = "maxVolume") {
+                if (kv.first == "maxVolume") {
                     pi->maxVolume = kv.second;
                 }
-                if (kv.first = "ttTargetVolume") {
+                if (kv.first == "ttTargetVolume") {
                     pi->ttTargetVolume = kv.second;
                 }
-                if (kv.first = "mtTargetVolume") {
+                if (kv.first == "mtTargetVolume") {
                     pi->mtTargetVolume = kv.second;
                 }
             }
