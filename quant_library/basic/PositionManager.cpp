@@ -1,6 +1,7 @@
 #include "PositionManager.h"
 #include "BasicInfoMgr.h"
 #include "Utility.h"
+#include "SpreadManager.h"
 
 PositionManager::PositionManager() {
 
@@ -91,7 +92,7 @@ void PositionManager::UpdateTransferOnTransfer(const stra::QuantTransfer& transf
         return;
     }
 
-    if (transfer.transferStatus == stra::OrderStatus_FILLED) {
+    if (transfer.transferStatus == OS_FILLED) {
         if (account.strategyAccountId == transfer.withdrawStrategyAccountId) {
             auto& ass = account.mAsset[transfer.transferAsset];
             ass.frozenAmount -= transfer.transferVolume;
@@ -102,7 +103,7 @@ void PositionManager::UpdateTransferOnTransfer(const stra::QuantTransfer& transf
             ass.totalAmount += transfer.transferVolume;
             ass.transferAmount += transfer.transferVolume;
         }
-    } else if (transfer.transferStatus == stra::OrderStatus_REJECTED) {
+    } else if (transfer.transferStatus == OS_REJECTED {
         if (account.strategyAccountId == transfer.withdrawStrategyAccountId) {
             auto& ass = account.mAsset[transfer.transferAsset];
             ass.frozenAmount -= transfer.transferVolume;
@@ -115,38 +116,38 @@ void PositionManager::OnInsertOrder(const stra::QuantOrder& order) {
     stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(instrumentKey);
     auto& pos = account.mPosition[instrumentKey];
     strncpy(pos.instrumentKey, order.instrumentKey, stra::INST_KEY_LEN);
-    if (order.instType == stra::SPOT || order.instType == stra::InstType_SPOT) {
-        if (order.direction == stra::Direction_LONG) {
+    if (order.instType == SPOT) {
+        if (order.direction == DT_LONG) {
             auto& ass = account.mAsset[info.right];
             strncpy(ass.asset, info.right.c_str(), stra::ASSET_LEN);
             ass.frozenAmount += order.price * order.volume;
             pos.frozenLongPrice = (pos.frozenLongPrice * pos.frozenLongPosition + order.price * order.volume) / (pos.frozenLongPosition + order.volume);
             pos.frozenLongPosition += order.volume;
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT) {
             auto& ass = account.mAsset[info.left];
             strncpy(ass.asset, info.left.c_str(), stra::ASSET_LEN);
             ass.frozenAmount += order.volume;
             pos.frozenShortPrice = (pos.frozenShortPrice * pos.frozenShortPosition + order.price * order.volume) / (pos.frozenShortPosition + order.volume);
             pos.frozenShortPosition += order.volume;
         }
-    } else if (order.instType == stra::MARGIN) {
-        if (order.direction == stra::Direction_LONG) {
+    } else if (order.instType == MARGIN) {
+        if (order.direction == DT_LONG) {
             auto& ass = account.mAsset[info.right];
             strncpy(ass.asset, info.right.c_str(), stra::ASSET_LEN);
             ass.frozenAmount += order.price * order.volume;
             pos.frozenLongPrice = (pos.frozenLongPrice * pos.frozenLongPosition + order.price * order.volume) / (pos.frozenLongPosition + order.volume);
             pos.frozenLongPosition += order.volume;
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT) {
             auto& ass = account.mAsset[info.left];
             strncpy(ass.asset, info.left.c_str(), stra::ASSET_LEN);
             ass.frozenAmount += order.volume;
             pos.frozenShortPrice = (pos.frozenShortPrice * pos.frozenShortPosition + order.price * order.volume) / (pos.frozenShortPosition + order.volume);
             pos.frozenShortPosition += order.volume;
         }
-    } else if (order.instType == stra::SWAP || order.instType == stra::FUTURES || order.instType == stra::InstType_USDT_SWAP || order.instType == stra::InstType_BUSD_SWAP || order.instType == stra::InstType_USDT_FUTURES || order.instType == stra::InstType_C_SWAP || order.instType == stra::InstType_C_FUTURES) {
+    } else if (order.instType == USDT_SWAP || order.instType == USDT_FUTURES || order.instType == BUSD_SWAP || order.instType == C_SWAP || order.instType == C_FUTURES) {
         auto& ass = account.mAsset[info.margin];
         strncpy(ass.asset, info.margin.c_str(), stra::ASSET_LEN);
-        if (order.direction == stra::Direction_LONG) {
+        if (order.direction == DT_LONG) {
             if (info.calculateType == 0) {
                 ass.openMarginAmount += order.price * order.volume * info.multiple / account.openRealLeverage;
                 pos.frozenLongPrice = (pos.frozenLongPrice * pos.frozenLongPosition + order.price * order.volume) / (pos.frozenLongPosition + order.volume);
@@ -159,7 +160,7 @@ void PositionManager::OnInsertOrder(const stra::QuantOrder& order) {
                 } 
             }
             pos.frozenLongPosition += order.volume;
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT) {
             if (info.calculateType == 0) {
                 ass.openMarginAmount += order.price * order.volume * info.multiple / account.openRealLeverage;
                 pos.frozenShortPrice = (pos.frozenShortPrice * pos.frozenShortPosition + order.price * order.volume) / (pos.frozenShortPosition + order.volume);
@@ -186,8 +187,8 @@ void PositionManager::OnDeleteOrder(const stra::QuantOrder& order) {
     stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(instrumentKey);
     double leftVolume = order.volume - order.totalVolumeOnOrder;
     auto& pos = account.mPosition[instrumentKey];
-    if (order.instType == stra::SPOT || order.instType == stra::InstType_SPOT) {
-        if (order.direction == stra::Direction_LONG) {
+    if (order.instType == SPOT) {
+        if (order.direction == DT_LONG) {
             auto& ass = account.mAsset[info.right];
             ass.frozenAmount -= order.price * leftVolume;
             if (fabs(pos.frozenLongPosition - leftVolume) <= stra::MIN_FLOAT) {
@@ -197,7 +198,7 @@ void PositionManager::OnDeleteOrder(const stra::QuantOrder& order) {
                 pos.frozenLongPrice = (pos.frozenLongPrice * pos.frozenLongPosition - order.price * leftVolume) / (pos.frozenLongPosition - leftVolume);
                 pos.frozenLongPosition -= leftVolume;
             }
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT) {
             auto& ass = account.mAsset[info.left];
             ass.frozenAmount -= leftVolume;
 	    //LOG_INFO("OnDeleteOrder left:%s, totalAmount:%f frozenAmount: %f leftVolume: %f", info.left.c_str(), ass.totalAmount, ass.frozenAmount, leftVolume);
@@ -209,8 +210,8 @@ void PositionManager::OnDeleteOrder(const stra::QuantOrder& order) {
                 pos.frozenShortPosition -= leftVolume;
             }
         }
-    } else if (order.instType == stra::MARGIN) {
-        if (order.direction == stra::Direction_LONG) {
+    } else if (order.instType == MARGIN) {
+        if (order.direction == DT_LONG) {
             auto& ass = account.mAsset[info.right];
             ass.frozenAmount -= order.price * leftVolume;
             if (fabs(pos.frozenLongPosition - leftVolume) <= stra::MIN_FLOAT) {
@@ -220,7 +221,7 @@ void PositionManager::OnDeleteOrder(const stra::QuantOrder& order) {
                 pos.frozenLongPrice = (pos.frozenLongPrice * pos.frozenLongPosition - order.price * leftVolume) / (pos.frozenLongPosition - leftVolume);
                 pos.frozenLongPosition -= leftVolume; 
             }
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT) {
             auto& ass = account.mAsset[info.left];
             ass.frozenAmount -= leftVolume;
             if (fabs(pos.frozenShortPosition - leftVolume) <= stra::MIN_FLOAT) {
@@ -231,9 +232,9 @@ void PositionManager::OnDeleteOrder(const stra::QuantOrder& order) {
                 pos.frozenShortPosition -= leftVolume;
             }
         }
-    } else if (order.instType == stra::SWAP || order.instType == stra::FUTURES || order.instType == stra::InstType_USDT_SWAP || order.instType == stra::InstType_BUSD_SWAP || order.instType == stra::InstType_USDT_FUTURES || order.instType == stra::InstType_C_SWAP || order.instType == stra::InstType_C_FUTURES) {
+    } else if (order.instType == USDT_SWAP || order.instType == USDT_FUTURES || order.instType == BUSD_SWAP || order.instType == C_SWAP || order.instType == C_FUTURES) {
         auto& ass = account.mAsset[info.margin];
-        if (order.direction == stra::Direction_LONG) {
+        if (order.direction == DT_LONG) {
             if (info.calculateType == 0) {
                 ass.openMarginAmount -= order.price * leftVolume * info.multiple / account.openRealLeverage;
                 if (fabs(ass.openMarginAmount) <= stra::MIN_FLOAT) {
@@ -259,7 +260,7 @@ void PositionManager::OnDeleteOrder(const stra::QuantOrder& order) {
                     pos.frozenLongPosition -= leftVolume;
                 }
             }
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT) {
             if (info.calculateType == 0) {
                 ass.openMarginAmount -= order.price * leftVolume * info.multiple / account.openRealLeverage;
                 if (fabs(ass.openMarginAmount) <= stra::MIN_FLOAT) {
@@ -293,8 +294,8 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
     string instrumentKey = order.instrumentKey;
     stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(instrumentKey);
     auto& pos = account.mPosition[instrumentKey];
-    if (order.instType == stra::SPOT || order.instType == stra::InstType_SPOT) {
-        if (order.direction == stra::Direction_LONG) {
+    if (order.instType == SPOT) {
+        if (order.direction == DT_LONG) {
             string asset = order.tradeLongFee.asset;
             auto iter = account.mAsset.find(asset);
             if (iter != account.mAsset.end()) {
@@ -305,7 +306,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
 
             auto& leftAss = account.mAsset[info.left];
             leftAss.totalAmount += order.tradeVolume;
-	    //LOG_INFO("PositionManager OnOrder  leftAss:%s tradeVolume:%f", info.left.c_str(), order.tradeVolume);
+	        //LOG_INFO("PositionManager OnOrder  leftAss:%s tradeVolume:%f", info.left.c_str(), order.tradeVolume);
 
             auto& rightAss = account.mAsset[info.right];
             rightAss.totalAmount -= order.tradePrice * order.tradeVolume;
@@ -327,7 +328,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                 pos.frozenLongPrice = -1;
                 pos.frozenLongPosition = 0;
             }
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT) {
             string asset = order.tradeShortFee.asset;
             auto iter = account.mAsset.find(asset);
             if (iter != account.mAsset.end()) {
@@ -339,7 +340,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
             auto& leftAss = account.mAsset[info.left];
             leftAss.totalAmount -= order.tradeVolume;
             leftAss.frozenAmount -= order.tradeVolume;
-	    //LOG_INFO("PositionManager OnOrder  leftAss:%s totalAmount:%f frozenAmount:%f tradeVolume:%f", info.left.c_str(), leftAss.totalAmount, leftAss.frozenAmount, order.tradeVolume);
+	        //LOG_INFO("PositionManager OnOrder  leftAss:%s totalAmount:%f frozenAmount:%f tradeVolume:%f", info.left.c_str(), leftAss.totalAmount, leftAss.frozenAmount, order.tradeVolume);
 
             auto& rightAss = account.mAsset[info.right];
             rightAss.totalAmount += order.tradePrice * order.tradeVolume;
@@ -362,8 +363,8 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                 pos.frozenShortPosition = 0;
             }
         }
-    } else if (order.instType == stra::MARGIN) {
-        if (order.direction == stra::Direction_LONG) {
+    } else if (order.instType == MARGIN) {
+        if (order.direction == DT_LONG) {
             string asset = order.tradeLongFee.asset;
             auto iter = account.mAsset.find(asset);
             if (iter != account.mAsset.end()) {
@@ -425,7 +426,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                 pos.frozenLongPrice = -1;
                 pos.frozenLongPosition = 0;
             }
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT) {
             string asset = order.tradeShortFee.asset;
             auto iter = account.mAsset.find(asset);
             if (iter != account.mAsset.end()) {
@@ -487,8 +488,8 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                 pos.frozenShortPosition = 0;
             }
         }
-    } else if (order.instType == stra::SWAP || order.instType == stra::FUTURES || order.instType == stra::InstType_USDT_SWAP || order.instType == stra::InstType_BUSD_SWAP || order.instType == stra::InstType_USDT_FUTURES || order.instType == stra::InstType_C_SWAP || order.instType == stra::InstType_C_FUTURES) {
-        if (order.direction == stra::Direction_LONG) {
+    } else if (order.instType == USDT_SWAP || order.instType == USDT_FUTURES || order.instType == BUSD_SWAP || order.instType == C_SWAP || order.instType == C_FUTURES) {
+        if (order.direction == DT_LONG) {
             string asset = order.tradeLongFee.asset;
             auto iter = account.mAsset.find(asset);
             if (iter != account.mAsset.end()) {
@@ -520,7 +521,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                     pos.longAvgPrice = (pos.longAvgPrice * pos.longPosition + order.tradePrice * openVolume) / (pos.longPosition + openVolume);
                     pos.longPosition += openVolume;
                 } else if (info.calculateType == 1) {
-		    //LOG_INFO("AvgPrice pos.longAvgPrice:%f pos.longPosition:%f order.tradePrice:%f openVolume:%f", pos.longAvgPrice, pos.longPosition, order.tradePrice, openVolume);
+		            //LOG_INFO("AvgPrice pos.longAvgPrice:%f pos.longPosition:%f order.tradePrice:%f openVolume:%f", pos.longAvgPrice, pos.longPosition, order.tradePrice, openVolume);
                     pos.longAvgPrice = 1 / ((1 / pos.longAvgPrice * pos.longPosition + 1 / order.tradePrice * openVolume) / (pos.longPosition + openVolume));
                     pos.longPosition += openVolume;
                 }
@@ -547,7 +548,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                 }
                 ass.openMarginAmount -= order.tradeVolume * info.multiple / order.price / account.openRealLeverage;
             }
-        } else if (order.direction == stra::Direction_SHORT) {
+        } else if (order.direction == DT_SHORT {
             string asset = order.tradeShortFee.asset;
             auto iter = account.mAsset.find(asset);
             if (iter != account.mAsset.end()) {
@@ -580,7 +581,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                     pos.shortAvgPrice = (pos.shortAvgPrice * pos.shortPosition + order.tradePrice * openVolume) / (pos.shortPosition + openVolume);
                     pos.shortPosition += openVolume;
                 } else if (info.calculateType == 1) {
-		    //LOG_INFO("AvgPrice pos.shortAvgPrice:%f pos.shortPosition:%f order.tradePrice:%f openVolume:%f", pos.shortAvgPrice, pos.shortPosition, order.tradePrice, openVolume);
+		        //LOG_INFO("AvgPrice pos.shortAvgPrice:%f pos.shortPosition:%f order.tradePrice:%f openVolume:%f", pos.shortAvgPrice, pos.shortPosition, order.tradePrice, openVolume);
                     pos.shortAvgPrice = 1 / ((1 / pos.shortAvgPrice * pos.shortPosition + 1 / order.tradePrice * openVolume) / (pos.shortPosition + openVolume));
                     pos.shortPosition += openVolume;
                 }
@@ -612,9 +613,9 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
 }
 
 void PositionManager::UpdateAccountOnMarketDepth(const stra::QuantMarketDepth& depth) {
-    if (depth.instType == stra::FUTURES || depth.instType == stra::SWAP || depth.instType == stra::InstType_USDT_SWAP || depth.instType == stra::InstType_BUSD_SWAP || depth.instType == stra::InstType_USDT_FUTURES || depth.instType == stra::InstType_C_SWAP || depth.instType == stra::InstType_C_FUTURES) {
+    if (depth.instType == USDT_SWAP || depth.instType == USDT_FUTURES || depth.instType == BUSD_SWAP || depth.instType == C_SWAP || depth.instType == C_FUTURES) {
         double lastPrice = (depth.vAskPrice[0] + depth.vBidPrice[0]) / 2;
-        string instrumentKey = stra::ExchangeTypeEnum2Str[depth.exchangeType] + "." + stra::InstTypeEnum2Str[depth.instType] + "." + depth.instrument;
+        string instrumentKey = ExchangeTypeEnum2StrMap[depth.exchangeType] + "." + InstTypeEnum2StrMap[depth.instType] + "." + depth.instrument;
         stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(instrumentKey);
         string affectAsset = info.margin;
         auto& ass = account.mAsset[affectAsset];
@@ -661,16 +662,13 @@ void PositionManager::CalcualteFloatPnl() {
         vector<string> v;
         splitString(instrumentKey, v, ".");
         auto& pos = it->second;
-        stra::InstType instType = stra::InstTypeStr2Enum[v[1]];
+        InstType instType = InstTypeStr2EnumMap[v[1]];
 
-        stra::QuantMarketDepth depth = DataManager::Instance().GetLastDepth(instrumentKey);
-        double lastPrice = 0;
-        if (depth.vAskPrice.size() > 0 && depth.vBidPrice.size() > 0) {
-            lastPrice = (depth.vAskPrice[0] + depth.vBidPrice[0]) / 2;
-        }
-
+        const Bbo& bbo = SpreadManager::Instance().GetBbo(instrumentKey);
+        double lastPrice = (bbo.askPrice + bbo.bidPrice) / 2;
+        
         if (lastPrice > 0) {
-            if (instType == stra::SWAP || instType == stra::FUTURES || instType == stra::InstType_USDT_SWAP || instType == stra::InstType_BUSD_SWAP || instType == stra::InstType_USDT_FUTURES || instType == stra::InstType_C_SWAP || instType == stra::InstType_C_FUTURES) {
+            if (instType == USDT_SWAP || instType == USDT_FUTURES || instType == BUSD_SWAP || instType == C_SWAP || instType == C_FUTURES) {
                 if (pos.longPosition > stra::MIN_FLOAT) {
                     if (info.calculateType == 0) {
                         double floatAmount = (lastPrice - pos.longAvgPrice) * pos.longPosition * info.multiple;
@@ -721,7 +719,8 @@ void PositionManager::CalcualtePnl(string activeInstrumentKey) { // profit = tot
 	}
 	 else {
             // string instrumentKey = "BINANCE.SPOT." + string(it->second.asset) + "-" + string(baseAsset);
-            double price = DataManager::Instance().GetMidPrice(activeInstrumentKey);
+            const Bbo& bbo = SpreadManager::Instance().GetBbo(activeInstrumentKey)
+            double price = (bbo.askPrice + bbo.bidPrice) / 2;
             stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(activeInstrumentKey);
             if (strcmp(ass.c_str(), info.instLeft.c_str()) == 0) {
                 totalPnl += assetPnl * price;

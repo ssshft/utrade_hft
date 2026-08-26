@@ -42,7 +42,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
     }
     
     double lockedSpread = GetLockedSpread();
-    const stra::QuantSpread& spread = SpreadManager::Instance().GetLastSpread(pairInstrumentKey);
+    dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
     double tempSpread = 0.0;
     double tempVolume = 0.0;
     double startSpread = 0.0;
@@ -131,15 +131,15 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
 
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 targetVolume = min(expectActiveVolume - targetActiveVolume, ttTargetVolume);
-                activeTargetPrice = spread.activeBidPrice1;
-                passiveTargetPrice = spread.passiveAskPrice1;
+                activeTargetPrice = pdata->activeBidPrice[0];
+                passiveTargetPrice = pdata->passiveAskPrice[0];
                 acOrderType = activeOrderType;
                 paOrderType = passiveOrderType; 
             } else if (tradingTypeOrder == stra::MAKER_TAKER) {
                 targetVolume = min(expectActiveVolume - targetActiveVolume, mtTargetVolume);
-                activeTargetPrice = spread.activeAskPrice1;
-                passiveTargetPrice = spread.passiveAskPrice1;
-                acOrderType = stra::OrderType_POST_ONLY;
+                activeTargetPrice = pdata->activeAskPrice[0];
+                passiveTargetPrice = pdata->passiveAskPrice[0];
+                acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
                 LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
@@ -158,15 +158,15 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
 
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 targetVolume = min(fabs(targetActiveVolume - expectActiveVolume), ttTargetVolume);
-                activeTargetPrice = spread.activeAskPrice1;
-                passiveTargetPrice = spread.passiveBidPrice1;
+                activeTargetPrice = pdata->activeAskPrice[0];
+                passiveTargetPrice = pdata->passiveBidPrice[0];
                 acOrderType = activeOrderType;
                 paOrderType = passiveOrderType; 
             } else if (tradingTypeOrder == stra::MAKER_TAKER) {
                 targetVolume = min(fabs(targetActiveVolume - expectActiveVolume), mtTargetVolume);
-                activeTargetPrice = spread.activeBidPrice1;
-                passiveTargetPrice = spread.passiveBidPrice1;
-                acOrderType = stra::OrderType_POST_ONLY;
+                activeTargetPrice = pdata->activeBidPrice[0];
+                passiveTargetPrice = pdata->passiveBidPrice[0];
+                acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
                 LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
@@ -184,7 +184,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
 
     if (activeTrade == 1) {
         if (activeInfo.calculateType == 0) {
-            double midPrice = (spread.activeBidPrice1 + spread.activeAskPrice1) / 2;
+            double midPrice = (pdata->activeBidPrice[0] + pdata->activeAskPrice[0]) / 2;
             if (midPrice > 0 && activeInfo.multiple > 0) {
                 double volume = minOrderAmount / midPrice / activeInfo.multiple;
                 if (fabs(targetActiveVolume) > stra::MIN_FLOAT) {
@@ -203,7 +203,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
     }
     else if (activeTrade == 0) {
         if (passiveInfo.calculateType == 0) {
-            double midPrice = (spread.passiveBidPrice1 + spread.passiveAskPrice1) / 2;
+            double midPrice = (pdata->passiveBidPrice[0] + pdata->passiveAskPrice[0]) / 2;
             if (midPrice > 0 && passiveInfo.multiple > 0) {
                 double volume = minOrderAmount / midPrice / passiveInfo.multiple;
                 if (fabs(targetActiveVolume) > stra::MIN_FLOAT) {
@@ -227,14 +227,14 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
         return pairOrder;
     }
     
-    pairOrder.activeBidPrice1 = spread.activeBidPrice1;
-    pairOrder.activeBidVolume1 = spread.activeBidVolume1;
-    pairOrder.activeAskPrice1 = spread.activeAskPrice1;
-    pairOrder.activeAskVolume1 = spread.activeAskVolume1;
-    pairOrder.passiveBidPrice1 = spread.passiveBidPrice1;
-    pairOrder.passiveBidVolume1 = spread.passiveBidVolume1;
-    pairOrder.passiveAskPrice1 = spread.passiveAskPrice1;
-    pairOrder.passiveAskVolume1 = spread.passiveAskVolume1;
+    pairOrder.activeBidPrice1 = pdata->activeBidPrice[0];
+    pairOrder.activeBidVolume1 = pdata->activeBidVolume[0];
+    pairOrder.activeAskPrice1 = pdata->activeAskPrice[0];
+    pairOrder.activeAskVolume1 = pdata->activeAskVolume[0];
+    pairOrder.passiveBidPrice1 = pdata->passiveBidPrice[0];
+    pairOrder.passiveBidVolume1 = pdata->passiveBidVolume[0];
+    pairOrder.passiveAskPrice1 = pdata->passiveAskPrice[0];
+    pairOrder.passiveAskVolume1 = pdata->passiveAskVolume[0];
 
     pairOrder.pairId = pairOrderId;
     strncpy(pairOrder.baseAsset, baseAsset, stra::ASSET_LEN);
@@ -243,7 +243,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
     pairOrder.activeDirection = activeDirection;
     pairOrder.activeOrderType = acOrderType;
     // pairOrder.activePriceType = activePriceType;
-    if (pairOrder.activeOrderType == stra::OrderType_POST_ONLY){
+    if (pairOrder.activeOrderType == OT_POST_ONLY){
         pairOrder.activePricePct = activePriceMakerPct;
     } else{
         pairOrder.activePricePct = activePriceTakerPct;
@@ -256,7 +256,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
     pairOrder.passiveDirection = passiveDirection;
     pairOrder.passiveOrderType = paOrderType;
     // pairOrder.passivePriceType = passivePriceType;
-    if (pairOrder.passiveOrderType == stra::OrderType_POST_ONLY){
+    if (pairOrder.passiveOrderType == OT_POST_ONLY){
         pairOrder.passivePricePct = passivePriceMakerPct;
     } else{
         pairOrder.passivePricePct = passivePriceTakerPct;
@@ -550,8 +550,8 @@ void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime)
         pairOrder.status = 1;
         pairOrder.updateTime = eventTime;
         string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
-        const stra::QuantSpread& quantSpread = SpreadManager::Instance().GetLastSpread(pairInstrumentKey);
-        WritePairOrder(pairOrder, quantSpread);
+        dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
+        WritePairOrder(pairOrder, pdata);
 
         if (pairOrder.rebalanceFlag && pairOrder.passiveTotalVolumeOnOrder > 0) { // 可以去掉
             // 被动腿有成交且pairOrder完结,更改rebalance状态

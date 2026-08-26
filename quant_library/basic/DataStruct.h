@@ -87,153 +87,6 @@ namespace stra {
         {"CommandType_MAX", CommandType_MAX}
     };
 
-    enum ExchangeType {
-        ET_MIN = 0,
-        ET_OKX,
-        ET_BINANCE,
-        ET_FTX,
-        ET_XT,
-        ET_BYBIT,
-        ET_COINBASE,
-        ET_HUOBI,
-        ET_GATEIO,
-        ET_ZB,
-        ET_MEXC,
-        ET_DERIBIT,
-        ET_KUCOIN,
-        ET_BITGET,
-        ET_MAX
-    };
-
-    static unordered_map<ExchangeType, string> ExchangeTypeEnum2Str {
-	    {ET_MIN, "MIN"},
-	    {ET_OKX, "OKX"},
-	    {ET_BINANCE, "BINANCE"},
-	    {ET_FTX, "FTX"},
-	    {ET_XT, "XT"},
-	    {ET_BYBIT, "BYBIT"},
-        {ET_COINBASE, "COINBASE"},
-        {ET_HUOBI, "HUOBI"},
-        {ET_GATEIO, "GATEIO"},
-        {ET_ZB, "ZB"},
-        {ET_MEXC, "MEXC"},
-        {ET_DERIBIT, "DERIBIT"},
-        {ET_KUCOIN, "KUCOIN"},
-        {ET_BITGET, "BITGET"},
-	    {ET_MAX, "MAX"}
-    };
-
-    static unordered_map<string, ExchangeType> ExchangeTypeStr2Enum {
-	    {"MIN", ET_MIN},
-	    {"OKX", ET_OKX},
-	    {"BINANCE", ET_BINANCE},
-	    {"FTX", ET_FTX},
-	    {"XT", ET_XT},
-	    {"BYBIT", ET_BYBIT},
-        {"COINBASE", ET_COINBASE},
-        {"HUOBI", ET_HUOBI},
-        {"GATEIO", ET_GATEIO},
-        {"ZB", ET_ZB},
-        {"MEXC", ET_MEXC},
-        {"DERIBIT", ET_DERIBIT},
-        {"KUCOIN", ET_KUCOIN},
-        {"BITGET", ET_BITGET},
-	    {"MAX", ET_MAX}
-    };
-
-    enum InstType {
-        InstType_MIN = 0,
-        SPOT,                  //BTC-USDT
-        MARGIN,
-        SWAP,                  //永续
-        FUTURES,               //coin delivery contract BTC-USDT-211231
-        OPTION,
-        InstType_SPOT,         //现货
-        InstType_MARGIN,       //杠杆
-        InstType_USDT_SWAP,    //usdt本位永续
-        InstType_BTC_SWAP,     //btc本位永续
-        InstType_BUSD_SWAP,    //busd本位永续
-        InstType_C_SWAP,       //币本位永续
-        InstType_USDT_FUTURES, //u本位交割
-        InstType_BTC_FUTURES,  //btc本位交割
-        InstType_C_FUTURES,    //币本位交割
-        InstType_OPTION,
-        InstType_MAX
-    };
-
-    static unordered_map<InstType, string> InstTypeEnum2Str {
-        {SPOT, "SPOT"},
-        {MARGIN, "MARGIN"},
-        {SWAP, "SWAP"},
-        {FUTURES, "FUTURES"},
-        {OPTION, "OPTION"},
-        {InstType_SPOT, "InstType_SPOT"},
-        {InstType_MARGIN, "InstType_MARGIN"},
-        {InstType_USDT_SWAP, "InstType_USDT_SWAP"},
-        {InstType_BTC_SWAP, "InstType_BTC_SWAP"},
-        {InstType_BUSD_SWAP, "InstType_BUSD_SWAP"},
-        {InstType_C_SWAP, "InstType_C_SWAP"},
-        {InstType_USDT_FUTURES, "InstType_USDT_FUTURES"},
-        {InstType_BTC_FUTURES, "InstType_BTC_FUTURES"},
-        {InstType_C_FUTURES, "InstType_C_FUTURES"},
-        {InstType_OPTION, "InstType_OPTION"}
-    };
-
-    static unordered_map<string, InstType> InstTypeStr2Enum {
-        {"SPOT", SPOT},
-        {"MARGIN", MARGIN},
-        {"SWAP", SWAP},
-        {"FUTURES", FUTURES},
-        {"OPTION", OPTION},
-        {"InstType_SPOT", InstType_SPOT},
-        {"InstType_MARGIN", InstType_MARGIN},
-        {"InstType_USDT_SWAP", InstType_USDT_SWAP},
-        {"InstType_BTC_SWAP", InstType_BTC_SWAP},
-        {"InstType_BUSD_SWAP", InstType_BUSD_SWAP},
-        {"InstType_C_SWAP", InstType_C_SWAP},
-        {"InstType_USDT_FUTURES", InstType_USDT_FUTURES},
-        {"InstType_BTC_FUTURES", InstType_BTC_FUTURES},
-        {"InstType_C_FUTURES", InstType_C_FUTURES},
-        {"InstType_OPTION", InstType_OPTION}
-    };
-
-    enum MarketType{
-        MarketType_MIN = 0,
-        TRADES,
-        FUNDING_RATE,
-        DEPTH1,
-        DEPTH5,
-        DEPTH10,
-        DEPTH20,
-        KLINE_1m,
-        MBPType,
-        REQ_MBPType,
-        MarketType_MAX
-    };
-
-    static unordered_map<MarketType, string> MarketTypeEnum2Str {
-        { TRADES,"TRADES"},
-        { FUNDING_RATE,"FUNDING_RATE"},
-        { DEPTH1,"DEPTH1"},
-        { DEPTH5,"DEPTH5"},
-        { DEPTH10,"DEPTH10"},
-        { DEPTH20,"DEPTH20"},
-        { KLINE_1m,"KLINE_1m"},
-        { MBPType,"MBP"},
-        { REQ_MBPType,"MBP"}
-    };
-
-    static unordered_map<string, MarketType> MarketTypeStr2Enum {
-        { "TRADES", TRADES},
-        { "FUNDING_RATE", FUNDING_RATE},
-        { "DEPTH1", DEPTH1},
-        { "DEPTH5", DEPTH5},
-        { "DEPTH10", DEPTH10},
-        { "DEPTH20", DEPTH20},
-        { "KLINE_1m", KLINE_1m},
-        { "MBP", MBPType}
-    };
-
     enum PriceType {
         PriceType_MIN = 0,
         PriceType_LIMIT,
@@ -304,39 +157,6 @@ namespace stra {
         {"CheckType_LT_VOLUME", CheckType_LT_VOLUME},
         {"CheckType_LT_AMOUNT", CheckType_LT_AMOUNT},
         {"CheckType_MAX", CheckType_MAX}
-    };
-
-    enum OrderType {
-        OrderType_MIN = 0,
-        OrderType_LIMIT,
-        OrderType_MARKET,
-        OrderType_POST_ONLY,
-        OrderType_FOK,
-        OrderType_IOC,
-        OrderType_UNKNOWN,
-        OrderType_MAX
-    };
-
-    static unordered_map<OrderType, string> OrderTypeEnum2Str {
-        {OrderType_MIN, "OrderType_MIN"},
-        {OrderType_LIMIT, "OrderType_LIMIT"},
-        {OrderType_MARKET, "OrderType_MARKET"},
-        {OrderType_POST_ONLY, "OrderType_POST_ONLY"},
-        {OrderType_FOK, "OrderType_FOK"},
-        {OrderType_IOC, "OrderType_IOC"},
-        {OrderType_UNKNOWN, "OrderType_UNKNOWN"},
-        {OrderType_MAX, "OrderType_MAX"}
-    };
-
-    static unordered_map<string, OrderType> OrderTypeStr2Enum {
-        {"OrderType_MIN", OrderType_MIN},
-        {"OrderType_LIMIT", OrderType_LIMIT},
-        {"OrderType_MARKET", OrderType_MARKET},
-        {"OrderType_POST_ONLY", OrderType_POST_ONLY},
-        {"OrderType_FOK", OrderType_FOK},
-        {"OrderType_IOC", OrderType_IOC},
-        {"OrderType_UNKNOWN", OrderType_UNKNOWN},
-        {"OrderType_MAX", OrderType_MAX}
     };
 
     enum OrderEffectMethod {
@@ -459,61 +279,6 @@ namespace stra {
         {"AccountMarginType_MAX", AccountMarginType_MAX}
     };
 
-    enum OrderStatus {
-        OrderStatus_MIN = 0,
-        OrderStatus_PENDING_NEW,  //策略刚提交新订单
-        OrderStatus_REST_NEW,     // 提交
-        OrderStatus_NEW,          // 提交
-        OrderStatus_PARTFILLED,   //部分成交
-        OrderStatus_FILLED,       //完全成交
-        OrderStatus_REJECTED,     //被拒单
-        OrderStatus_CANCELLING,   //策略刚提交取消订单
-        OrderStatus_CANCELED,     //取消
-        OrderStatus_UNKNOWN,      //状态未知,503
-        OrderStatus_FAILED,       //撤单失败
-        OrderStatus_PEND_NEW,
-        OrderStatus_CANCEL,
-        OrderStatus_ERRORCANCELLING,
-        OrderStatus_ERRORCANCELED,
-        OrderStatus_MAX
-    };
-
-    static unordered_map<OrderStatus, string> OrderStatusEnum2Str {
-        {OrderStatus_MIN, "OrderStatus_MIN"},
-        {OrderStatus_PENDING_NEW, "OrderStatus_PENDING_NEW"},
-        {OrderStatus_REST_NEW, "OrderStatus_REST_NEW"},
-        {OrderStatus_NEW, "OrderStatus_NEW"},
-        {OrderStatus_PARTFILLED, "OrderStatus_PARTFILLED"},
-        {OrderStatus_FILLED, "OrderStatus_FILLED"},
-        {OrderStatus_REJECTED, "OrderStatus_REJECTED"},
-        {OrderStatus_CANCELLING, "OrderStatus_CANCELLING"},
-        {OrderStatus_CANCELED, "OrderStatus_CANCELED"},
-        {OrderStatus_UNKNOWN, "OrderStatus_UNKNOWN"},
-        {OrderStatus_FAILED, "OrderStatus_FAILED"},
-        {OrderStatus_PEND_NEW, "OrderStatus_PEND_NEW"},
-        {OrderStatus_CANCEL, "OrderStatus_CANCEL"},
-        {OrderStatus_ERRORCANCELLING, "OrderStatus_ERRORCANCELLING"},
-        {OrderStatus_MAX, "OrderStatus_MAX"}
-    };
-
-    static unordered_map<string, OrderStatus> OrderStatusStr2Enum {
-        {"OrderStatus_MIN", OrderStatus_MIN},
-        {"OrderStatus_PENDING_NEW", OrderStatus_PENDING_NEW},
-        {"OrderStatus_REST_NEW", OrderStatus_REST_NEW},
-        {"OrderStatus_NEW", OrderStatus_NEW},
-        {"OrderStatus_PARTFILLED", OrderStatus_PARTFILLED},
-        {"OrderStatus_FILLED", OrderStatus_FILLED},
-        {"OrderStatus_REJECTED", OrderStatus_REJECTED},
-        {"OrderStatus_CANCELLING", OrderStatus_CANCELLING},
-        {"OrderStatus_CANCELED", OrderStatus_CANCELED},
-        {"OrderStatus_UNKNOWN", OrderStatus_UNKNOWN},
-        {"OrderStatus_FAILED", OrderStatus_FAILED},
-        {"OrderStatus_PEND_NEW", OrderStatus_PEND_NEW},
-        {"OrderStatus_CANCEL", OrderStatus_CANCEL},
-        {"OrderStatus_ERRORCANCELED", OrderStatus_ERRORCANCELED},
-        {"OrderStatus_MAX", OrderStatus_MAX}
-    };
-
     enum LendingType {
         LendingType_MIN = 0,
         LendingType_BORROW,
@@ -581,27 +346,6 @@ namespace stra {
         {"PosDirection_CLOSE", PosDirection_CLOSE},
         {"PosDirection_NET", PosDirection_NET},
         {"PosDirection_MAX", PosDirection_MAX}
-    };
-
-    enum Direction{
-        Direction_MIN = 0,
-        Direction_LONG,
-        Direction_SHORT,
-        Direction_MAX
-    };
-
-    static unordered_map<Direction, string> DirectionEnum2Str {
-        {Direction_MIN, "Direction_MIN"},
-        {Direction_LONG, "Direction_LONG"},
-        {Direction_SHORT, "Direction_SHORT"},
-        {Direction_MAX, "Direction_MAX"}
-    };
-
-    static unordered_map<string, Direction> DirectionStr2Enum {
-        {"Direction_MIN", Direction_MIN},
-        {"Direction_LONG", Direction_LONG},
-        {"Direction_SHORT", Direction_SHORT},
-        {"Direction_MAX", Direction_MAX}
     };
 
     enum AlgoType {
@@ -751,36 +495,6 @@ namespace stra {
         {"CLOSE_SHORT", CLOSE_SHORT},
         {"CLOSE_LONG", CLOSE_LONG},
         {"TradingType_MAX", TradingType_MAX}
-    };
-
-    enum ApiSource {
-        ApiSource_MIN = 0,
-        ApiSource_ADD_NEW_ORDER,
-        ApiSource_CANCEL_ORDER,
-        ApiSource_QUERY_ORDER,
-        ApiSource_REST,
-        ApiSource_WEBSOCKET,
-        ApiSource_MAX
-    };
-
-    static unordered_map<ApiSource, string> ApiSourceEnum2Str {
-        {ApiSource_MIN, "ApiSource_MIN"},
-        {ApiSource_ADD_NEW_ORDER, "ApiSource_ADD_NEW_ORDER"},
-        {ApiSource_CANCEL_ORDER, "ApiSource_CANCEL_ORDER"},
-        {ApiSource_QUERY_ORDER, "ApiSource_QUERY_ORDER"},
-        {ApiSource_REST, "ApiSource_REST"},
-        {ApiSource_WEBSOCKET, "ApiSource_WEBSOCKET"},
-        {ApiSource_MAX, "ApiSource_MAX"}
-    };
-
-    static unordered_map<string, ApiSource> ApiSourceStr2Enum {
-        {"ApiSource_MIN", ApiSource_MIN},
-        {"ApiSource_ADD_NEW_ORDER", ApiSource_ADD_NEW_ORDER},
-        {"ApiSource_CANCEL_ORDER", ApiSource_CANCEL_ORDER},
-        {"ApiSource_QUERY_ORDER", ApiSource_QUERY_ORDER},
-        {"ApiSource_REST", ApiSource_REST},
-        {"ApiSource_WEBSOCKET", ApiSource_WEBSOCKET},
-        {"ApiSource_MAX", ApiSource_MAX}
     };
 
     struct TimeStatusDetail {
@@ -1525,7 +1239,7 @@ namespace stra {
             // 报单状态更新
             // 状态转换需要过滤
             if (tdOrder.errorId == OrderNotFoundError && strlen(exchangeOrderId) <= 0) {
-                orderStatus = stra::OrderStatus_REJECTED;
+                orderStatus = OS_REJECTED;
                 char msg[stra::MSG_LEN];
                 sprintf(msg, "strategyName:%s algoPairId:%ld strategyOrderId:%ld", strategyName, algoPairId, strategyOrderId);
                 rLarkMsg.Push(string(msg));
@@ -2286,8 +2000,8 @@ struct AccountInfo {
 	string accountName;
 	int accountId;
     stra::AccountType accountType;
-	stra::ExchangeType exchangeType;
-	vector<stra::InstType> vInstType;
+	ExchangeType exchangeType;
+	vector<InstType> vInstType;
 	string strategyId;
 	double openRealLeverage;
 	double maxRealLeverage;

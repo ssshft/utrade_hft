@@ -169,14 +169,14 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t
         double activeVolume = pairOrder.activeTotalVolumeOnOrder;
         double activeAmount = 0.0;
         double passivePrice = 0.0;
-        if (pairOrder.activeDirection == stra::Direction_LONG) {
-            if (pairOrder.activeOrderType == stra::OrderType_POST_ONLY) {
+        if (pairOrder.activeDirection == DT_LONG) {
+            if (pairOrder.activeOrderType == OT_POST_ONLY) {
                 activePrice = pairOrder.activeTotalPriceOnOrder * (1 + activeMakerFeeRate);
             } else {
                 activePrice = pairOrder.activeTotalPriceOnOrder * (1 + activeTakerFeeRate);
             }
         } else {
-            if (pairOrder.activeOrderType == stra::OrderType_POST_ONLY) {
+            if (pairOrder.activeOrderType == OT_POST_ONLY) {
                 activePrice = pairOrder.activeTotalPriceOnOrder * (1 - activeMakerFeeRate);
             } else {
                 activePrice = pairOrder.activeTotalPriceOnOrder * (1 - activeTakerFeeRate);
@@ -186,28 +186,28 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t
         activeAmount = GetAmountByVolumePrice(pairOrder.activeInfo, pairOrder.baseAsset, pairOrder.activeTotalVolumeOnOrder, pairOrder.activeTotalPriceOnOrder);
         double passiveVolume = GetVolumeByAmountPrice(pairOrder.passiveInfo, pairOrder.baseAsset, activeAmount, pairOrder.passiveTotalPriceOnOrder);
         if (pairOrder.passiveTotalPriceOnOrder <= stra::MIN_FLOAT) {
-            if (pairOrder.passiveDirection == stra::Direction_LONG) {
-                if (pairOrder.passiveOrderType == stra::OrderType_POST_ONLY) {
+            if (pairOrder.passiveDirection == DT_LONG) {
+                if (pairOrder.passiveOrderType == OT_POST_ONLY) {
                     passivePrice = pairOrder.passiveTargetPrice * (1 + passiveMakerSlippage) * (1 + passiveMakerFeeRate);
                 } else {
                     passivePrice = pairOrder.passiveTargetPrice * (1 + passiveTakerSlippage) * (1 + passiveTakerFeeRate);
                 }
             } else {
-                if (pairOrder.passiveOrderType == stra::OrderType_POST_ONLY) {
+                if (pairOrder.passiveOrderType == OT_POST_ONLY) {
                     passivePrice = pairOrder.passiveTargetPrice * (1 - passiveMakerSlippage) * (1 - passiveMakerFeeRate);
                 } else {
                     passivePrice = pairOrder.passiveTargetPrice * (1 + passiveTakerSlippage) * (1 - passiveTakerFeeRate);
                 }
             }
         } else {
-            if (pairOrder.passiveDirection == stra::Direction_LONG) {
-                if (pairOrder.passiveOrderType == stra::OrderType_POST_ONLY) {
+            if (pairOrder.passiveDirection == DT_LONG) {
+                if (pairOrder.passiveOrderType == OT_POST_ONLY) {
                     passivePrice = pairOrder.passiveTotalPriceOnOrder * (1 + passiveMakerFeeRate);
                 } else {
                     passivePrice = pairOrder.passiveTotalPriceOnOrder * (1 + passiveTakerFeeRate);
                 }
             } else {
-                if (pairOrder.passiveOrderType == stra::OrderType_POST_ONLY) {
+                if (pairOrder.passiveOrderType == OT_POST_ONLY) {
                     passivePrice = pairOrder.passiveTotalPriceOnOrder * (1 - passiveMakerFeeRate);
                 } else {
                     passivePrice = pairOrder.passiveTotalPriceOnOrder * (1 - passiveTakerFeeRate);
@@ -221,7 +221,7 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t
         double totalActiveAmount = GetAmountByVolumePrice(pairOrder.activeInfo, pairOrder.baseAsset, pairTotalVolume, totalActivePrice);
         double totalPassiveVolume = fabs(GetVolumeByAmountPrice(pairOrder.passiveInfo, pairOrder.baseAsset, totalActiveAmount, totalPassivePrice)); 
         if (totalActiveVolume > stra::MIN_FLOAT) {
-            if (pairOrder.activeDirection == stra::Direction_LONG) {
+            if (pairOrder.activeDirection == DT_LONG) {
                 pairTotalVolume += activeVolume;
                 if (activeInfo.calculateType == 0) {
                     pairActiveTotalPrice = (totalActivePrice * totalActiveVolume + activePrice * activeVolume) / (totalActiveVolume + activeVolume);
@@ -234,7 +234,7 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t
                 } else if (passiveInfo.calculateType == 1) {
                     pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume + 1 / passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume));
                 }
-            } else if (pairOrder.activeDirection == stra::Direction_SHORT) {
+            } else if (pairOrder.activeDirection == DT_SHORT) {
                 pairTotalVolume -= activeVolume;
                 if (pairTotalVolume <= stra::MIN_FLOAT) {
                     pairActiveTotalPrice = activePrice;
@@ -242,7 +242,7 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t
                 }
             }
         } else if (totalActiveVolume < -stra::MIN_FLOAT) {
-            if (pairOrder.activeDirection == stra::Direction_SHORT) {
+            if (pairOrder.activeDirection == DT_SHORT) {
                 pairTotalVolume -= activeVolume;
                 if (activeInfo.calculateType == 0) {
                     pairActiveTotalPrice = (totalActivePrice * totalActiveVolume - activePrice * activeVolume) / (totalActiveVolume - activeVolume);
@@ -255,7 +255,7 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t
                 } else if (passiveInfo.calculateType == 1) {
                     pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume + 1 / passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume));
                 }
-            } else if (pairOrder.activeDirection == stra::Direction_LONG) {
+            } else if (pairOrder.activeDirection == DT_LONG) {
                 pairTotalVolume += activeVolume;
                 if (pairTotalVolume > stra::MIN_FLOAT) {
                     pairActiveTotalPrice = activePrice;
@@ -263,14 +263,14 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t
                 }
             }
         } else {
-            if (pairOrder.activeDirection == stra::Direction_LONG) {
+            if (pairOrder.activeDirection == DT_LONG) {
                 pairTotalVolume = activeVolume;
                 pairActiveTotalPrice = activePrice;
                 pairPassiveTotalPrice = passivePrice;
                 pairOrder.pairTotalVolume = activeVolume;
                 pairOrder.pairActiveTotalPrice = activePrice;
                 pairOrder.pairPassiveTotalPrice = passivePrice;
-            } else if (pairOrder.activeDirection == stra::Direction_SHORT) {
+            } else if (pairOrder.activeDirection == DT_SHORT) {
                 pairTotalVolume = -activeVolume;
                 pairActiveTotalPrice = activePrice;
                 pairPassiveTotalPrice = passivePrice;
@@ -341,22 +341,22 @@ double BaseAlgoOrder::GetActiveVolumeByPassiveVolume(double volume, double price
     return activeVolume;
 }
 
-void BaseAlgoOrder::CancelOrderOnSpread(const stra::QuantSpread& spread, int64_t eventTime) {
-    if (algoOrderStatus == stra::OrderStatus_CANCELLING) {
+void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t eventTime) {
+    if (algoOrderStatus == OS_CANCELLING) {
         auto& allOrders = orderMgr.GetAllOrders();
         for (auto it = allOrders.begin(); it != allOrders.end(); ++it) {
             //bool pass = LimitManager::Instance().PassLimit(it->second.strategyAccountId);
-	    bool pass = LimitManager::Instance().PassCancelLimit(it->second.strategyAccountId);
+	        bool pass = LimitManager::Instance().PassCancelLimit(it->second.strategyAccountId);
             if (!pass) {
                 continue;
             }
 
-            if (it->second.isActiveOrder && (it->second.orderStatus == stra::OrderStatus_NEW || it->second.orderStatus == stra::OrderStatus_PARTFILLED || it->second.orderStatus == stra::OrderStatus_FAILED)) {
+            if (it->second.isActiveOrder && (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED)) {
                 if (eventTime - it->second.updateTime > 1000 * 10) {
                     bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                     if (cancel_flag) {
                         orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-			WriteQuantOrder(it->second, spread);
+			            WriteQuantOrder(it->second, pdata);
                         // 撤单成功报出去才能更新！！
                     }
                 }
@@ -365,10 +365,10 @@ void BaseAlgoOrder::CancelOrderOnSpread(const stra::QuantSpread& spread, int64_t
     } else {
         auto& allOrders = orderMgr.GetAllOrders();
         for (auto it = allOrders.begin(); it != allOrders.end(); ++it) {
-            if (it->second.orderStatus == stra::OrderStatus_NEW || it->second.orderStatus == stra::OrderStatus_PARTFILLED || it->second.orderStatus == stra::OrderStatus_FAILED){
+            if (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED){
                 //bool pass = LimitManager::Instance().PassLimit(it->second.strategyAccountId);
                 bool pass = LimitManager::Instance().PassCancelLimit(it->second.strategyAccountId);
-		if (!pass) {
+		        if (!pass) {
                     continue;
                 }
 
@@ -378,71 +378,69 @@ void BaseAlgoOrder::CancelOrderOnSpread(const stra::QuantSpread& spread, int64_t
                 }
                 if (it->second.isActiveOrder) {
                     // 主动腿订单撤单
-                    if (it->second.orderType == stra::OrderType_POST_ONLY){
+                    if (it->second.orderType == OT_POST_ONLY){
                         // 主动腿Maker
                         // 时间撤单
                         if (eventTime - it->second.updateTime > activeMakerCancelOrderTime) {
-			                if ((it->second.direction == stra::Direction_LONG && it->second.price < spread.activeBidPrice1 - stra::MIN_FLOAT) || (it->second.direction == stra::Direction_SHORT && it->second.price > spread.activeAskPrice1 + stra::MIN_FLOAT)) {
+			                if ((it->second.direction == DT_LONG && it->second.price < pdata->activeBidPrice[0] - stra::MIN_FLOAT) || (it->second.direction == DT_SHORT && it->second.price > pdata->activeAskPrice[0] + stra::MIN_FLOAT)) {
                                 bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                                 if (cancel_flag) {
                                     orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-                    		    WriteQuantOrder(it->second, spread);
+                    		        WriteQuantOrder(it->second, pdata);
                                     // 撤单成功报出去才能更新！！
                                 }
                                 continue;
-
                             }
-
                         }
                         // 被动腿价格变化撤单
                         bool passive_price_check = false;
-                        if (pair_order.passiveOrderType == stra::OrderType_POST_ONLY){
-                            if (pair_order.passiveDirection == stra::Direction_LONG){
-                                passive_price_check = (spread.passiveBidPrice1 / pair_order.passiveTargetPrice - 1) > activePassiveCancelOrderPct;
+                        if (pair_order.passiveOrderType == OT_POST_ONLY){
+                            if (pair_order.passiveDirection == DT_LONG){
+                                passive_price_check = (pdata->passiveBidPrice[0] / pair_order.passiveTargetPrice - 1) > activePassiveCancelOrderPct;
                             } else {
-                                passive_price_check = (spread.passiveAskPrice1 / pair_order.passiveTargetPrice - 1) < -activePassiveCancelOrderPct;
+                                passive_price_check = (pdata->passiveAskPrice[0] / pair_order.passiveTargetPrice - 1) < -activePassiveCancelOrderPct;
                             }
                         } else {
-                            if (pair_order.passiveDirection == stra::Direction_LONG){
-                                passive_price_check = (spread.passiveAskPrice1 / pair_order.passiveTargetPrice - 1) > activePassiveCancelOrderPct;
+                            if (pair_order.passiveDirection == DT_LONG){
+                                passive_price_check = (pdata->passiveAskPrice[0] / pair_order.passiveTargetPrice - 1) > activePassiveCancelOrderPct;
                             } else {
-                                passive_price_check = (spread.passiveBidPrice1 / pair_order.passiveTargetPrice - 1) < -activePassiveCancelOrderPct;
+                                passive_price_check = (pdata->passiveBidPrice[0] / pair_order.passiveTargetPrice - 1) < -activePassiveCancelOrderPct;
                             }
                         }
                         if (passive_price_check) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
                         }
                         // 主动腿价格变化撤单
                         bool active_price_check = false;
-                        if (pair_order.activeDirection == stra::Direction_LONG){
-                            // active_price_check = (spread.activeBidPrice1 / pair_order.activeTargetPrice - 1) > activeMakerCancelOrderPct;
-                            active_price_check = (spread.activeBidPrice1 / pair_order.activeBidPrice1 - 1) > activeMakerCancelOrderPct;
+                        if (pair_order.activeDirection == DT_LONG){
+                            // active_price_check = (pdata->activeBidPrice[0] / pair_order.activeTargetPrice - 1) > activeMakerCancelOrderPct;
+                            active_price_check = (pdata->activeBidPrice[0] / pair_order.activeBidPrice1 - 1) > activeMakerCancelOrderPct;
                         }else{
-                            // active_price_check = (spread.activeAskPrice1 / pair_order.activeTargetPrice - 1) < -activeMakerCancelOrderPct;
-                            active_price_check = (spread.activeAskPrice1 / pair_order.activeAskPrice1 - 1) < -activeMakerCancelOrderPct;
+                            // active_price_check = (pdata->activeAskPrice[0] / pair_order.activeTargetPrice - 1) < -activeMakerCancelOrderPct;
+                            active_price_check = (pdata->activeAskPrice[0] / pair_order.activeAskPrice1 - 1) < -activeMakerCancelOrderPct;
                         }
                         if (active_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
                         }
 
                         // 大单成交撤单
-                        if (spread.exchActiveTradeDelay > tradesDelayThreshold || spread.exchPassiveTradeDelay > tradesDelayThreshold) {
+                        if (pdata->exchActiveTradeDelay > tradesDelayThreshold || pdata->exchPassiveTradeDelay > tradesDelayThreshold) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
@@ -454,60 +452,60 @@ void BaseAlgoOrder::CancelOrderOnSpread(const stra::QuantSpread& spread, int64_t
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
                         }
                         // 被动腿价格变化撤单
                         bool passive_price_check = false;
-                        if (pair_order.passiveOrderType == stra::OrderType_POST_ONLY){
-                            if (pair_order.passiveDirection == stra::Direction_LONG){
-                                passive_price_check = (spread.passiveBidPrice1 / pair_order.passiveTargetPrice - 1) > activePassiveCancelOrderPct;
+                        if (pair_order.passiveOrderType == OT_POST_ONLY){
+                            if (pair_order.passiveDirection == DT_LONG){
+                                passive_price_check = (pdata->passiveBidPrice[0] / pair_order.passiveTargetPrice - 1) > activePassiveCancelOrderPct;
                             }else{
-                                passive_price_check = (spread.passiveAskPrice1 / pair_order.passiveTargetPrice - 1) < -activePassiveCancelOrderPct;
+                                passive_price_check = (pdata->passiveAskPrice[0] / pair_order.passiveTargetPrice - 1) < -activePassiveCancelOrderPct;
                             }
                         } else {
-                            if (pair_order.passiveDirection == stra::Direction_LONG){
-                                passive_price_check = (spread.passiveAskPrice1 / pair_order.passiveTargetPrice - 1) > activePassiveCancelOrderPct;
+                            if (pair_order.passiveDirection == DT_LONG){
+                                passive_price_check = (pdata->passiveAskPrice[0] / pair_order.passiveTargetPrice - 1) > activePassiveCancelOrderPct;
                             }else{
-                                passive_price_check = (spread.passiveBidPrice1 / pair_order.passiveTargetPrice - 1) < -activePassiveCancelOrderPct;
+                                passive_price_check = (pdata->passiveBidPrice[0] / pair_order.passiveTargetPrice - 1) < -activePassiveCancelOrderPct;
                             }
                         }
                         if (passive_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
                         }
                         // 主动腿价格变化撤单
                         bool active_price_check = false;
-                        if (pair_order.activeDirection == stra::Direction_LONG){
-                            // active_price_check = (spread.activeAskPrice1 / pair_order.activeTargetPrice - 1) > activeTakerCancelOrderPct;
-                            active_price_check = (spread.activeAskPrice1 / pair_order.activeAskPrice1 - 1) > activeTakerCancelOrderPct;
+                        if (pair_order.activeDirection == DT_LONG){
+                            // active_price_check = (pdata->activeAskPrice[0] / pair_order.activeTargetPrice - 1) > activeTakerCancelOrderPct;
+                            active_price_check = (pdata->activeAskPrice[0] / pair_order.activeAskPrice1 - 1) > activeTakerCancelOrderPct;
                         }else{
-                            // active_price_check = (spread.activeBidPrice1 / pair_order.activeTargetPrice - 1) < -activeTakerCancelOrderPct;
-                            active_price_check = (spread.activeBidPrice1 / pair_order.activeBidPrice1 - 1) < -activeTakerCancelOrderPct;
+                            // active_price_check = (pdata->activeBidPrice[0] / pair_order.activeTargetPrice - 1) < -activeTakerCancelOrderPct;
+                            active_price_check = (pdata->activeBidPrice[0] / pair_order.activeBidPrice1 - 1) < -activeTakerCancelOrderPct;
                         }
                         if (active_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
                         }
 
                         // 大单成交撤单
-                        if (spread.exchActiveTradeDelay > tradesDelayThreshold || spread.exchPassiveTradeDelay > tradesDelayThreshold) {
+                        if (pdata->exchActiveTradeDelay > tradesDelayThreshold || pdata->exchPassiveTradeDelay > tradesDelayThreshold) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
@@ -519,30 +517,30 @@ void BaseAlgoOrder::CancelOrderOnSpread(const stra::QuantSpread& spread, int64_t
                 else {
                     // 被动腿订单撤单
                    // 主动腿订单撤单
-                    if (it->second.orderType == stra::OrderType_POST_ONLY){
+                    if (it->second.orderType == OT_POST_ONLY) {
                         // 主动腿Maker
                         // 时间撤单
                         if (eventTime - it->second.updateTime > passiveMakerCancelOrderTime){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
                         }
                         // 被动腿价格变化撤单
                         bool passive_price_check = false;
-                        if (pair_order.passiveDirection == stra::Direction_LONG){
-                            passive_price_check = (spread.passiveBidPrice1 / pair_order.passiveTargetPrice - 1) > passiveMakerCancelOrderPct;
+                        if (pair_order.passiveDirection == DT_LONG){
+                            passive_price_check = (pdata->passiveBidPrice[0] / pair_order.passiveTargetPrice - 1) > passiveMakerCancelOrderPct;
                         }else{
-                            passive_price_check = (spread.passiveAskPrice1 / pair_order.passiveTargetPrice - 1) < -passiveMakerCancelOrderPct;
+                            passive_price_check = (pdata->passiveAskPrice[0] / pair_order.passiveTargetPrice - 1) < -passiveMakerCancelOrderPct;
                         }
                         if (passive_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
@@ -555,23 +553,23 @@ void BaseAlgoOrder::CancelOrderOnSpread(const stra::QuantSpread& spread, int64_t
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
                         }
                         // 被动腿价格变化撤单
                         bool passive_price_check = false;
-                        if (pair_order.passiveDirection == stra::Direction_LONG) {
-                            passive_price_check = (spread.passiveAskPrice1 / pair_order.passiveTargetPrice - 1) > passiveTakerCancelOrderPct;
+                        if (pair_order.passiveDirection == DT_LONG) {
+                            passive_price_check = (pdata->passiveAskPrice[0] / pair_order.passiveTargetPrice - 1) > passiveTakerCancelOrderPct;
                         } else {
-                            passive_price_check = (spread.passiveBidPrice1 / pair_order.passiveTargetPrice - 1) < -passiveTakerCancelOrderPct;
+                            passive_price_check = (pdata->passiveBidPrice[0] / pair_order.passiveTargetPrice - 1) < -passiveTakerCancelOrderPct;
                         }
                         if (passive_price_check) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
                                 orderMgr.UpdateOrderOnCancel(it->second, eventTime);
-				                WriteQuantOrder(it->second, spread);
+				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
                             continue;
@@ -647,8 +645,8 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime) {
             pairOrder.status = 1;
             pairOrder.updateTime = eventTime;
             string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
-            stra::QuantSpread quantSpread = SpreadManager::Instance().GetLastSpread(pairInstrumentKey);
-            WritePairOrder(pairOrder, quantSpread);
+            dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
+            WritePairOrder(pairOrder, pdata);
             if (pairOrder.passiveTotalVolumeOnOrder > 0){
                 // 存在成交, update状态
                 string pubMsg = GeneratePubStrOnUpdate();
@@ -753,10 +751,9 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime) {
         if (verify) {
             // 通过验资正常报单
             bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-
             string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
-            stra::QuantSpread quantSpread = SpreadManager::Instance().GetLastSpread(pairInstrumentKey);
-            WriteQuantOrder(quant_order, quantSpread);
+            dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
+            WriteQuantOrder(quant_order, pdata);
             if (orderFlag) {
                 UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
             }
@@ -769,7 +766,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime) {
 }
 
 string BaseAlgoOrder::GetLastestStatusInfo() {
-    stra::QuantSpread spread = SpreadManager::Instance().GetLastSpread(pairInstrumentKey);
+    dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
     double lockSpread = pairPassiveTotalPrice / pairActiveTotalPrice - 1;
     posMgrMakerTaker.CalcualtePnl(activeInstrumentKey);
     posMgrTakerTaker.CalcualtePnl(activeInstrumentKey);
@@ -796,9 +793,9 @@ string BaseAlgoOrder::GetLastestStatusInfo() {
             "activeBidPrice1:%f \n"
             "activeBidVolume1:%f \n", 
             algoStrategyName, algoOrderId, pairInstrumentKey, pairTotalVolume, lockSpread, pairActiveTotalPrice, pairPassiveTotalPrice, makerTakerTotalPnl, takerTakerTotalPnl, 
-            spread.spreadBidAskTema, spread.spreadBidBidTema, spread.spreadAskBidTema, spread.spreadAskAskTema, 
-            spread.passiveAskPrice1, spread.passiveAskVolume1, spread.passiveBidPrice1, spread.passiveBidVolume1,
-            spread.activeAskPrice1, spread.activeAskVolume1, spread.activeBidPrice1, spread.activeBidVolume1);
+            pdata->spreadBidAskTema, pdata->spreadBidBidTema, pdata->spreadAskBidTema, pdata->spreadAskAskTema, 
+            pdata->passiveAskPrice[0], pdata->passiveAskVolume[0], pdata->passiveBidPrice[0], pdata->passiveBidVolume[0],
+            pdata->activeAskPrice[0], pdata->activeAskVolume[0], pdata->activeBidPrice[0], pdata->activeBidVolume[0]);
     return string(s);
 }
 

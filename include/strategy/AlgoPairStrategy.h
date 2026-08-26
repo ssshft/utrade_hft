@@ -11,8 +11,6 @@ public:
     void pre_stop();
 
 protected:
-    //中控aec控制命令到达
-    void on_command(const string &cmdStr);
     //指定间隔触发一次
     void on_timer(const long &utcTime);
 

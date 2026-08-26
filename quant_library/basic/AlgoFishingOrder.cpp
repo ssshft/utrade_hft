@@ -19,7 +19,7 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     }
     double expectActiveVolume = GetExpectActiveVolume();
     double lockedSpread = GetLockedSpread();
-    stra::QuantSpread spread = SpreadManager::Instance().GetLastSpread(pairInstrumentKey);
+    dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
     double tempTargetVolume = 0.0;
     double tempTargetSpread = 0.0;
     double tempSpread;
@@ -31,24 +31,24 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     bool swch;
     // 判断价格波动是否在接受范围内
     if ((ttPriceTrendProtectFlag && tradingTypeOrder == stra::TAKER_TAKER) || (mtPriceTrendProtectFlag && tradingTypeOrder == stra::MAKER_TAKER)) {
-        double midPrice = (spread.activeAskPrice1 + spread.activeBidPrice1) / 2;
+        double midPrice = (pdata->activeAskPrice[0] + pdata->activeBidPrice[0]) / 2;
         if (tradingTypeOffset == stra::OPEN_SHORT || tradingTypeOffset == stra::CLOSE_LONG) {
             // activeDirection = L
-            if (midPrice / spread.activePriceTema - 1 < -0.003) {
-                LOG_INFO("midPrice / spread.activePriceTema - 1 < -0.005  midPrice:%f  activePriceTema:%f", midPrice, spread.activePriceTema);
+            if (midPrice / pdata->activePriceTema - 1 < -0.003) {
+                LOG_INFO("midPrice / pdata->activePriceTema - 1 < -0.005  midPrice:%f  activePriceTema:%f", midPrice, pdata->activePriceTema);
                 return pairOrder;
             }
         } else if(tradingTypeOffset == stra::OPEN_LONG || tradingTypeOffset == stra::CLOSE_SHORT){
             // activeDirection = S
-            if (midPrice / spread.activePriceTema - 1 > 0.003) {
-                LOG_INFO("midPrice / spread.activePriceTema - 1 > 0.005  midPrice:%f  activePriceTema:%f", midPrice, spread.activePriceTema);
+            if (midPrice / pdata->activePriceTema - 1 > 0.003) {
+                LOG_INFO("midPrice / pdata->activePriceTema - 1 > 0.005  midPrice:%f  activePriceTema:%f", midPrice, pdata->activePriceTema);
                 return pairOrder;
             }
         }
     }
 
-    if (spread.activeAskPrice1 / spread.activeBidPrice1 - 1 > 0.001) {
-        LOG_INFO("ask -- bid too big! instrumentKey:{} activeAskPrice1:{} activeBidPrice1:{}", spread.pairInstrumentKey, spread.activeAskPrice1, spread.activeBidPrice1);
+    if (pdata->activeAskPrice[0] / pdata->activeBidPrice[0] - 1 > 0.001) {
+        LOG_INFO("ask -- bid too big! instrumentKey:{} activeAskPrice1:{} activeBidPrice1:{}", pairInstrumentKey, pdata->activeAskPrice[0], pdata->activeBidPrice[0]);
         return pairOrder;
     }
 
@@ -116,28 +116,28 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
         double tradingFs = takerTakerFs;
         double tempSpreadAdj = 0;
         if (activePriceTickFlag == true) {
-            tempSpreadAdj = max(activePriceTickNum, 0) * activeInfo.tickSize * 2 / (spread.activeBidPrice1 + spread.activeAskPrice1);
+            tempSpreadAdj = max(activePriceTickNum, 0) * activeInfo.tickSize * 2 / (pdata->activeBidPrice[0] + pdata->activeAskPrice[0]);
         }
         if (tradingTypeOffset == stra::OPEN_SHORT || tradingTypeOffset == stra::CLOSE_LONG) {
             if (targetSpreadType == stra::TargetSpredPrice_NOW) { // ? 1代表什么
-                tempSpread = spread.spreadAskBid - tradingFs - tempSpreadAdj;
+                tempSpread = pdata->spreadAskBid - tradingFs - tempSpreadAdj;
             } else if (targetSpreadType == stra::TargetSpredPrice_NOW_MEAN) { // ? 2代表什么
-                tempSpread = min(spread.spreadAskBid, spread.spreadAskBidTema) - tradingFs - tempSpreadAdj;
+                tempSpread = min(pdata->spreadAskBid, pdata->spreadAskBidTema) - tradingFs - tempSpreadAdj;
             }
             if (activeVolumeCalcualteType == stra::ActiveVolumeCalcualteType_PassiveVolumePct) {
-                tempVolume = GetActiveVolumeByPassiveVolume(spread.passiveBidVolume1, spread.passiveBidPrice1) * passiveVolumePct;
+                tempVolume = GetActiveVolumeByPassiveVolume(pdata->passiveBidVolume[0], pdata->passiveBidPrice[0]) * passiveVolumePct;
             } else {
                 tempVolume = -1;
             }
 
         } else if (tradingTypeOffset == stra::CLOSE_SHORT || tradingTypeOffset == stra::OPEN_LONG) {
             if (targetSpreadType == stra::TargetSpredPrice_NOW) { // ? 1代表什么
-                tempSpread = spread.spreadBidAsk + tradingFs + tempSpreadAdj;
+                tempSpread = pdata->spreadBidAsk + tradingFs + tempSpreadAdj;
             } else if (targetSpreadType == stra::TargetSpredPrice_NOW_MEAN) { // ? 2代表什么
-                tempSpread = max(spread.spreadBidAsk, spread.spreadBidAskTema) + tradingFs + tempSpreadAdj;
+                tempSpread = max(pdata->spreadBidAsk, pdata->spreadBidAskTema) + tradingFs + tempSpreadAdj;
             }
             if (activeVolumeCalcualteType == stra::ActiveVolumeCalcualteType_PassiveVolumePct) {
-                tempVolume = GetActiveVolumeByPassiveVolume(spread.passiveAskVolume1, spread.passiveAskPrice1) * passiveVolumePct;
+                tempVolume = GetActiveVolumeByPassiveVolume(pdata->passiveAskVolume[0], pdata->passiveAskPrice[0]) * passiveVolumePct;
             } else {
                 tempVolume = -1;
             }
@@ -148,28 +148,28 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
         double tempSpreadAdj = 0;
         // 为了在maker报单向前挂时不损失价差
         if (activePriceTickFlag){
-            double tempTickNum = max(min((spread.activeAskPrice1 - spread.activeBidPrice1) / activeInfo.tickSize - 1, (double)activePriceTickNum), 0.0);
-            tempSpreadAdj = tempTickNum * activeInfo.tickSize * 2 / (spread.activeBidPrice1 + spread.activeAskPrice1);
+            double tempTickNum = max(min((pdata->activeAskPrice[0] - pdata->activeBidPrice[0]) / activeInfo.tickSize - 1, (double)activePriceTickNum), 0.0);
+            tempSpreadAdj = tempTickNum * activeInfo.tickSize * 2 / (pdata->activeBidPrice[0] + pdata->activeAskPrice[0]);
         }
         if (tradingTypeOffset == stra::OPEN_SHORT || tradingTypeOffset == stra::CLOSE_LONG) {
             if (targetSpreadType == stra::TargetSpredPrice_NOW) { // ? 1代表什么
-                tempSpread = spread.spreadBidBid - tradingFs - tempSpreadAdj;
+                tempSpread = pdata->spreadBidBid - tradingFs - tempSpreadAdj;
             } else if (targetSpreadType == stra::TargetSpredPrice_NOW_MEAN) { // ? 2代表什么
-                tempSpread = min(spread.spreadBidBid, spread.spreadBidBidTema) - tradingFs - tempSpreadAdj;
+                tempSpread = min(pdata->spreadBidBid, pdata->spreadBidBidTema) - tradingFs - tempSpreadAdj;
             }
             if (activeVolumeCalcualteType == stra::ActiveVolumeCalcualteType_PassiveVolumePct) {
-                tempVolume = GetActiveVolumeByPassiveVolume(spread.passiveBidVolume1, spread.passiveBidPrice1) * passiveVolumePct;
+                tempVolume = GetActiveVolumeByPassiveVolume(pdata->passiveBidVolume[0], pdata->passiveBidPrice[0]) * passiveVolumePct;
             } else {
                 tempVolume = -1;
             }
         } else if (tradingTypeOffset == stra::CLOSE_SHORT || tradingTypeOffset == stra::OPEN_LONG) {
             if (targetSpreadType == stra::TargetSpredPrice_NOW) { // ? 1代表什么
-                tempSpread = spread.spreadAskAsk + tradingFs + tempSpreadAdj;
+                tempSpread = pdata->spreadAskAsk + tradingFs + tempSpreadAdj;
             } else if (targetSpreadType == stra::TargetSpredPrice_NOW_MEAN) { // ? 2代表什么
-                tempSpread = max(spread.spreadAskAsk, spread.spreadAskAskTema) + tradingFs + tempSpreadAdj;
+                tempSpread = max(pdata->spreadAskAsk, pdata->spreadAskAskTema) + tradingFs + tempSpreadAdj;
             }
             if (activeVolumeCalcualteType == stra::ActiveVolumeCalcualteType_PassiveVolumePct) {
-                tempVolume = GetActiveVolumeByPassiveVolume(spread.passiveAskVolume1, spread.passiveAskPrice1) * passiveVolumePct;
+                tempVolume = GetActiveVolumeByPassiveVolume(pdata->passiveAskVolume[0], pdata->passiveAskPrice[0]) * passiveVolumePct;
             } else {
                 tempVolume = -1;
             }
@@ -216,17 +216,17 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
             }
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 if (ajdPct <= 0){
-                    activeTargetPrice = spread.activeAskPrice1 * (1 - ajdPct);
-                    passiveTargetPrice = spread.passiveBidPrice1;
+                    activeTargetPrice = pdata->activeAskPrice[0] * (1 - ajdPct);
+                    passiveTargetPrice = pdata->passiveBidPrice[0];
                     acOrderType = activeOrderType;
                     paOrderType = passiveOrderType;
                 } else {
                     targetVolume = -1;
                 }
             } else if (tradingTypeOrder == stra::MAKER_TAKER) {
-                activeTargetPrice = spread.activeBidPrice1 * (1 - max(ajdPct, 0.0));
-                passiveTargetPrice = spread.passiveBidPrice1;
-                acOrderType = stra::OrderType_POST_ONLY;
+                activeTargetPrice = pdata->activeBidPrice[0] * (1 - max(ajdPct, 0.0));
+                passiveTargetPrice = pdata->passiveBidPrice[0];
+                acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType;
             } else {
                 LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
@@ -257,17 +257,17 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
             }
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 if (ajdPct >= 0){
-                    activeTargetPrice = spread.activeBidPrice1 * (1 - ajdPct);
-                    passiveTargetPrice = spread.passiveAskPrice1;
+                    activeTargetPrice = pdata->activeBidPrice[0] * (1 - ajdPct);
+                    passiveTargetPrice = pdata->passiveAskPrice[0];
                     acOrderType = activeOrderType;
                     paOrderType = passiveOrderType;
                 } else {
                     targetVolume = -1;
                 }
             } else if (tradingTypeOrder == stra::MAKER_TAKER) {
-                activeTargetPrice = spread.activeAskPrice1 * (1 - min(ajdPct, 0.0));
-                passiveTargetPrice = spread.passiveAskPrice1;
-                acOrderType = stra::OrderType_POST_ONLY;
+                activeTargetPrice = pdata->activeAskPrice[0] * (1 - min(ajdPct, 0.0));
+                passiveTargetPrice = pdata->passiveAskPrice[0];
+                acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
                 LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
@@ -299,17 +299,17 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
             }
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 if (ajdPct >= 0){
-                    activeTargetPrice = spread.activeBidPrice1 * (1 - ajdPct);
-                    passiveTargetPrice = spread.passiveAskPrice1;
+                    activeTargetPrice = pdata->activeBidPrice[0] * (1 - ajdPct);
+                    passiveTargetPrice = pdata->passiveAskPrice[0];
                     acOrderType = activeOrderType;
                     paOrderType = passiveOrderType;
                 } else {
                     targetVolume = -1;
                 }
             } else if (tradingTypeOrder == stra::MAKER_TAKER) {
-                activeTargetPrice = spread.activeAskPrice1 * (1 - min(ajdPct, 0.0));
-                passiveTargetPrice = spread.passiveAskPrice1;
-                acOrderType = stra::OrderType_POST_ONLY;
+                activeTargetPrice = pdata->activeAskPrice[0] * (1 - min(ajdPct, 0.0));
+                passiveTargetPrice = pdata->passiveAskPrice[0];
+                acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
                 LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
@@ -341,17 +341,17 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
             }
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 if (ajdPct <= 0){
-                    activeTargetPrice = spread.activeAskPrice1 * (1 - ajdPct);
-                    passiveTargetPrice = spread.passiveBidPrice1;
+                    activeTargetPrice = pdata->activeAskPrice[0] * (1 - ajdPct);
+                    passiveTargetPrice = pdata->passiveBidPrice[0];
                     acOrderType = activeOrderType;
                     paOrderType = passiveOrderType;
                 } else {
                     targetVolume = -1;
                 }
             } else if (tradingTypeOrder == stra::MAKER_TAKER) {
-                activeTargetPrice = spread.activeBidPrice1 * (1 - max(ajdPct, 0.0));
-                passiveTargetPrice = spread.passiveBidPrice1;
-                acOrderType = stra::OrderType_POST_ONLY;
+                activeTargetPrice = pdata->activeBidPrice[0] * (1 - max(ajdPct, 0.0));
+                passiveTargetPrice = pdata->passiveBidPrice[0];
+                acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType;
             } else {
                 LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
@@ -372,14 +372,14 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
         return pairOrder;
     }
 
-    pairOrder.activeBidPrice1 = spread.activeBidPrice1;
-    pairOrder.activeBidVolume1 = spread.activeBidVolume1;
-    pairOrder.activeAskPrice1 = spread.activeAskPrice1;
-    pairOrder.activeAskVolume1 = spread.activeAskVolume1;
-    pairOrder.passiveBidPrice1 = spread.passiveBidPrice1;
-    pairOrder.passiveBidVolume1 = spread.passiveBidVolume1;
-    pairOrder.passiveAskPrice1 = spread.passiveAskPrice1;
-    pairOrder.passiveAskVolume1 = spread.passiveAskVolume1;
+    pairOrder.activeBidPrice1 = pdata->activeBidPrice[0];
+    pairOrder.activeBidVolume1 = pdata->activeBidVolume[0];
+    pairOrder.activeAskPrice1 = pdata->activeAskPrice[0];
+    pairOrder.activeAskVolume1 = pdata->activeAskVolume[0];
+    pairOrder.passiveBidPrice1 = pdata->passiveBidPrice[0];
+    pairOrder.passiveBidVolume1 = pdata->passiveBidVolume[0];
+    pairOrder.passiveAskPrice1 = pdata->passiveAskPrice[0];
+    pairOrder.passiveAskVolume1 = pdata->passiveAskVolume[0];
 
     pairOrder.pairId = pairOrderId;
     strncpy(pairOrder.baseAsset, baseAsset, stra::ASSET_LEN);
@@ -388,7 +388,7 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     pairOrder.activeDirection = activeDirection;
     pairOrder.activeOrderType = acOrderType;
     // pairOrder.activePriceType = activePriceType;
-    if (pairOrder.activeOrderType == stra::OrderType_POST_ONLY){
+    if (pairOrder.activeOrderType == OT_POST_ONLY){
         pairOrder.activePricePct = activePriceMakerPct;
     } else{
         pairOrder.activePricePct = activePriceTakerPct;
@@ -401,7 +401,7 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     pairOrder.passiveDirection = passiveDirection;
     pairOrder.passiveOrderType = paOrderType;
     // pairOrder.passivePriceType = passivePriceType;
-    if (pairOrder.passiveOrderType == stra::OrderType_POST_ONLY){
+    if (pairOrder.passiveOrderType == OT_POST_ONLY){
         pairOrder.passivePricePct = passivePriceMakerPct;
     } else{
         pairOrder.passivePricePct = passivePriceTakerPct;

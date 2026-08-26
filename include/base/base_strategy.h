@@ -16,8 +16,6 @@
 using namespace pubsub;
 using namespace md;
 
-typedef pubsub::ConcurrentQueueWF<std::string, 1024*16> MPMCCMDQueue;
-
 class BaseStrategy {
 public:
     BaseStrategy() {
@@ -29,8 +27,7 @@ public:
 
         tradeClient = new om::TradeClient(utrade2TbTCommandSHM);
         rcmdQueue = std::make_shared<pubsub::SPMCSubscriber<pubsub::RCommand>>(tb2UtradeRCommandSHM.c_str());
-        cmd_queue = new MPMCCMDQueue();
-
+   
         if (tradeConfig.HasMember("DBP")) {
             auto mpath = tradeConfig["DBP"]["mpath"].GetString();
             auto dpath = tradeConfig["DBP"]["dpath"].GetString();
@@ -61,14 +58,13 @@ public:
 
 private:
     void heavy_work(){
-        static long long utcTime = crypto::getCurrentTime();
+        int64_t utcTime = crypto::getCurrentTime();
         pubsub::RCommand rcmd;
         pubsub::Position position;
         pubsub::Balance balance;
         pubsub::OrderResponse orderResponse;
         pubsub::TotalAccount totalAccount;
-        std::string cmdStr = "";
-
+ 
         while (1) {
             try {
                 if (rcmdQueue->pop(rcmd)) {
@@ -98,10 +94,6 @@ private:
                     else {
                         LOG_ERROR("it should not happen here, please contact your developer!");
                     }
-                }
-
-                if (cmd_queue->pop(cmdStr)) {
-                    _filter_on_command(cmdStr);
                 }
 
                 if (dbpreader) {
@@ -147,38 +139,10 @@ protected:
                 }
             }
         }
-
-        string redisIp{"127.0.0.1"};
-        int redisPort = 9379;
-        string redisPasswd{""};
-        if(configValue.HasMember("redis")){
-            redisIp = configValue["redis"]["host"].GetString();
-            redisPort = stoi(configValue["redis"]["port"].GetString());
-            if(configValue["redis"].HasMember("passwd")){
-                redisPasswd = configValue["redis"]["passwd"].GetString();
-            }
-            redisClient = new RedisClient(redisIp.c_str(), redisPort, redisPasswd.c_str(), false, true);
-        }
-        else{
-            cryptothrow("your config not found redis configuration!", -1);
-        }
-        string tradeConfigStr = crypto::read_file("/inc/trade_config.json");
-        rapidjson::Document d1;
-        rapidjson::Value &tradeConfig = d1.Parse<rapidjson::kParseNumbersAsStringsFlag>(tradeConfigStr.c_str());
-        string AEC2UtradeChannel = tradeConfig["utrade"]["AEC2UtradeChannel"].GetString();
-        
-        auto _on_command = [&](const string &channel, const string &cmdStr) {
-            cmd_queue->push(cmdStr);
-        };
-        redisClient->subscribe(AEC2UtradeChannel, _on_command);
-
     }
 
-    //中控触发
-    virtual void on_command(const string& cmdStr) = 0;//{ }
-
     //定时触发
-    virtual void on_timer(const long &utcTime) = 0;//{ }
+    virtual void on_timer(const int64_t& utcTime) = 0;//{ }
 
     //行情到达
     // virtual void on_marketdata(md::CryptoMarketData &cmd) = 0;//{ }
@@ -198,27 +162,13 @@ protected:
     //DBP推送
     virtual void on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* data, uint32_t jumpedNum) { }
 
-    void _filter_on_command(const string& cmdStr){
-        rapidjson::Document d;
-        rapidjson::Value &cmdValue = d.Parse<rapidjson::kParseNumbersAsStringsFlag>(cmdStr.c_str());
-        if(crypto::str_cmp(tag.c_str(), cmdValue["toUtrade"].GetString()) == false){
-            return;
-        }
-
-        on_command(cmdStr);
-    }
-
-    void _my_on_command(const string &cmdStr){}
-
 protected:
     dbp::DbpReader* dbpreader{nullptr};
     std::shared_ptr<pubsub::SPMCSubscriber<pubsub::RCommand>> rcmdQueue{nullptr};
     Config* config{nullptr};
     om::TradeClient* tradeClient{nullptr};
     int timerInterval{1}; //ms
-    MPMCCMDQueue* cmd_queue{nullptr};
     std::unordered_map<std::string, std::string> _strategyIds;
-    RedisClient* redisClient{nullptr};
     string tag{""};
 };
 

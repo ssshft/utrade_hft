@@ -6,6 +6,7 @@
 #include "OrderManager.h"
 #include "PairManager.h"
 #include "BasicInfoMgr.h"
+#include "dbp/include.h"
 #include <string>
 
 
@@ -196,7 +197,7 @@ struct BaseAlgoOrder {
     double GetExpectPassiveVolume();
     double GetLockedSpread();
     double GetActiveVolumeByPassiveVolume(double volume, double price);
-    void CancelOrderOnSpread(const stra::QuantSpread& spread, int64_t eventTime);
+    void CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t eventTime);
     virtual void PairOrderTrade(PairOrder& pairOrder, int64_t eventTime);
     
     string GetLastestStatusInfo();

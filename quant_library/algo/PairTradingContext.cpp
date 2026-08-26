@@ -52,8 +52,8 @@ void PairTradingContext::Init(const PairTradingConfig& cfg) {
     LOG_INFO("size: {}", cfg.pairKeys.size());
 }
 
-void PairTradingContext::OnSpread(const stra::MdSpread& spread, int64_t eventTimeUs) {
-    std::string pairKey(spread.pairInstrumentKey);
+void PairTradingContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata)) {
+    std::string pairKey(topic->__name);
 
     auto& pim = PairInfoManager::Instance();
     PairInfo* pi = pim.GetPairInfo(pairKey);
@@ -61,7 +61,7 @@ void PairTradingContext::OnSpread(const stra::MdSpread& spread, int64_t eventTim
         return;
     }
 
-    pim.UpdateRtSpread(pairKey, spread);
+    pim.UpdateRtSpread(pairKey, pdata);
 
     ProcessPairSignal(*pi, eventTimeUs);
 }
@@ -275,16 +275,16 @@ std::string PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std
     return oss.str();
 }
 
-void PairTradingContext::OnPosition(const stra::TdPosition& position) {
+void PairTradingContext::OnPosition(const pubsub::Position& position) {
     PairInfoManager::Instance().UpdateOnPosition(position);
     PairInfoManager::Instance().UpdateLiquidStatus(position);
 }
 
-void PairTradingContext::OnBalance(const stra::TdBalance& balance) {
+void PairTradingContext::OnBalance(const pubsub::Balanc& balance) {
     PairInfoManager::Instance().UpdateOnBalance(balance, "baseAsset");
 }
 
-void PairTradingContext::OnTotalAccount(const stra::TdTotalAccount& totalAccount) {
+void PairTradingContext::OnTotalAccount(const pubsub::TotalAccoun& totalAccount) {
     PairInfoManager::Instance().UpdateOnTotalAccount(totalAccount);
 }
 

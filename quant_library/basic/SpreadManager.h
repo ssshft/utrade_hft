@@ -6,25 +6,45 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include "dbp/include.h"
 
 using namespace std;
 
+struct Bbo {
+    double bidPrice{0.0};
+    double bidVol{0.0};
+    double askPrice{0.0};
+    double askVol{0.0};
+};
 
 class SpreadManager {
     public:
         static SpreadManager& Instance();
         ~SpreadManager();
-        void AddSpreadPara(string pairInstrumentKey, int length);
-        void OnMarketSpread(const stra::QuantSpread& quantSpread, int64_t eventTime);
-        void DeleteQuantSpread(string pairInstrumentKey);
-        stra::QuantSpread GetLastSpread(string pairInstrumentKey);
-        bool IsPairInstrumentKeyExist(string pairInstrumentKey);
+
+        enum class LegType : uint8_t {
+            ACTIVE,
+            PASSIVE
+        };
+
+        struct SpreadEntry {
+            dbp::DbpData* pdata;
+            LegType legType = LegType::ACTIVE;
+        };
+
+        void AddSpreadPara(const std::string& pairInstrumentKey);
+        void OnMarketSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata);
+        void DeleteSpread(const std::string& pairInstrumentKey);
+        dbp::DbpData* GetSpread(const std::string& pairInstrumentKey);
+        bool IsPairInstrumentKeyExist(const std::string& pairInstrumentKey);
+        std::vector<SpreadEntry> GetSpreadEntry(const std::string& instKey);
+        Bbo GetBbo(const std::string& instKey);
 
     private:
         SpreadManager();
-        // para
-        unordered_map<string, int> mSpreadPara; // vector[0]=period, vector[1]=length
-        unordered_map<string, DataArray<stra::QuantSpread>> mQuantSpread;
+
+        std::unordered_map<std::string, std::unique_ptr<dbp::DbpData>> mSpread;
+        std::unordered_map<std::string, std::vector<SpreadEntry>> mInstEntry;
 };
 
 #endif

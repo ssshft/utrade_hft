@@ -16,17 +16,20 @@ public:
 protected:
     void on_command(const std::string& cmdStr);
 
-    void on_timer(const long& utcTime);
+    void on_timer(const int64_t& utcTime);
 
     void on_marketdata(md::CryptoMarketData& cmd);
 
-    void on_ordertrade(om::OrderTrade& orderTrade);
+    void on_balance(pubsub::Balance& balance);
 
-    void on_balance(om::Balance& balance);
-    
-    void on_position(om::Position& position);
+    //仓位推送
+    void on_position(pubsub::Position& position);
 
-    void on_total_account(om::TotalAccount& totalAccount);
+    //账户总览推送
+    void on_total_account(pubsub::TotalAccount& totalAccount);
+
+    //订单，成交推送
+    void on_ordertrade(pubsub::OrderResponse& orderResponse);
 
     void on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum);
 

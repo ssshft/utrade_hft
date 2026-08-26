@@ -1,5 +1,6 @@
 #include "PairManager.h"
 #include "StrategyConfig.h"
+#include "SpreadManager.h"
 
 
 static PairOrder defaultPairOrder;
@@ -8,8 +9,8 @@ void PairOrder::Init() {
     vector<string> vActive;
     splitString(activeInstrumentKey, vActive, ".");
     if (vActive.size() >= 3) {
-        activeExchangeType = stra::ExchangeTypeStr2Enum[vActive[0]];
-        activeInstType = stra::InstTypeStr2Enum[vActive[1]];
+        activeExchangeType = ExchangeTypeStr2EnumMap[vActive[0]];
+        activeInstType = InstTypeStr2EnumMap[vActive[1]];
         strncpy(activeInstrument, vActive[2].c_str(), stra::INST_ID_LEN);
     }
  
@@ -17,8 +18,8 @@ void PairOrder::Init() {
     vector<string> vPassive;
     splitString(passiveInstrumentKey, vPassive, ".");
     if (vPassive.size() >= 3) {
-        passiveExchangeType = stra::ExchangeTypeStr2Enum[vPassive[0]];
-        passiveInstType = stra::InstTypeStr2Enum[vPassive[1]];
+        passiveExchangeType = ExchangeTypeStr2EnumMap[vPassive[0]];
+        passiveInstType = InstTypeStr2EnumMap[vPassive[1]];
         strncpy(passiveInstrument, vPassive[2].c_str(), stra::INST_ID_LEN);
     }
 
@@ -34,15 +35,16 @@ void PairOrder::Init() {
 
 stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
     double price = 0.0;
-    stra::QuantMarketDepth depth = DataManager::Instance().GetLastDepth(activeInstrumentKey);
-    if (activeOrderType == stra::OrderType_POST_ONLY) { // OrderType_POST_ONLY == MAKER
-        if (activeDirection == stra::Direction_LONG) {
+    const Bbo& bbo = SpreadManager::Instance().GetBbo(activeInstrumentKey);
+
+    if (activeOrderType == OT_POST_ONLY) { // OrderType_POST_ONLY == MAKER
+        if (activeDirection == DT_LONG) {
             if (activePriceTickFlag) { 
                 price = activeTargetPrice + activePriceTickNum * activeInfo.tickSize;
             } else {
                 price = activeTargetPrice * (1 + activePricePct);
             }
-            price = min(price, depth.vAskPrice[0] - activeInfo.tickSize);  // 取整，是tickSize的整数倍
+            price = min(price, bbo.askPrice - activeInfo.tickSize);  // 取整，是tickSize的整数倍
             price = floor((price + stra::MIN_FLOAT) / activeInfo.tickSize) * activeInfo.tickSize;
         } else {
             if (activePriceTickFlag) { 
@@ -50,11 +52,11 @@ stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
             } else {
                 price = activeTargetPrice * (1 - activePricePct);
             }
-            price = max(price, depth.vBidPrice[0] + activeInfo.tickSize);
+            price = max(price, bbo.bidPrice + activeInfo.tickSize);
             price = ceil((price - stra::MIN_FLOAT) / activeInfo.tickSize) * activeInfo.tickSize;
         }
     } else {
-        if (activeDirection == stra::Direction_LONG) {
+        if (activeDirection == DT_LONG) {
             if (activePriceTickFlag) { 
                 price = activeTargetPrice + activePriceTickNum * activeInfo.tickSize;
             } else {
@@ -83,13 +85,13 @@ stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
         currentOrderAmount = targetVolume * activeInfo.multiple;
     }
 
-    if (activeExchangeType == stra::ET_BINANCE) {
+    if (activeExchangeType == BINANCE) {
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_GATEIO) {
+    } else if (activeExchangeType == GATEIO) {
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_BYBIT) {
+    } else if (activeExchangeType == BYBIT) {
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_OKX) {
+    } else if (activeExchangeType == OKX) {
         orderAmount = targetVolume;
     }
     else {
@@ -122,7 +124,7 @@ stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
     order.orderType = activeOrderType;
     order.direction = activeDirection;
     order.posDirection = stra::PosDirection_OPEN;
-    order.orderStatus = stra::OrderStatus_PEND_NEW;
+    order.orderStatus = OS_PEND;
 
     auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
     int64_t currentTime = GetCurrentTimeUs();
@@ -149,15 +151,16 @@ stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
 
 stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
     double price = 0.0;
-    stra::QuantMarketDepth depth = DataManager::Instance().GetLastDepth(passiveInstrumentKey);
-    if (passiveOrderType == stra::OrderType_POST_ONLY) { // OrderType_POST_ONLY == MAKER
-        if (passiveDirection == stra::Direction_LONG) {
+    const Bbo& bbo = SpreadManager::Instance().GetBbo(passiveInstrumentKey);
+
+    if (passiveOrderType == OT_POST_ONLY) { // OrderType_POST_ONLY == MAKER
+        if (passiveDirection == DT_LONG) {
             if (passivePriceTickFlag) { 
                 price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
             } else {
                 price = passiveTargetPrice * (1 + passivePricePct);
             }
-            price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+            price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
             price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
         } else {
             if (passivePriceTickFlag) { 
@@ -165,11 +168,11 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
             } else {
                 price = passiveTargetPrice * (1 - passivePricePct);
             }
-            price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+            price = max(price, bbo.bidPrice + passiveInfo.tickSize);
             price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
         }
     } else {
-        if (passiveDirection == stra::Direction_LONG) {
+        if (passiveDirection == DT_LONG) {
             if (passivePriceTickFlag) { 
                 price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
             } else {
@@ -198,13 +201,13 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
         currentOrderAmount = targetVolume * passiveInfo.multiple;
     }
 
-    if (activeExchangeType == stra::ET_BINANCE) {
+    if (activeExchangeType == BINANCE) {
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_GATEIO) {
+    } else if (activeExchangeType == GATEIO) {
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_BYBIT) {
+    } else if (activeExchangeType == BYBIT) {
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_OKX) {
+    } else if (activeExchangeType == OKX) {
         orderAmount = targetVolume;
     }
     else {
@@ -237,7 +240,7 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
     order.orderType = activeOrderType;
     order.direction = activeDirection;
     order.posDirection = stra::PosDirection_OPEN;
-    order.orderStatus = stra::OrderStatus_PEND_NEW;
+    order.orderStatus = OS_PEND;
 
     auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
     int64_t currentTime = GetCurrentTimeUs();
@@ -266,21 +269,22 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
 stra::QuantOrder PairOrder::CreateOrginActiveOrder(int64_t strategyOrderId) {
     // 直接使用pairOrder的报单价格作为报单价
     double price = 0.0;
-    stra::QuantMarketDepth depth = DataManager::Instance().GetLastDepth(activeInstrumentKey);
-    if (activeOrderType == stra::OrderType_POST_ONLY) { // OrderType_POST_ONLY == MAKER
-        if (activeDirection == stra::Direction_LONG) {
+    const Bbo& bbo = SpreadManager::Instance().GetBbo(activeInstrumentKey);
+
+    if (activeOrderType == OT_POST_ONLY) { // OrderType_POST_ONLY == MAKER
+        if (activeDirection == DT_LONG) {
             price = activeTargetPrice;
-            price = min(price, depth.vAskPrice[0] - activeInfo.tickSize);  // 取整，是tickSize的整数倍
-            price = min(price, depth.vBidPrice[0] + activeInfo.tickSize);  // 取整，是tickSize的整数倍
+            price = min(price, bbo.askPrice - activeInfo.tickSize);  // 取整，是tickSize的整数倍
+            price = min(price, bbo.bidPrice + activeInfo.tickSize);  // 取整，是tickSize的整数倍
             price = floor((price + stra::MIN_FLOAT) / activeInfo.tickSize) * activeInfo.tickSize;
         } else {
             price = activeTargetPrice;
-            price = max(price, depth.vBidPrice[0] + activeInfo.tickSize);
-            price = max(price, depth.vAskPrice[0] - activeInfo.tickSize);  // 取整，是tickSize的整数倍
+            price = max(price, bbo.bidPrice + activeInfo.tickSize);
+            price = max(price, bbo.askPrice - activeInfo.tickSize);  // 取整，是tickSize的整数倍
             price = ceil((price - stra::MIN_FLOAT) / activeInfo.tickSize) * activeInfo.tickSize;
         }
     } else {
-        if (activeDirection == stra::Direction_LONG) {
+        if (activeDirection == DT_LONG) {
             price = activeTargetPrice;
             price = floor((price + stra::MIN_FLOAT) / activeInfo.tickSize) * activeInfo.tickSize;
         } else {
@@ -302,18 +306,18 @@ stra::QuantOrder PairOrder::CreateOrginActiveOrder(int64_t strategyOrderId) {
     }
 
 
-    if (activeExchangeType == stra::ET_BINANCE) {
+    if (activeExchangeType == BINANCE) {
         // if (activeInfo.calculateType == 0) {
         //     orderAmount = targetVolume * price * activeInfo.multiple;
         // } else if (activeInfo.calculateType == 1) {
         //     orderAmount = targetVolume * activeInfo.multiple;
         // }
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_GATEIO) {
+    } else if (activeExchangeType == GATEIO) {
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_BYBIT) {
+    } else if (activeExchangeType == BYBIT) {
         orderAmount = targetVolume;
-    } else if (activeExchangeType == stra::ET_OKX) {
+    } else if (activeExchangeType == OKX) {
         orderAmount = targetVolume;
     }
     else {
@@ -344,7 +348,7 @@ stra::QuantOrder PairOrder::CreateOrginActiveOrder(int64_t strategyOrderId) {
     order.orderType = activeOrderType;
     order.direction = activeDirection;
     order.posDirection = stra::PosDirection_OPEN;
-    order.orderStatus = stra::OrderStatus_PEND_NEW;
+    order.orderStatus = OS_PEND;
 
     auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
     int64_t currentTime = GetCurrentTimeUs();
@@ -382,21 +386,21 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
 	//LOG_INFO("CreatePassiveOrder leftAss:%s activeAmount: %f leftAss.totalAmount: %f loanAmount: %f", activeInfo.instLeft.c_str(), activeAmount, leftAss.totalAmount, leftAss.loanAmount);
         if (activeInfo.calculateType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
-                if (activeInstType == stra::SWAP || activeInstType == stra::FUTURES || activeInstType == stra::InstType_USDT_SWAP || activeInstType == stra::InstType_BUSD_SWAP || activeInstType == stra::InstType_USDT_FUTURES || activeInstType == stra::InstType_C_SWAP || activeInstType == stra::InstType_C_FUTURES) {
+                if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
                     activeAmount += pos.longPosition * activeInfo.multiple;
                 }
             } else {
-                if (activeInstType == stra::SWAP || activeInstType == stra::FUTURES || activeInstType == stra::InstType_USDT_SWAP || activeInstType == stra::InstType_BUSD_SWAP || activeInstType == stra::InstType_USDT_FUTURES || activeInstType == stra::InstType_C_SWAP || activeInstType == stra::InstType_C_FUTURES) {
+                if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
                     activeAmount -= pos.shortPosition * activeInfo.multiple;
                 }
             }
         } else if (activeInfo.calculateType == 1) {
             if (pos.longPosition > stra::MIN_FLOAT) {
-                if (activeInstType == stra::SWAP || activeInstType == stra::FUTURES || activeInstType == stra::InstType_USDT_SWAP || activeInstType == stra::InstType_BUSD_SWAP || activeInstType == stra::InstType_USDT_FUTURES || activeInstType == stra::InstType_C_SWAP || activeInstType == stra::InstType_C_FUTURES) {
+                if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
                     activeAmount += pos.longPosition * activeInfo.multiple / pos.longAvgPrice;
                 }
             } else {
-                if (activeInstType == stra::SWAP || activeInstType == stra::FUTURES || activeInstType == stra::InstType_USDT_SWAP || activeInstType == stra::InstType_BUSD_SWAP || activeInstType == stra::InstType_USDT_FUTURES || activeInstType == stra::InstType_C_SWAP || activeInstType == stra::InstType_C_FUTURES) {
+                if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
                     activeAmount -= pos.shortPosition * activeInfo.multiple / pos.shortAvgPrice;
                 }
             }
@@ -407,21 +411,21 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
         activeAmount += rightAss.totalAmount - rightAss.loanAmount;
         if (activeInfo.calculateType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
-                if (activeInstType == stra::SWAP || activeInstType == stra::FUTURES || activeInstType == stra::InstType_USDT_SWAP || activeInstType == stra::InstType_BUSD_SWAP || activeInstType == stra::InstType_USDT_FUTURES || activeInstType == stra::InstType_C_SWAP || activeInstType == stra::InstType_C_FUTURES) {
+                if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
                     activeAmount -= pos.longPosition * activeInfo.multiple * pos.longAvgPrice;
                 }
             } else {
-                if (activeInstType == stra::SWAP || activeInstType == stra::FUTURES || activeInstType == stra::InstType_USDT_SWAP || activeInstType == stra::InstType_BUSD_SWAP || activeInstType == stra::InstType_USDT_FUTURES || activeInstType == stra::InstType_C_SWAP || activeInstType == stra::InstType_C_FUTURES) {
+                if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
                     activeAmount += pos.shortPosition * activeInfo.multiple * pos.shortAvgPrice;
                 }
             }
         } else if (activeInfo.calculateType == 1) {
             if (pos.longPosition > stra::MIN_FLOAT) {
-                if (activeInstType == stra::SWAP || activeInstType == stra::FUTURES || activeInstType == stra::InstType_USDT_SWAP || activeInstType == stra::InstType_BUSD_SWAP || activeInstType == stra::InstType_USDT_FUTURES || activeInstType == stra::InstType_C_SWAP || activeInstType == stra::InstType_C_FUTURES) {
+                if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
                     activeAmount -= pos.longPosition * activeInfo.multiple;
                 }
             } else {
-                if (activeInstType == stra::SWAP || activeInstType == stra::FUTURES || activeInstType == stra::InstType_USDT_SWAP || activeInstType == stra::InstType_BUSD_SWAP || activeInstType == stra::InstType_USDT_FUTURES || activeInstType == stra::InstType_C_SWAP || activeInstType == stra::InstType_C_FUTURES) {
+                if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
                     activeAmount += pos.shortPosition * activeInfo.multiple;
                 }
             }
@@ -432,21 +436,21 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
         auto& pos = posMgr->GetAccount().mPosition[passiveInstrumentKey];
         if (passiveInfo.calculateType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
-                if (passiveInstType == stra::SWAP || passiveInstType == stra::FUTURES || passiveInstType == stra::InstType_USDT_SWAP || passiveInstType == stra::InstType_BUSD_SWAP || passiveInstType == stra::InstType_USDT_FUTURES || passiveInstType == stra::InstType_C_SWAP || passiveInstType == stra::InstType_C_FUTURES) {
+                if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
                     passiveAmount += (pos.longPosition + pos.frozenLongPosition - pos.frozenShortPosition) * passiveInfo.multiple;
                 }
             } else {
-                if (passiveInstType == stra::SWAP || passiveInstType == stra::FUTURES || passiveInstType == stra::InstType_USDT_SWAP || passiveInstType == stra::InstType_BUSD_SWAP || passiveInstType == stra::InstType_USDT_FUTURES || passiveInstType == stra::InstType_C_SWAP || passiveInstType == stra::InstType_C_FUTURES) {
+                if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
                     passiveAmount -= (pos.shortPosition + pos.frozenShortPosition - pos.frozenLongPosition) * passiveInfo.multiple;
                 }
             }
         } else if (passiveInfo.calculateType == 1) {
             if (pos.longPosition > stra::MIN_FLOAT) {
-                if (passiveInstType == stra::SWAP || passiveInstType == stra::FUTURES || passiveInstType == stra::InstType_USDT_SWAP || passiveInstType == stra::InstType_BUSD_SWAP || passiveInstType == stra::InstType_USDT_FUTURES || passiveInstType == stra::InstType_C_SWAP || passiveInstType == stra::InstType_C_FUTURES) {
+                if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
                     passiveAmount += (pos.longPosition  / pos.longAvgPrice + pos.frozenLongPosition / pos.frozenLongPrice - pos.frozenShortPosition / pos.frozenShortPrice) * passiveInfo.multiple;
                 }
             } else {
-                if (passiveInstType == stra::SWAP || passiveInstType == stra::FUTURES || passiveInstType == stra::InstType_USDT_SWAP || passiveInstType == stra::InstType_BUSD_SWAP || passiveInstType == stra::InstType_USDT_FUTURES || passiveInstType == stra::InstType_C_SWAP || passiveInstType == stra::InstType_C_FUTURES) {
+                if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
                     passiveAmount -= (pos.shortPosition  / pos.shortAvgPrice + pos.frozenShortPosition / pos.frozenShortPrice - pos.frozenLongPosition / pos.frozenLongPrice) * passiveInfo.multiple;
                 }
             }
@@ -455,21 +459,21 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
         auto& pos = posMgr->GetAccount().mPosition[passiveInstrumentKey];
         if (passiveInfo.calculateType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
-                if (passiveInstType == stra::SWAP || passiveInstType == stra::FUTURES || passiveInstType == stra::InstType_USDT_SWAP || passiveInstType == stra::InstType_BUSD_SWAP || passiveInstType == stra::InstType_USDT_FUTURES || passiveInstType == stra::InstType_C_SWAP || passiveInstType == stra::InstType_C_FUTURES) {
+                if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
                     passiveAmount -= (pos.longPosition  * pos.longAvgPrice + pos.frozenLongPosition * pos.frozenLongPrice - pos.frozenShortPosition * pos.frozenShortPrice) * passiveInfo.multiple;
                 }
             } else {
-                if (passiveInstType == stra::SWAP || passiveInstType == stra::FUTURES || passiveInstType == stra::InstType_USDT_SWAP || passiveInstType == stra::InstType_BUSD_SWAP || passiveInstType == stra::InstType_USDT_FUTURES || passiveInstType == stra::InstType_C_SWAP || passiveInstType == stra::InstType_C_FUTURES) {
+                if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
                     passiveAmount += (pos.shortPosition * pos.shortAvgPrice + pos.frozenShortPosition * pos.frozenShortPrice - pos.frozenLongPosition * pos.frozenLongPrice) * passiveInfo.multiple;
                 }
             }
         } else if (activeInfo.calculateType == 1) {
             if (pos.longPosition > stra::MIN_FLOAT) {
-                if (passiveInstType == stra::SWAP || passiveInstType == stra::FUTURES || passiveInstType == stra::InstType_USDT_SWAP || passiveInstType == stra::InstType_BUSD_SWAP || passiveInstType == stra::InstType_USDT_FUTURES || passiveInstType == stra::InstType_C_SWAP || passiveInstType == stra::InstType_C_FUTURES) {
+                if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
                     passiveAmount -= (pos.longPosition + pos.frozenLongPosition - pos.frozenShortPosition) * passiveInfo.multiple;
                 }
             } else {
-                if (passiveInstType == stra::SWAP || passiveInstType == stra::FUTURES || passiveInstType == stra::InstType_USDT_SWAP || passiveInstType == stra::InstType_BUSD_SWAP || passiveInstType == stra::InstType_USDT_FUTURES || passiveInstType == stra::InstType_C_SWAP || passiveInstType == stra::InstType_C_FUTURES) {
+                if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
                     passiveAmount += (pos.shortPosition + pos.frozenShortPosition - pos.frozenLongPosition) * passiveInfo.multiple;
                 }
             }
@@ -481,46 +485,48 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
     double price = -1.0;
     double volume = 0;
     double passiveTargetAmount = activeAmount + passiveAmount;
-    stra::QuantMarketDepth depth = DataManager::Instance().GetLastDepth(passiveInstrumentKey);
+
+    const Bbo& bbo = SpreadManager::Instance().GetBbo(passiveInstrumentKey);
+
     // minVolume 
     if (strcmp(passiveInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instRight.c_str(), "USDT") == 0 || strcmp(passiveInfo.instRight.c_str(), "USD") == 0 || strcmp(passiveInfo.instRight.c_str(), "USDC") == 0 || strcmp(passiveInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
-        if (passiveDirection == stra::Direction_LONG) {
+        if (passiveDirection == DT_LONG) {
             if (passiveTargetAmount <= stra::MIN_FLOAT) {
                 if (passiveInfo.calculateType == 0) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 + passivePricePct);
                         }
-                        price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+                        price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vAskPrice[0] + passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.askPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 + passivePricePct);
-                            price = depth.vAskPrice[0] * (1 + passivePricePct);
+                            price = bbo.askPrice * (1 + passivePricePct);
                         }
                     }
                     price = floor((price + stra::MIN_FLOAT)/  passiveInfo.tickSize) * passiveInfo.tickSize;
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
                 } else if (passiveInfo.calculateType == 1) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 + passivePricePct);
                         }
-                        price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+                        price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vAskPrice[0] + passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.askPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 + passivePricePct);
-                            price = depth.vAskPrice[0] * (1 + passivePricePct);
+                            price = bbo.askPrice * (1 + passivePricePct);
                         }
                     }
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
@@ -528,43 +534,43 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
                 }
             }
-        } else if (passiveDirection == stra::Direction_SHORT) {
+        } else if (passiveDirection == DT_SHORT) {
             if (passiveTargetAmount > stra::MIN_FLOAT) {
                 if (passiveInfo.calculateType == 0) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 - passivePricePct);
                         }
-                        price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+                        price = max(price, bbo.bidPrice + passiveInfo.tickSize);
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vBidPrice[0] - passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.bidPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 - passivePricePct);
-                            price = depth.vBidPrice[0] * (1 - passivePricePct);
+                            price = bbo.bidPrice * (1 - passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
                     volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
                 } else if (passiveInfo.calculateType == 1) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 - passivePricePct);
                         }
-                        price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+                        price = max(price, bbo.bidPrice + passiveInfo.tickSize);
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vBidPrice[0] - passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.bidPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 - passivePricePct);
-                            price = depth.vBidPrice[0] * (1 - passivePricePct);
+                            price = bbo.bidPrice * (1 - passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
@@ -574,43 +580,43 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
             }
         }
     } else if (strcmp(passiveInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instLeft.c_str(), "USDT") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USD") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USDC") == 0 || strcmp(passiveInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
-        if (passiveDirection == stra::Direction_LONG) {
+        if (passiveDirection == DT_LONG) {
             if (passiveTargetAmount > stra::MIN_FLOAT) {
                 if (passiveInfo.calculateType == 0) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 + passivePricePct);
                         }
-                        price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+                        price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vAskPrice[0] + passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.askPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 + passivePricePct);
-                            price = depth.vAskPrice[0] * (1 + passivePricePct);
+                            price = bbo.askPrice * (1 + passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
                     volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
                 } else if (passiveInfo.calculateType == 1) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 + passivePricePct);
                         }
-                        price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+                        price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vAskPrice[0] + passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.askPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 + passivePricePct);
-                            price = depth.vAskPrice[0] * (1 + passivePricePct);
+                            price = bbo.askPrice * (1 + passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
@@ -618,43 +624,43 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
                 }
             }
-        } else if (passiveDirection == stra::Direction_SHORT) {
+        } else if (passiveDirection == DT_SHORT) {
             if (passiveTargetAmount <= stra::MIN_FLOAT) {
                 if (passiveInfo.calculateType == 0) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 - passivePricePct);
                         }
-                        price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+                        price = max(price, bbo.bidPrice + passiveInfo.tickSize);
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vBidPrice[0] - passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.bidPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 - passivePricePct);
-                            price = depth.vBidPrice[0] * (1 - passivePricePct);
+                            price = bbo.bidPrice * (1 - passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
                     volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
                 } else if (passiveInfo.calculateType == 1) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 - passivePricePct);
                         }
-                        price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+                        price = max(price, bbo.bidPrice + passiveInfo.tickSize);
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vBidPrice[0] - passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.bidPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 - passivePricePct);
-                            price = depth.vBidPrice[0] * (1 - passivePricePct);
+                            price = bbo.bidPrice * (1 - passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
@@ -672,13 +678,13 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
     // 小于最小报单量,不创建order
     double orderAmount = 0.0;
     volume = round(volume / passiveInfo.lotSize) * passiveInfo.lotSize;
-    if (passiveExchangeType == stra::ET_BINANCE) {
+    if (passiveExchangeType == BINANCE) {
         orderAmount = volume;
-    } else if (passiveExchangeType == stra::ET_GATEIO) {
+    } else if (passiveExchangeType == GATEIO) {
         orderAmount = volume;
-    } else if (passiveExchangeType == stra::ET_BYBIT) {
+    } else if (passiveExchangeType == BYBIT) {
         orderAmount = volume;
-    } else if (passiveExchangeType == stra::ET_OKX) {
+    } else if (passiveExchangeType == OKX) {
         orderAmount = volume;
     }
     else {
@@ -698,7 +704,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
             currentOrderAmount = volume * passiveInfo.multiple;
         }
 
-        if (passiveExchangeType == stra::ET_BINANCE) {
+        if (passiveExchangeType == BINANCE) {
             if (currentOrderAmount < passiveInfo.minAmount) {
                 return order;
             }
@@ -719,7 +725,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
     order.orderType = passiveOrderType;
     order.direction = passiveDirection;
     order.posDirection = stra::PosDirection_OPEN;
-    order.orderStatus = stra::OrderStatus_PEND_NEW;
+    order.orderStatus = OS_PEND;
     order.price = price;
 //order.volume = round(volume / passiveInfo.lotSize) * passiveInfo.lotSize;
     order.volume = volume;
@@ -756,13 +762,13 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
 
     if (strcmp(activeInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(activeInfo.instRight.c_str(), "USDT") == 0 || strcmp(activeInfo.instRight.c_str(), "USD") == 0 || strcmp(activeInfo.instRight.c_str(), "USDC") == 0 || strcmp(activeInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
         if (activeInfo.calculateType == 0) {
-            if (activeDirection == stra::Direction_LONG){
+            if (activeDirection == DT_LONG){
                 activeAmount += activeTotalVolumeOnOrder * activeInfo.multiple;
             } else {
                 activeAmount -= activeTotalVolumeOnOrder * activeInfo.multiple;
             }
         } else if (activeInfo.calculateType == 1) {
-            if (activeDirection == stra::Direction_LONG){
+            if (activeDirection == DT_LONG){
                 activeAmount += activeTotalVolumeOnOrder * activeInfo.multiple / activeTotalPriceOnOrder;
             } else {
                 activeAmount -= activeTotalVolumeOnOrder * activeInfo.multiple / activeTotalPriceOnOrder;
@@ -770,13 +776,13 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
         }
     } else if (strcmp(activeInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(activeInfo.instLeft.c_str(), "USDT") == 0 || strcmp(activeInfo.instLeft.c_str(), "USD") == 0 || strcmp(activeInfo.instLeft.c_str(), "USDC") == 0 || strcmp(activeInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) { 
         if (activeInfo.calculateType == 0) {
-            if (activeDirection == stra::Direction_LONG){
+            if (activeDirection == DT_LONG){
                 activeAmount -= activeTotalVolumeOnOrder * activeInfo.multiple * activeTotalPriceOnOrder;
             } else {
                 activeAmount += activeTotalVolumeOnOrder * activeInfo.multiple * activeTotalPriceOnOrder;
             }
         } else if (activeInfo.calculateType == 1) {
-            if (activeDirection == stra::Direction_LONG){
+            if (activeDirection == DT_LONG){
                 activeAmount -= activeTotalVolumeOnOrder * activeInfo.multiple;
             } else {
                 activeAmount += activeTotalVolumeOnOrder * activeInfo.multiple;
@@ -787,13 +793,13 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     if (strcmp(passiveInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instRight.c_str(), "USDT") == 0 || strcmp(passiveInfo.instRight.c_str(), "USD") == 0 || strcmp(passiveInfo.instRight.c_str(), "USDC") == 0 || strcmp(passiveInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
         // auto& pos = posMgr->GetAccount().mPosition[passiveInstrumentKey];
         if (passiveInfo.calculateType == 0) {
-            if (passiveDirection == stra::Direction_LONG){
+            if (passiveDirection == DT_LONG){
                 passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.multiple + passiveFrozenVolume * passiveInfo.multiple;
             } else {
                 passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.multiple + passiveFrozenVolume * passiveInfo.multiple;
             }
         } else if (passiveInfo.calculateType == 1) {
-            if (passiveDirection == stra::Direction_LONG){
+            if (passiveDirection == DT_LONG){
                 passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.multiple / passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.multiple / passiveFrozenPrice;
             } else {
                 passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.multiple / passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.multiple / passiveFrozenPrice;
@@ -802,13 +808,13 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     } else if (strcmp(passiveInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instLeft.c_str(), "USDT") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USD") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USDC") == 0 || strcmp(passiveInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
         // auto& pos = posMgr->GetAccount().mPosition[passiveInstrumentKey];
         if (passiveInfo.calculateType == 0) {
-            if (passiveDirection == stra::Direction_LONG){
+            if (passiveDirection == DT_LONG){
                 passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.multiple * passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.multiple * passiveFrozenPrice;
             } else {
                 passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.multiple * passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.multiple * passiveFrozenPrice;
             }
         } else if (activeInfo.calculateType == 1) {
-            if (passiveDirection == stra::Direction_LONG){
+            if (passiveDirection == DT_LONG){
                 passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.multiple + passiveFrozenVolume * passiveInfo.multiple;
             } else {
                 passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.multiple + passiveFrozenVolume * passiveInfo.multiple;
@@ -820,46 +826,47 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     double price = -1.0;
     double volume = 0;
     double passiveTargetAmount = activeAmount + passiveAmount;
-    stra::QuantMarketDepth depth = DataManager::Instance().GetLastDepth(passiveInstrumentKey);
+   
+    const Bbo& bbo = SpreadManager::Instance().GetBbo(passiveInstrumentKey);
     // minVolume 
     if (strcmp(passiveInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instRight.c_str(), "USDT") == 0 || strcmp(passiveInfo.instRight.c_str(), "USD") == 0 || strcmp(passiveInfo.instRight.c_str(), "USDC") == 0 || strcmp(passiveInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
-        if (passiveDirection == stra::Direction_LONG) {
+        if (passiveDirection == DT_LONG) {
             if (passiveTargetAmount <= stra::MIN_FLOAT) {
                 if (passiveInfo.calculateType == 0) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 + passivePricePct);
                         }
-                        price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+                        price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vAskPrice[0] + passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.askPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 + passivePricePct);
-                            price = depth.vAskPrice[0] * (1 + passivePricePct);
+                            price = bbo.askPrice * (1 + passivePricePct);
                         }
                     }
                     price = floor((price + stra::MIN_FLOAT)/  passiveInfo.tickSize) * passiveInfo.tickSize;
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
                 } else if (passiveInfo.calculateType == 1) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 + passivePricePct);
                         }
-                        price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+                        price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vAskPrice[0] + passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.askPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 + passivePricePct);
-                            price = depth.vAskPrice[0] * (1 + passivePricePct);
+                            price = bbo.askPrice * (1 + passivePricePct);
                         }
                     }
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
@@ -867,43 +874,43 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
                 }
             }
-        } else if (passiveDirection == stra::Direction_SHORT) {
+        } else if (passiveDirection == DT_SHORT) {
             if (passiveTargetAmount > stra::MIN_FLOAT) {
                 if (passiveInfo.calculateType == 0) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 - passivePricePct);
                         }
-                        price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+                        price = max(price, bbo.bidPrice + passiveInfo.tickSize);
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vBidPrice[0] - passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.bidPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 - passivePricePct);
-                            price = depth.vBidPrice[0] * (1 - passivePricePct);
+                            price = bbo.bidPrice * (1 - passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
                     volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
                 } else if (passiveInfo.calculateType == 1) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 - passivePricePct);
                         }
-                        price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+                        price = max(price, bbo.bidPrice + passiveInfo.tickSize);
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vBidPrice[0] - passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.bidPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 - passivePricePct);
-                            price = depth.vBidPrice[0] * (1 - passivePricePct);
+                            price = bbo.bidPrice * (1 - passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
@@ -913,43 +920,43 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
             }
         }
     } else if (strcmp(passiveInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instLeft.c_str(), "USDT") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USD") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USDC") == 0 || strcmp(passiveInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
-        if (passiveDirection == stra::Direction_LONG) {
+        if (passiveDirection == DT_LONG) {
             if (passiveTargetAmount > stra::MIN_FLOAT) {
                 if (passiveInfo.calculateType == 0) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 + passivePricePct);
                         }
-                        price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+                        price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vAskPrice[0] + passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.askPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 + passivePricePct);
-                            price = depth.vAskPrice[0] * (1 + passivePricePct);
+                            price = bbo.askPrice * (1 + passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
                     volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
                 } else if (passiveInfo.calculateType == 1) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 + passivePricePct);
                         }
-                        price = min(price, depth.vAskPrice[0] - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
+                        price = min(price, bbo.askPrice - passiveInfo.tickSize);  // 取整，是tickSize的整数倍
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vAskPrice[0] + passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.askPrice + passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 + passivePricePct);
-                            price = depth.vAskPrice[0] * (1 + passivePricePct);
+                            price = bbo.askPrice * (1 + passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
@@ -957,43 +964,43 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
                 }
             }
-        } else if (passiveDirection == stra::Direction_SHORT) {
+        } else if (passiveDirection == DT_SHORT) {
             if (passiveTargetAmount <= stra::MIN_FLOAT) {
                 if (passiveInfo.calculateType == 0) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 - passivePricePct);
                         }
-                        price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+                        price = max(price, bbo.bidPrice + passiveInfo.tickSize);
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vBidPrice[0] - passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.bidPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 - passivePricePct);
-                            price = depth.vBidPrice[0] * (1 - passivePricePct);
+                            price = bbo.bidPrice * (1 - passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
                     volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
                 } else if (passiveInfo.calculateType == 1) {
-                    if (passiveOrderType == stra::OrderType_POST_ONLY) {
+                    if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             price = passiveTargetPrice * (1 - passivePricePct);
                         }
-                        price = max(price, depth.vBidPrice[0] + passiveInfo.tickSize);
+                        price = max(price, bbo.bidPrice + passiveInfo.tickSize);
                     } else {
                         if (passivePriceTickFlag) {
                             //price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
-                            price = depth.vBidPrice[0] - passivePriceTickNum * passiveInfo.tickSize;
+                            price = bbo.bidPrice - passivePriceTickNum * passiveInfo.tickSize;
                         } else {
                             //price = passiveTargetPrice * (1 - passivePricePct);
-                            price = depth.vBidPrice[0] * (1 - passivePricePct);
+                            price = bbo.bidPrice * (1 - passivePricePct);
                         }
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
@@ -1009,13 +1016,13 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     // 小于最小报单量,不创建order
     double orderAmount = 0.0;
     volume = round(volume / passiveInfo.lotSize) * passiveInfo.lotSize;
-    if (passiveExchangeType == stra::ET_BINANCE) {
+    if (passiveExchangeType == BINANCE) {
         orderAmount = volume;
-    } else if (passiveExchangeType == stra::ET_GATEIO) {
+    } else if (passiveExchangeType == GATEIO) {
         orderAmount = volume;
-    } else if (passiveExchangeType == stra::ET_BYBIT) {
+    } else if (passiveExchangeType == BYBIT) {
         orderAmount = volume;
-    } else if (passiveExchangeType == stra::ET_OKX) {
+    } else if (passiveExchangeType == OKX) {
         orderAmount = volume;
     }
 
@@ -1024,7 +1031,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
             return order;
         }
 
-        if (passiveExchangeType == stra::ET_BINANCE) {
+        if (passiveExchangeType == BINANCE) {
             double totalOrderAmount = 0.0;
             if (passiveInfo.calculateType == 0) {
                 totalOrderAmount = volume * price * passiveInfo.multiple;
@@ -1053,15 +1060,14 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     order.orderType = passiveOrderType;
     order.direction = passiveDirection;
     order.posDirection = stra::PosDirection_OPEN;
-    order.orderStatus = stra::OrderStatus_PEND_NEW;
+    order.orderStatus = OS_PEND;
     order.price = price;
-//order.volume = round(volume / passiveInfo.lotSize) * passiveInfo.lotSize;
+    //order.volume = round(volume / passiveInfo.lotSize) * passiveInfo.lotSize;
     order.volume = volume;
     order.targetPrice = passiveTargetPrice;
     order.pairId = pairId;
     order.algoPairId = algoPairId;
     order.isActiveOrder = false;
-
 
     auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
     int64_t currentTime = GetCurrentTimeUs();
@@ -1085,7 +1091,7 @@ double PairOrder::CalculatePassiveSlippage(){
     double slippage = 0;
     // 滑点计算逻辑
     if (passiveTotalVolumeOnOrder > 0){
-        if (passiveDirection == stra::Direction_LONG){
+        if (passiveDirection == DT_LONG){
             slippage = passiveTotalPriceOnOrder / passiveTargetPrice - 1;
         } else{
             slippage = 1 - passiveTotalPriceOnOrder / passiveTargetPrice;
@@ -1260,10 +1266,10 @@ void PairOrderManager::RecoveryFromFile(string filePath) {
                 order.tradingTypeOffset = stra::TradingType(stoi(v[6]));
                 strncpy(order.activeInstrumentKey, v[7].c_str(), stra::INST_KEY_LEN);
                 strncpy(order.activeInstrument, v[8].c_str(), stra::INST_ID_LEN);
-                order.activeInstType = stra::InstType(stoi(v[9]));
-                order.activeExchangeType = stra::ExchangeType(stoi(v[10]));
-                order.activeDirection = stra::Direction(stoi(v[11]));
-                order.activeOrderType = stra::OrderType(stoi(v[12]));
+                order.activeInstType = InstType(stoi(v[9]));
+                order.activeExchangeType = ExchangeType(stoi(v[10]));
+                order.activeDirection = Direction(stoi(v[11]));
+                order.activeOrderType = OrderType(stoi(v[12]));
                 order.activePriceType = stra::PriceType(stoi(v[13]));
                 order.activePricePct = stod(v[14]);
                 order.activeAccountId = stoi(v[15]);
@@ -1287,10 +1293,10 @@ void PairOrderManager::RecoveryFromFile(string filePath) {
                 order.activePriceTickNum = stoi(v[25]);
                 strncpy(order.passiveInstrumentKey, v[26].c_str(), stra::INST_KEY_LEN);
                 strncpy(order.passiveInstrument, v[27].c_str(), stra::INST_ID_LEN);
-                order.passiveInstType = stra::InstType(stoi(v[28]));
-                order.passiveExchangeType = stra::ExchangeType(stoi(v[29]));
-                order.passiveDirection = stra::Direction(stoi(v[30]));
-                order.passiveOrderType = stra::OrderType(stoi(v[31]));
+                order.passiveInstType = InstType(stoi(v[28]));
+                order.passiveExchangeType = ExchangeType(stoi(v[29]));
+                order.passiveDirection = Direction(stoi(v[30]));
+                order.passiveOrderType = OrderType(stoi(v[31]));
                 order.passivePriceType = stra::PriceType(stoi(v[32]));
                 order.passivePricePct = stod(v[33]);
                 order.passiveAccountId = stoi(v[34]);
@@ -1378,11 +1384,11 @@ int PairOrderManager::GetSizeByOrderType(stra::TradingType tradingType) {
     return count;
 }
 
-int PairOrderManager::GetSizeByOrderTypeAndActiveDirection(stra::TradingType tradingType, stra::Direction activeDirection) {
+int PairOrderManager::GetSizeByOrderTypeAndActiveDirection(stra::TradingType tradingType, Direction activeDirection) {
     // OpenShort CloseLong activeDirection = Long
     // OpenLong CloseShort activeDirection = Short
     int count = 0;
-    if (activeDirection == stra:: Direction_LONG) {
+    if (activeDirection == DT_LONG) {
         for (auto it = mPairOrder.begin(); it != mPairOrder.end(); ++it) {
             if (it->second.tradingTypeOrder == tradingType && (it->second.tradingTypeOffset == stra::OPEN_SHORT|| it->second.tradingTypeOffset == stra::CLOSE_LONG)) {
                 count++;

@@ -56,13 +56,13 @@ public:
         m_algoCommandCb = std::move(cb);
     }
 
-    void OnSpread(const stra::MdSpread& spread, int64_t eventTimeUs);
+    void OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata);
 
-    void OnPosition(const stra::TdPosition& position);
+    void OnPosition(const pubsub::Position& position);
 
-    void OnBalance(const stra::TdBalance& balance);
+    void OnBalance(const pubsub::Balanc& balance);
 
-    void OnTotalAccount(const stra::TdTotalAccount& totalAccount);
+    void OnTotalAccount(const pubsub::TotalAccoun& totalAccount);
 
     // volumeFilled 实际成交量
     // isFullyFlat 平仓后是否完全归零
@@ -95,7 +95,6 @@ private:
     void SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;
 
     std::string BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;
-
 
     static int64_t NowUs();
 

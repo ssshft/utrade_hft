@@ -24,17 +24,17 @@ public:
     void OnCommand(string s);
     void OnMarketDepth();
     void OnMarketTrade();
-    void OnSpread(const stra::MdSpread& spread, int64_t eventTime);
-    void OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t eventTime);
+
     void OnTimerTrade(int64_t eventTime);
-    void OnOrder(stra::TdOrder& order, int64_t eventTime);
-    void OnPosition(const stra::TdPosition& position, int64_t eventTime);
     void OnKline();
     void OnFundingRate();
+
+    void OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata);
     void OnTimer(int64_t eventTime);
-    void OnBalance(const stra::TdBalance& balance);
-    void OnPosition(const stra::TdPosition& position);
-    void OnTotalAccount(const stra::TdTotalAccount& totalAccount);
+    void OnBalance(const pubsub::Balance& balance);
+    void OnPosition(const pubsub::Position& position);
+    void OnTotalAccount(const pubsub::TotalAccount& totalAccount);
+    void OnOrder(pubsub::OrderResponse& orderResponse);
 
     BaseAlgoOrder* GetAlgoOrder(int64_t algoOrderId);
 

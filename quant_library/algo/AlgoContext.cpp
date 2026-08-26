@@ -308,7 +308,7 @@ void AlgoContext::OnCommand(string s) {
                 }
 
                 if (body.HasMember("activeOrderType")) {
-                    pAlgoOrder->activeOrderType = stra::OrderType(stoi(body["activeOrderType"].GetString()));
+                    pAlgoOrder->activeOrderType = OrderType(stoi(body["activeOrderType"].GetString()));
                 }
 
                 if (body.HasMember("passiveInstrumentKey")) {
@@ -340,7 +340,7 @@ void AlgoContext::OnCommand(string s) {
                 }
 
                 if (body.HasMember("passiveOrderType")) {
-                    pAlgoOrder->passiveOrderType = stra::OrderType(stoi(body["passiveOrderType"].GetString()));
+                    pAlgoOrder->passiveOrderType = OrderType(stoi(body["passiveOrderType"].GetString()));
                 }
 
 
@@ -707,7 +707,7 @@ void AlgoContext::OnCommand(string s) {
                 if (commandType == stra::CommandType_NEW) {
                     if (pPairOrder) {
                         pPairOrder->commandType = stra::CommandType_TRADING;
-                        pPairOrder->algoOrderStatus = stra::OrderStatus_NEW;
+                        pPairOrder->algoOrderStatus = OS_NEW;
                         pPairOrder->algoType = algoType;
                         pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
                         pPairOrder->Init();
@@ -729,7 +729,7 @@ void AlgoContext::OnCommand(string s) {
 
                     if (pFishingOrder) {
                         pFishingOrder->commandType = stra::CommandType_TRADING;
-                        pFishingOrder->algoOrderStatus = stra::OrderStatus_NEW;
+                        pFishingOrder->algoOrderStatus = OS_NEW;
                         pFishingOrder->algoType = algoType;
                         pFishingOrder->algoOrderId = GenerateStrategyAlgoPairId();
                         pFishingOrder->Init();
@@ -751,7 +751,7 @@ void AlgoContext::OnCommand(string s) {
 
                     if (pRebalanceOrder) {
                         pRebalanceOrder->commandType = stra::CommandType_TRADING;
-                        pRebalanceOrder->algoOrderStatus = stra::OrderStatus_NEW;
+                        pRebalanceOrder->algoOrderStatus = OS_NEW;
                         pRebalanceOrder->algoType = algoType;
                         pRebalanceOrder->algoOrderId = GenerateStrategyAlgoPairId();
                         pRebalanceOrder->Init();
@@ -831,54 +831,39 @@ void AlgoContext::OnMarketTrade() {
 
 }
 
-void AlgoContext::OnSpread(const stra::MdSpread& spread, int64_t eventTime) {
-    const stra::QuantSpread& quantSpread = ConvertTdSpreadToStraSpread(spread);
-    SpreadManager::Instance().OnMarketSpread(quantSpread, eventTime);
-
-    OnSpreadTrade(quantSpread, eventTime);
-}
-    
-void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t eventTime) {
+void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
     try {
-        // if (quantSpread.spreadDrive == stra::SpreadDrive_Active) {
-        stra::QuantMarketDepth activeDepth = DataManager::Instance().GetLastDepth(quantSpread.activeInstumentKey);
-        // } else if (quantSpread.spreadDrive == stra::SpreadDrive_Passive) {
-        stra::QuantMarketDepth passiveDepth = DataManager::Instance().GetLastDepth(quantSpread.passiveInstrumentKey);
-        // }
+        SpreadManager::Instance().OnMarketSpread(topic, pdata);
+        const Bbo& activeBbo = SpreadManager::Instance().GetBbo(topic->activeInstumentKey);
+        const Bbo& passiveBbo = SpreadManager::Instance().GetBbo(topic->passiveInstrumentKey);
 
-        int64_t nowTime = 0;
-        if (isreal){
-            nowTime = GetCurrentTimeUs();
-        } else {
-            nowTime = quantSpread.generateTs;
-        }
-
+        int64_t nowTime = crypto::getCurrentTime();
         bool openOrderFlag = false;
         bool curDelay = false;
         bool curDepthDelay = false;
         bool curTradeDelay = false;
 
-        int64_t timeVal = nowTime - quantSpread.generateTs;
+        int64_t timeVal = nowTime - pdata->generateTs;
         if (timeVal < curSpreadDelay) {
             curDelay = true;
         } else {
-            LOG_INFO("OnSpread delay > {} ---  nowTime:{}  generateTs:{}  now - genetateTs: {} pairInstrumentKey:{}", curSpreadDelay, nowTime, quantSpread.generateTs, timeVal, quantSpread.pairInstrumentKey);
+            LOG_INFO("OnSpread delay > {} ---  nowTime:{}  generateTs:{}  now - genetateTs: {} pairInstrumentKey:{}", curSpreadDelay, nowTime, pdata->generateTs, timeVal, topic->__name);
         }
 
-        int64_t timeDepthVal = nowTime - min(quantSpread.activeDepthTs, quantSpread.passiveDepthTs);
+        int64_t timeDepthVal = nowTime - min(pdata->activeDepthTs, pdata-passiveDepthTs);
         if (timeDepthVal < curSpreadDepthDelay) {
             curDepthDelay = true;
         } else {
-            LOG_INFO("OnSpread depth delay > {} ---  nowTime:{}  ativeDepthTs:{}  passiveDepthTs:{} timeDepthVal:{} pairInstrumentKey:{}", curSpreadDepthDelay, nowTime, quantSpread.activeDepthTs, quantSpread.passiveDepthTs, timeDepthVal, quantSpread.pairInstrumentKey);
+            LOG_INFO("OnSpread depth delay > {} ---  nowTime:{}  ativeDepthTs:{}  passiveDepthTs:{} timeDepthVal:{} pairInstrumentKey:{}", curSpreadDepthDelay, nowTime, pdata->activeDepthTs, pdata->passiveDepthTs, timeDepthVal, topic->__name);
         }
 
-        if (quantSpread.exchActiveTradeDelay < tradesDelayThreshold && quantSpread.exchPassiveTradeDelay < tradesDelayThreshold) {
+        if (pdata-exchActiveTradeDelay < tradesDelayThreshold && pdata-exchPassiveTradeDelay < tradesDelayThreshold) {
             curTradeDelay = true;
         }
         else if (timeDepthVal > curSpreadDepthDelay) {
             curTradeDelay = true;
         } else {
-            LOG_INFO("OnSpread depth tradesdelay exchActiveTradeDelay:{} exchPassiveTradeDelay:{} tradesDelayThreshold:{} pairInstrumentKey:{}", quantSpread.exchActiveTradeDelay, quantSpread.exchPassiveTradeDelay, tradesDelayThreshold, quantSpread.pairInstrumentKey);
+            LOG_INFO("OnSpread depth tradesdelay exchActiveTradeDelay:{} exchPassiveTradeDelay:{} tradesDelayThreshold:{} pairInstrumentKey:{}", pdata->exchActiveTradeDelay, pdata->exchPassiveTradeDelay, tradesDelayThreshold, topic->__name);
         }
 
         openOrderFlag = curDelay && curDepthDelay && curTradeDelay;
@@ -888,15 +873,16 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
         for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end(); ++it) {
             BaseAlgoOrder* pAlgoOrder = it->second;
 
-            if (strcmp(pAlgoOrder->pairInstrumentKey, quantSpread.pairInstrumentKey) == 0) {
-                pAlgoOrder->CancelOrderOnSpread(quantSpread, eventTime); // 执行撤单逻辑
+            if (strcmp(pAlgoOrder->pairInstrumentKey, topic->__name) == 0) {
+                pAlgoOrder->CancelOrderOnSpread(pdata, eventTime); // 执行撤单逻辑
 
-                pAlgoOrder->posMgrMakerTaker.UpdateAccountOnMarketDepth(activeDepth);  // 更新floatAmount
-                pAlgoOrder->posMgrTakerTaker.UpdateAccountOnMarketDepth(activeDepth);  // 更新floatAmount
-                pAlgoOrder->posMgrMakerTaker.UpdateAccountOnMarketDepth(passiveDepth);
-                pAlgoOrder->posMgrTakerTaker.UpdateAccountOnMarketDepth(passiveDepth);
+                // 暂时注释
+                // pAlgoOrder->posMgrMakerTaker.UpdateAccountOnMarketDepth(activeBbo);  // 更新floatAmount
+                // pAlgoOrder->posMgrTakerTaker.UpdateAccountOnMarketDepth(activeBbo);  // 更新floatAmount
+                // pAlgoOrder->posMgrMakerTaker.UpdateAccountOnMarketDepth(passiveBbo);
+                // pAlgoOrder->posMgrTakerTaker.UpdateAccountOnMarketDepth(passiveBbo);
 
-                if (pAlgoOrder->algoOrderStatus != stra::OrderStatus_NEW && pAlgoOrder->algoOrderStatus != stra::OrderStatus_PARTFILLED) { // algoOrderStatus;  // New Cancelling Canceled Filled Fault
+                if (pAlgoOrder->algoOrderStatus != OS_NEW && pAlgoOrder->algoOrderStatus != OS_PARTFILLED) { // algoOrderStatus;  // New Cancelling Canceled Filled Fault
                     continue;
                 }
 
@@ -904,7 +890,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                     // 配对单Onspread逻辑
                     // 如果订单与spread相关
                     // 检查行情有效性
-                    if (quantSpread.spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
+                    if (pdata->spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
                         // 行情有效支持开仓
                         if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag) {
                             // MakerTaker延迟与滑点
@@ -916,7 +902,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                     if (pass) {
                                         PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER);
                                         if (pairOrder.pairId > 0) {
-                                            WritePairOrder(pairOrder, quantSpread);
+                                            WritePairOrder(pairOrder, pdata);
                                             pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
                                             stra::QuantOrder quant_order = pairOrder.CreateActiveOrder(strategyOrderId);
@@ -927,7 +913,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 if (verify) {
                                                     // 通过验资正常报单
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                    WriteQuantOrder(quant_order, quantSpread);
+                                                    WriteQuantOrder(quant_order, pdata);
                                                     if (orderFlag) {
                                                         pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                     }
@@ -950,8 +936,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                         for (auto iterActive = iterPair->second.sActiveOrder.begin(); iterActive != iterPair->second.sActiveOrder.end(); ++iterActive) {
                                             int64_t strategyOrderId = *iterActive;
                                             stra::QuantOrder quantOrder = pAlgoOrder->orderMgr.SelectOrderByStrategyOrderId(strategyOrderId);
-                                            //if (quantOrder.orderStatus == stra::OrderStatus_NEW || quantOrder.orderStatus == stra::OrderStatus_PARTFILLED) {
-                                            if (quantOrder.orderStatus == stra::OrderStatus_PEND_NEW || quantOrder.orderStatus == stra::OrderStatus_PENDING_NEW || quantOrder.orderStatus == stra::OrderStatus_NEW || quantOrder.orderStatus == stra::OrderStatus_PARTFILLED) {
+                                            if (quantOrder.orderStatus == OS_PEND || quantOrder.orderStatus == OS_PENDING_NEW || quantOrder.orderStatus == OS_NEW || quantOrder.orderStatus == OS_PARTFILLED) {
                                                 createFlag = false;
                                                 break;
                                             }
@@ -966,7 +951,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                         if (pass) {
                                             PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER);
                                             if (pairOrder.pairId > 0) {
-                                                WritePairOrder(pairOrder, quantSpread);
+                                                WritePairOrder(pairOrder, pdata);
                                                 pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateActiveOrder(strategyOrderId);
@@ -977,7 +962,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                        WriteQuantOrder(quant_order, quantSpread);
+                                                        WriteQuantOrder(quant_order, pdata);
                                                         if (orderFlag) {
                                                             pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                         }
@@ -1003,7 +988,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                     if (pass) {
                                         PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER);
                                         if (pairOrder.pairId > 0) {
-                                            WritePairOrder(pairOrder, quantSpread);
+                                            WritePairOrder(pairOrder, pdata);
                                             pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
                                             stra::QuantOrder quant_order = pairOrder.CreateActiveOrder(strategyOrderId);
@@ -1014,7 +999,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 if (verify) {
                                                     // 通过验资正常报单
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                    WriteQuantOrder(quant_order, quantSpread);
+                                                    WriteQuantOrder(quant_order, pdata);
                                                     if (orderFlag) {
                                                         pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                     }
@@ -1036,8 +1021,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                         for (auto iterActive = iterPair->second.sActiveOrder.begin(); iterActive != iterPair->second.sActiveOrder.end(); ++iterActive) {
                                             int64_t strategyOrderId = *iterActive;
                                             stra::QuantOrder quantOrder = pAlgoOrder->orderMgr.SelectOrderByStrategyOrderId(strategyOrderId);
-                                            //if (quantOrder.orderStatus == stra::OrderStatus_NEW || quantOrder.orderStatus == stra::OrderStatus_PARTFILLED) {
-                                            if (quantOrder.orderStatus == stra::OrderStatus_PEND_NEW || quantOrder.orderStatus == stra::OrderStatus_PENDING_NEW || quantOrder.orderStatus == stra::OrderStatus_NEW || quantOrder.orderStatus == stra::OrderStatus_PARTFILLED) {
+                                            if (quantOrder.orderStatus == OS_PEND || quantOrder.orderStatus == OS_PENDING_NEW || quantOrder.orderStatus == OS_NEW || quantOrder.orderStatus == OS_PARTFILLED) {
                                                 createFlag = false;
                                                 break;
                                             }
@@ -1053,7 +1037,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                         if (pass) {
                                             PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER);
                                             if (pairOrder.pairId > 0) {
-                                                WritePairOrder(pairOrder, quantSpread);
+                                                WritePairOrder(pairOrder, pdata);
                                                 pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateActiveOrder(strategyOrderId);
@@ -1064,7 +1048,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                        WriteQuantOrder(quant_order, quantSpread);
+                                                        WriteQuantOrder(quant_order, pdata);
                                                         if (orderFlag) {
                                                             pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                         }
@@ -1084,7 +1068,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                     } 
                 } else if (pAlgoOrder->algoType == stra::AlgoType_FishingTrading && openOrderFlag) {  // 执行拆单报单逻辑
                 // 钓鱼单逻辑
-                    if (quantSpread.spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
+                    if (pdata->spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
                         // 行情有效支持开仓
                         if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag) {
                             // MakerTaker延迟与滑点
@@ -1096,9 +1080,9 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                     if (pass) {
                                         if (pAlgoOrder->pairTotalVolume < 0){
                                             // 再平衡模式根据当前持仓选择方向
-                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER, stra::Direction_LONG);
+                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER, DT_LONG);
                                             if (pairOrder.pairId > 0) {
-                                                WritePairOrder(pairOrder, quantSpread);
+                                                WritePairOrder(pairOrder, pdata);
                                                 pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
@@ -1109,7 +1093,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                        WriteQuantOrder(quant_order, quantSpread);
+                                                        WriteQuantOrder(quant_order, pdata);
                                                         if (orderFlag) {
                                                             pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                         }
@@ -1122,9 +1106,9 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 }
                                             }
                                         } else{
-                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER, stra::Direction_SHORT);
+                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER, DT_SHORT);
                                             if (pairOrder.pairId > 0) {
-                                                WritePairOrder(pairOrder, quantSpread);
+                                                WritePairOrder(pairOrder, pdata);
                                                 pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
@@ -1135,7 +1119,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                        WriteQuantOrder(quant_order, quantSpread);
+                                                        WriteQuantOrder(quant_order, pdata);
                                                         if (orderFlag) {
                                                             pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                         }
@@ -1154,11 +1138,11 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                 // 非再平衡模式一种类型的订单可以有多个订单, 后续可以通过挂单数调整挂价距离
                                 bool pass = LimitManager::Instance().PassLimit(pAlgoOrder->activeAccountId);
                                 if (pass) {
-                                    if (pAlgoOrder->pairOrderMgr.GetSizeByOrderTypeAndActiveDirection(stra::MAKER_TAKER, stra::Direction_LONG) < pAlgoOrder->maxMTOrderSize){
+                                    if (pAlgoOrder->pairOrderMgr.GetSizeByOrderTypeAndActiveDirection(stra::MAKER_TAKER, DT_LONG) < pAlgoOrder->maxMTOrderSize){
                                         // 主动腿多头报单
-                                        PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER, stra::Direction_LONG);
+                                        PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER, DT_LONG);
                                         if (pairOrder.pairId > 0) {
-                                            WritePairOrder(pairOrder, quantSpread);
+                                            WritePairOrder(pairOrder, pdata);
                                             pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
                                             stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
@@ -1169,7 +1153,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 if (verify) {
                                                     // 通过验资正常报单
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                    WriteQuantOrder(quant_order, quantSpread);
+                                                    WriteQuantOrder(quant_order, pdata);
                                                     if (orderFlag) {
                                                         pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                     }
@@ -1182,11 +1166,11 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                             }
                                         }
                                     }
-                                    if (pAlgoOrder->pairOrderMgr.GetSizeByOrderTypeAndActiveDirection(stra::MAKER_TAKER, stra::Direction_SHORT) < pAlgoOrder->maxMTOrderSize){
+                                    if (pAlgoOrder->pairOrderMgr.GetSizeByOrderTypeAndActiveDirection(stra::MAKER_TAKER, DT_SHORT) < pAlgoOrder->maxMTOrderSize){
                                         // 主动腿空头报单
-                                        PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER, stra::Direction_SHORT);
+                                        PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER, DT_SHORT);
                                         if (pairOrder.pairId > 0) {
-                                            WritePairOrder(pairOrder, quantSpread);
+                                            WritePairOrder(pairOrder, pdata);
                                             pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
                                             stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
@@ -1197,7 +1181,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 if (verify) {
                                                     // 通过验资正常报单
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                    WriteQuantOrder(quant_order, quantSpread);
+                                                    WriteQuantOrder(quant_order, pdata);
                                                     if (orderFlag) {
                                                         pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                     }
@@ -1222,9 +1206,9 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                     if (pass) {
                                         // 再平衡模式根据当前持仓选择方向
                                         if (pAlgoOrder->pairTotalVolume < 0){
-                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER, stra::Direction_LONG);
+                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER, DT_LONG);
                                             if (pairOrder.pairId > 0) {
-                                                WritePairOrder(pairOrder, quantSpread);
+                                                WritePairOrder(pairOrder, pdata);
                                                 pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
@@ -1235,7 +1219,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                        WriteQuantOrder(quant_order, quantSpread);
+                                                        WriteQuantOrder(quant_order, pdata);
                                                         if (orderFlag) {
                                                             pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                         }
@@ -1248,9 +1232,9 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 }
                                             }
                                         } else {
-                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER, stra::Direction_SHORT);
+                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER, DT_SHORT);
                                             if (pairOrder.pairId > 0) {
-                                                WritePairOrder(pairOrder, quantSpread);
+                                                WritePairOrder(pairOrder, pdata);
                                                 pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
@@ -1261,7 +1245,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                        WriteQuantOrder(quant_order, quantSpread);
+                                                        WriteQuantOrder(quant_order, pdata);
                                                         if (orderFlag) {
                                                             pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                         }
@@ -1281,10 +1265,10 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                     // 如果进入再平衡模式，需要无配对单才可以报单
                                     bool pass = LimitManager::Instance().PassLimit(pAlgoOrder->activeAccountId);
                                     if (pass) {
-                                        if (pAlgoOrder->pairOrderMgr.GetSizeByOrderTypeAndActiveDirection(stra::MAKER_TAKER, stra::Direction_LONG) < pAlgoOrder->maxMTOrderSize){
-                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER, stra::Direction_LONG);
+                                        if (pAlgoOrder->pairOrderMgr.GetSizeByOrderTypeAndActiveDirection(stra::MAKER_TAKER, DT_LONG) < pAlgoOrder->maxMTOrderSize){
+                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER, DT_LONG);
                                             if (pairOrder.pairId > 0) {
-                                                WritePairOrder(pairOrder, quantSpread);
+                                                WritePairOrder(pairOrder, pdata);
                                                 pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
@@ -1295,7 +1279,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                        WriteQuantOrder(quant_order, quantSpread);
+                                                        WriteQuantOrder(quant_order, pdata);
                                                         if (orderFlag) {
                                                             pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                         }
@@ -1308,10 +1292,10 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 }
                                             }
                                         }
-                                        if (pAlgoOrder->pairOrderMgr.GetSizeByOrderTypeAndActiveDirection(stra::TAKER_TAKER, stra::Direction_SHORT) < pAlgoOrder->maxMTOrderSize){
-                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER, stra::Direction_SHORT);
+                                        if (pAlgoOrder->pairOrderMgr.GetSizeByOrderTypeAndActiveDirection(stra::TAKER_TAKER, DT_SHORT) < pAlgoOrder->maxMTOrderSize){
+                                            PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER, DT_SHORT);
                                             if (pairOrder.pairId > 0) {
-                                                WritePairOrder(pairOrder, quantSpread);
+                                                WritePairOrder(pairOrder, pdata);
                                                 pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
@@ -1322,7 +1306,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                        WriteQuantOrder(quant_order, quantSpread);
+                                                        WriteQuantOrder(quant_order, pdata);
                                                         if (orderFlag) {
                                                             pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                         }
@@ -1342,7 +1326,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                     } 
                 }
                 else if (pAlgoOrder->algoType == stra::AlgoType_Rebalance && openOrderFlag) {
-                    if (quantSpread.spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
+                    if (pdata->spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
                         if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag) {
                             if (pAlgoOrder->mtRebalanceFlag) {
                                 if (pAlgoOrder->pairOrderMgr.GetSizeByOrderType(stra::MAKER_TAKER) == 0) {
@@ -1350,7 +1334,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                     if (pass) {
                                         PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::MAKER_TAKER);
                                         if (pairOrder.pairId > 0) {
-                                            WritePairOrder(pairOrder, quantSpread);
+                                            WritePairOrder(pairOrder, pdata);
                                             pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
 
@@ -1371,7 +1355,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
                                                 if (verify) {
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                    WriteQuantOrder(quant_order, quantSpread);
+                                                    WriteQuantOrder(quant_order, pdata);
                                                     if (orderFlag) {
                                                         pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                     }
@@ -1397,7 +1381,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                     if (pass) {
                                         PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER);
                                         if (pairOrder.pairId > 0) {
-                                            WritePairOrder(pairOrder, quantSpread);
+                                            WritePairOrder(pairOrder, pdata);
                                             pAlgoOrder->pairOrderMgr.InsertPairOrderByPairOrder(pairOrder);
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
 
@@ -1418,7 +1402,7 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
                                                 bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
                                                 if (verify) {
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
-                                                    WriteQuantOrder(quant_order, quantSpread);
+                                                    WriteQuantOrder(quant_order, pdata);
                                                     if (orderFlag) {
                                                         pAlgoOrder->UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
                                                     }
@@ -1453,14 +1437,10 @@ void AlgoContext::OnSpreadTrade(const stra::QuantSpread& quantSpread, int64_t ev
     }
 }
 
-void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
+void AlgoContext::OnOrder(pubsub::OrderResponse& orderResponse) {
     try {
-        int64_t nowTime = 0;
-        if (isreal){
-            nowTime = GetCurrentTimeUs();
-        } else {
-            nowTime = eventTime;
-        }
+        int64_t nowTime = crypto::getCurrentTime();
+  
 
         BaseAlgoOrder* pAlgoOrder = alogOrderManager.SeletAlgoOrderByAlgoOrderId(order.algoId);
         if (pAlgoOrder != nullptr) {
@@ -1472,7 +1452,7 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
                 }
                 // 更新od_mgr与quant_order
 
-                stra::QuantSpread quantSpread = SpreadManager::Instance().GetLastSpread(pAlgoOrder->pairInstrumentKey);
+                dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pAlgoOrder->pairInstrumentKey);
                 stra::QuantOrder quantOrder = pAlgoOrder->orderMgr.SelectOrderByStrategyOrderId(order.clOrdId);
 
                 if (quantOrder.totalVolumeOnOrder - order.totalVolumeOnOrder > stra::MIN_FLOAT) {  // 过滤乱序的报单
@@ -1480,19 +1460,19 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
                 }
 
                 // 订单状态适配
-                if (order.apiSource == stra::ApiSource_CANCEL_ORDER && order.orderStatus == stra::OrderStatus_REJECTED) {
-                    if (order.exchangType == stra::ET_BYBIT || order.exchangType == stra::ET_BITGET) {
-                        order.orderStatus = stra::OrderStatus_REJECTED;
+                if (order.apiSource == AS_CANCEL_ORDER && order.orderStatus == OS_REJECTED {
+                    if (order.exchangType == BYBIT || order.exchangType == BITGET) {
+                        order.orderStatus = OS_REJECTED;
                     }
                     else {
-                        order.orderStatus = stra::OrderStatus_FAILED;
+                        order.orderStatus = OS_FAILED;
                     }
-                } else if (order.apiSource == stra::ApiSource_QUERY_ORDER && order.orderStatus == stra::OrderStatus_REJECTED && strlen(quantOrder.exchangeOrderId) > 0){
-                    if (order.exchangType == stra::ET_BYBIT || order.exchangType == stra::ET_BITGET) {
-                        order.orderStatus = stra::OrderStatus_REJECTED;
+                } else if (order.apiSource == AS_QUERY_ORDER && order.orderStatus == OS_REJECTED && strlen(quantOrder.exchangeOrderId) > 0){
+                    if (order.exchangType == BYBIT || order.exchangType == BITGET) {
+                        order.orderStatus = OS_REJECTED;
                     }
                     else {
-                        order.orderStatus = stra::OrderStatus_UNKNOWN;
+                        order.orderStatus = OS_UNKNOWN;
                     }
                 }
                 // 订单手续费适配
@@ -1500,22 +1480,22 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
                 double temp_fee_rate = 0.0;
                 if (quantOrder.isActiveOrder){
                     // if (order.isMaker)
-                    if (quantOrder.orderType == stra::OrderType_POST_ONLY) {
+                    if (quantOrder.orderType == OT_POST_ONLY) {
                         temp_fee_rate = pAlgoOrder->activeMakerFeeRate;
                     } else {
                         temp_fee_rate = pAlgoOrder->activeTakerFeeRate;
                     }
                 } else {
                     // if (order.isMaker){
-                    if (quantOrder.orderType == stra::OrderType_POST_ONLY) {
+                    if (quantOrder.orderType == OT_POST_ONLY) {
                         temp_fee_rate = pAlgoOrder->passiveMakerFeeRate;
                     } else {
                         temp_fee_rate = pAlgoOrder->passiveTakerFeeRate;
                     }
                 }
                 if (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder > stra::MIN_FLOAT){
-                    if (quantOrder.instType == stra::InstType_SPOT || quantOrder.instType == stra::InstType_MARGIN){
-                        if (quantOrder.direction==stra::Direction_LONG){
+                    if (quantOrder.instType == SPOT || quantOrder.instType == MARGIN){
+                        if (quantOrder.direction == DT_LONG){
                             order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder * order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder * quantOrder.totalPriceOnOrder) / (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder);
                             strncpy(order.lastExecutedTradeFeeCurrency, info.instLeft.c_str(), stra::ASSET_LEN);
                             order.lastExecutedTradeFee = order.lastExecutedVolumeOnOrder * temp_fee_rate;
@@ -1538,7 +1518,7 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
                 }
                 // 进行延迟计算与检查
                 //LOG_INFO("OnOrder check orderstatus PEND_NEW CANCEL!");
-                if (quantOrder.orderStatus == stra::OrderStatus_PEND_NEW || quantOrder.orderStatus == stra::OrderStatus_CANCEL) {
+                if (quantOrder.orderStatus == OS_PEND || quantOrder.orderStatus == OS_CANCEL) {
                     pAlgoOrder->systemDelayTimeSpan = 0.8 * pAlgoOrder->systemDelayTimeSpan + 0.2 * (nowTime - quantOrder.updateTime);
                     // if (pAlgoOrder->systemDelayTimeSpan > 20000) {
                     if (pAlgoOrder->systemDelayTimeSpan > 50000) {
@@ -1551,7 +1531,7 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
                 }
 
                 //LOG_INFO("OnOrder check orderstatus PENDING_NEW CANCELLING!");
-                if (quantOrder.orderStatus == stra::OrderStatus_PENDING_NEW || quantOrder.orderStatus == stra::OrderStatus_CANCELLING) {
+                if (quantOrder.orderStatus == OS_PENDING_NEW || quantOrder.orderStatus == OS_CANCELLING) {
                     pAlgoOrder->exchangeDelayTimeSpan = 0.8 * pAlgoOrder->exchangeDelayTimeSpan + 0.2 * (nowTime - quantOrder.updateTime);
                     int64_t oneSecond = 1000 * 1000;
                     int64_t scd10 = 10 * oneSecond;
@@ -1566,7 +1546,7 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
 
                 //LOG_INFO("OnOrder start update order!");
                 // 开始更新订单
-                if (order.apiSource == stra::ApiSource_QUERY_ORDER) {
+                if (order.apiSource == AS_QUERY_ORDER) {
                     quantOrder = pAlgoOrder->orderMgr.UpdateOrderOnQueryOrder(order, eventTime);
                 } else {
                     quantOrder = pAlgoOrder->orderMgr.UpdateOrderOnOrder(order, eventTime);
@@ -1575,13 +1555,13 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
 
                 //LOG_INFO("OnOrder write quant order!");
                 if (quantOrder.strategyOrderId > 0) {
-                    WriteQuantOrder(quantOrder, quantSpread); // 行情数据写入
+                    WriteQuantOrder(quantOrder, pdata); // 行情数据写入
                 }
                 
                 //LOG_INFO("OnOrder start update algoPairOrderByQuantOrder!");
                 // 更新algo_order的ps_mgr与pair_order
                 pAlgoOrder->UpdateAlgoPairOrderByQuantOrder(quantOrder, eventTime);
-                if (quantOrder.orderStatus == stra::OrderStatus_FILLED || quantOrder.orderStatus == stra::OrderStatus_REJECTED || quantOrder.orderStatus == stra::OrderStatus_CANCELED) {
+                if (quantOrder.orderStatus == OS_FILLED|| quantOrder.orderStatus == OS_REJECTED || quantOrder.orderStatus == OS_CANCELED) {
                     // 订单完结解冻
                     //LOG_INFO("OnOrder start update algoPairOrderByDeleteQuantOrder!");
                     pAlgoOrder->UpdateAlgoPairOrderByDeleteQuantOrder(quantOrder, eventTime);
@@ -1600,8 +1580,8 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
                 }
                 //LOG_INFO("OnOrder Update end!");
                 if (quantOrder.isActiveOrder) {
-                    if (quantOrder.orderStatus == stra::OrderStatus_NEW || quantOrder.orderStatus == stra::OrderStatus_PARTFILLED) {
-                        pAlgoOrder->CancelOrderOnSpread(quantSpread, eventTime); // 执行撤单逻辑
+                    if (quantOrder.orderStatus == OS_NEW || quantOrder.orderStatus == OS_PARTFILLED) {
+                        pAlgoOrder->CancelOrderOnSpread(pdata, eventTime); // 执行撤单逻辑
                     }
                 }
             }
@@ -1619,10 +1599,6 @@ void AlgoContext::OnOrder(stra::TdOrder& order, int64_t eventTime) {
     }
 }
 
-void AlgoContext::OnPosition(const stra::TdPosition& position, int64_t eventTime) {
-
-}
-
 void AlgoContext::OnKline() {
 
 }
@@ -1631,26 +1607,11 @@ void AlgoContext::OnFundingRate() {
 
 }
 
-void AlgoContext::OnTimerTrade(int64_t eventTime) {
-    auto& allAlgoOrders = alogOrderManager.GetAllAlgoOrders();
-    for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end(); ++it) {
-        BaseAlgoOrder* pAlgoOrder = it->second;
-        const stra::QuantSpread& quantSpread = SpreadManager::Instance().GetLastSpread(pAlgoOrder->pairInstrumentKey);
-        if (quantSpread.generateTs > 0) {
-            OnSpreadTrade(quantSpread, eventTime);
-        }
-    }
-}
-
 void AlgoContext::OnTimer(int64_t eventTime) {
     // 延迟检查，订单从发出到回报的延迟时间作为一个变量存起来，超过标准需要报警
     // 杠杆检查，accountMgr杠杆过高检查，超过标准需要报警。未来在极端情况下强制进行自动减仓
     // 订单异常检查
     try {
-        if (onTimerTrade) {
-            OnTimerTrade(eventTime);
-        }
-
         bool deleteAlgoOrderFlag = false;
         double orderAmount = 0.0;
         int64_t second1 = 1000 * 1000;
@@ -1698,10 +1659,10 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             }
             
             // 行情检查
-            stra::QuantSpread quantSpread = SpreadManager::Instance().GetLastSpread(it->second->pairInstrumentKey);
-            if (eventTime - quantSpread.generateTs > 30 * second1 && mSpreadReportCount[it->second->pairInstrumentKey] > 60) {
+            dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(it->second->pairInstrumentKey);
+            if (eventTime - pdata->generateTs > 30 * second1 && mSpreadReportCount[it->second->pairInstrumentKey] > 60) {
                 char msg[stra::MSG_LEN];
-                sprintf(msg, "check spread data !!! strategyName:%s algoOrderId:%ld pairInstrumentKey:%s  eventTime:%ld  quantSpread.generateTs:%ld", it->second->algoStrategyName, it->second->algoOrderId, it->second->pairInstrumentKey, eventTime, quantSpread.generateTs);
+                sprintf(msg, "check spread data !!! strategyName:%s algoOrderId:%ld pairInstrumentKey:%s  eventTime:%ld  pdata->generateTs:%ld", it->second->algoStrategyName, it->second->algoOrderId, it->second->pairInstrumentKey, eventTime, pdata->generateTs);
                 rLarkMsg.Push(msg);
                 LOG_INFO("Spread {}", msg);
                 it->second->commandType = stra::CommandType_ERROR;
@@ -1712,7 +1673,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             // 异常订单检查
             for (auto iu = allOrders.begin(); iu != allOrders.end(); ++iu) {
                 auto& order = iu->second;
-                if (order.orderStatus == stra::OrderStatus_CANCEL || order.orderStatus == stra::OrderStatus_CANCELLING || order.orderStatus == stra::OrderStatus_PENDING_NEW || order.orderStatus == stra::OrderStatus_PEND_NEW) {
+                if (order.orderStatus == OS_CANCEL || order.orderStatus == OS_CANCELLING || order.orderStatus == OS_PEND || order.orderStatus == OS_PENDING_NEW) {
                     if (eventTime - order.updateTime > second1 * 5) {
                         // LOG_INFO("lark alarm! quantOrder: %s", order.GetStr().c_str());
                         // 异步lark报警
@@ -1745,7 +1706,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             order.queryCount += 1;
                         }
                     }
-                } else if(order.orderStatus == stra::OrderStatus_UNKNOWN) {
+                } else if(order.orderStatus == OS_UNKNOWN) {
                     if (eventTime - order.updateTime > second1 * 15) {
                         // LOG_INFO("lark alarm! quantOrder: %s", order.GetStr().c_str());
                         // 异步lark报警
@@ -1794,7 +1755,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         if (orderAmount < minSize && allPairOrders.size() == 0) {
                             //
                             //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
-                            it->second->algoOrderStatus = stra::OrderStatus_FILLED;
+                            it->second->algoOrderStatus = OS_FILLED;
                             it->second->commandType = stra::CommandType_FINISHED;
                             it->second->updateTime = eventTime;
                             // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
@@ -1811,7 +1772,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         if (orderAmount < it->second->activeInfo.minSize && allPairOrders.size() == 0) {
                             //
                             //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
-                            it->second->algoOrderStatus = stra::OrderStatus_FILLED;
+                            it->second->algoOrderStatus = OS_FILLED;
                             it->second->commandType = stra::CommandType_FINISHED;
                             it->second->updateTime = eventTime;
                             // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
@@ -1878,7 +1839,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             }
 	    */
 
-            if (allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::OrderStatus_CANCELLING) {
+            if (allPairOrders.size() == 0 && it->second->algoOrderStatus == OS_CANCELLING) {
                 it->second->commandType = stra::CommandType_CANCELED;
                 it->second->algoOrderStatus = stra::OrderStatus_CANCELED;
                 string pubMsg = it->second->GeneratePubStr();
@@ -2007,15 +1968,15 @@ void AlgoContext::OnTimer(int64_t eventTime) {
     // rebalanceFlag设置
 }
 
-void AlgoContext::OnBalance(const stra::TdBalance& balance) {
+void AlgoContext::OnBalance(const pubsub::Balance& balance) {
     AccountManager::Instance().OnBalance(balance);
 }
 
-void AlgoContext::OnPosition(const stra::TdPosition& position) {
+void AlgoContext::OnPosition(const pubsub::Position& position) {
     AccountManager::Instance().OnPosition(position);
 }
 
-void AlgoContext::OnTotalAccount(const stra::TdTotalAccount& totalAccount) {
+void AlgoContext::OnTotalAccount(const pubsub::TotalAccount& totalAccount) {
     AccountManager::Instance().OnTotalAccount(totalAccount);
 }
 

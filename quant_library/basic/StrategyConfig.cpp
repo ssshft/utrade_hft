@@ -45,13 +45,13 @@ void StrategyConfig::LoadStrategy() {
         accountInfo.accountName = itemAccount.get<string>("accountname");
         accountInfo.accountId = itemAccount.get<int>("accountid");
         accountInfo.accountType = stra::AccountTypeStr2Enum[itemAccount.get<string>("accounttype")];
-        accountInfo.exchangeType = stra::ExchangeTypeStr2Enum[itemAccount.get<string>("exchangetype")];
+        accountInfo.exchangeType = ExchangeTypeStr2EnumMap[itemAccount.get<string>("exchangetype")];
 
         string instType = itemAccount.get<string>("insttype");
         vector<string> v;
         splitString(instType, v, ",");
         for (size_t i = 0; i < v.size(); ++i) {
-            accountInfo.vInstType.push_back(stra::InstTypeStr2Enum[v[i]]);
+            accountInfo.vInstType.push_back(InstTypeStr2EnumMap[v[i]]);
         }
 
         accountInfo.strategyId = itemAccount.get<string>("strategyid");
@@ -84,10 +84,10 @@ void StrategyConfig::LoadStrategy() {
 	LOG_INFO("accountName: %s", accountInfo.accountName.c_str());
 	LOG_INFO("accountId: %d", accountInfo.accountId);
 	LOG_INFO("accountType: %s", stra::AccountTypeEnum2Str[accountInfo.accountType].c_str());
-	LOG_INFO("exchangeType: %s", stra::ExchangeTypeEnum2Str[accountInfo.exchangeType].c_str());
+	LOG_INFO("exchangeType: %s", ExchangeTypeEnum2StrMap[accountInfo.exchangeType].c_str());
 
     for (size_t i = 0; i < accountInfo.vInstType.size(); ++i) {
-        LOG_INFO("instType: %s", stra::InstTypeEnum2Str[accountInfo.vInstType[i]].c_str());
+        LOG_INFO("instType: %s", InstTypeEnum2StrMap[accountInfo.vInstType[i]].c_str());
     }
 
 	LOG_INFO("strategyId: %s", accountInfo.strategyId.c_str());

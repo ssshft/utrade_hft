@@ -22,6 +22,7 @@ inline void InitClassReflect(){
     //ADD_CLASS_REGISTER(DelayTest);
     //ADD_CLASS_REGISTER(Aegis01);
     ADD_CLASS_REGISTER(AlgoPairStrategy);
+    ADD_CLASS_REGISTER(PairTradingStrategy);
     // ADD_CLASS_REGISTER(BinanceUnitTest);
     // ADD_CLASS_REGISTER(GateioUnitTest);
     // ADD_CLASS_REGISTER(XTUnitTest);

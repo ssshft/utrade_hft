@@ -72,12 +72,9 @@ void PairTradingStrategy::on_command(const std::string& json) {
     algoContext.OnCommand(json);
 }
 
-void PairTradingStrategy::on_timer(const long& utcTime) {
-    int64_t nowUs = static_cast<int64_t>(utcTime) * 1000LL;
-
-    algoContext.OnTimer(nowUs);
-
-    ptContext.OnTimer(nowUs);
+void PairTradingStrategy::on_timer(const int64_t& utcTime) {
+    algoContext.OnTimer(utcTime);
+    ptContext.OnTimer(utcTime);
 
     if (nowUs - m_lastScanUs >= SCAN_INTERVAL_US) {
         ScanFinishedAlgoOrders(nowUs);
@@ -85,7 +82,7 @@ void PairTradingStrategy::on_timer(const long& utcTime) {
     }
 }
 
-void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic,const dbp::DbpData* pdata,uint32_t jumpedNum)
+void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum)
 {
     // std::cout << "pairInstrumentKey:  " << topic->__name << std::endl;
     // return;
@@ -192,118 +189,121 @@ void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic,const dbp::DbpDa
     // mdSpread.exchActiveTradeDelay;
     // mdSpread.exchPassiveTradeDelay;
 
-    int64_t currentTime = GetCurrentTimeUs();
+    int64_t currentTime = crypto::getCurrentTime();
 
     algoContext.OnSpread(mdSpread, currentTime);
-
     ptContext.OnSpread(mdSpread, currentTime);
+
+    algoContext.OnSpread(topic, pdata);
+    ptContext.OnSpread(topic, pdata);
+
 }
 
 
-void PairTradingStrategy::on_balance(om::Balance &balance){
+void PairTradingStrategy::on_balance(pubsub::Balance& balance){
     //DEBUGLINE
-    int64_t currentTime = GetCurrentTimeUs();
-    stra::TdBalance ba;
-    ba.accountId = mAccountNameAccountId[balance.accountId];
-    ba.exchangType = stra::ExchangeType(balance.exchangeTypeEnum);
-    ba.instType = stra::InstType(balance.instTypeEnum);
-    strncpy(ba.strategyId, balance.strategyId, stra::ID_LEN);
-    strncpy(ba.currency, balance.currency, stra::ASSET_LEN);
-    ba.total = balance.total;
-    ba.available = balance.available;
-    ba.unrealizedPnl = balance.unrealizedPnl;
-    ba.frozen = balance.frozen;
-    ba.updateTime = balance.updateTime;
+    int64_t currentTime = crypto::getCurrentTime();
+    // stra::TdBalance ba;
+    // ba.accountId = mAccountNameAccountId[balance.accountId];
+    // ba.exchangType = stra::ExchangeType(balance.exchangeTypeEnum);
+    // ba.instType = stra::InstType(balance.instTypeEnum);
+    // strncpy(ba.strategyId, balance.strategyId, stra::ID_LEN);
+    // strncpy(ba.currency, balance.currency, stra::ASSET_LEN);
+    // ba.total = balance.total;
+    // ba.available = balance.available;
+    // ba.unrealizedPnl = balance.unrealizedPnl;
+    // ba.frozen = balance.frozen;
+    // ba.updateTime = balance.updateTime;
 
-    algoContext.OnBalance(ba);
-    ptContext.OnBalance(ba);
+    algoContext.OnBalance(balance);
+    ptContext.OnBalance(balance);
 }
 
 //仓位推送
-void PairTradingStrategy::on_position(om::Position &position){
+void PairTradingStrategy::on_position(pubsub::Position& position){
     //DEBUGLINE 
-    int64_t currentTime = GetCurrentTimeUs();
-    stra::TdPosition pos;
-    pos.accountId = mAccountNameAccountId[position.accountId];
-    pos.exchangType = stra::ExchangeType(position.exchangeTypeEnum);
-    pos.instType = stra::InstType(position.instTypeEnum);
-    strncpy(pos.strategyId, position.strategyId, stra::ID_LEN);
-    strncpy(pos.instrument, position.instId, stra::INST_ID_LEN);
-    pos.direction = stra::Direction(position.direction);
-    pos.volume = position.volume;
-    pos.maintMargin = position.maintMargin;
-    pos.avgPrice = position.avgPrice;
-    pos.unrealizedPnl = position.unrealizedPnl;
-    pos.liquidPrice = position.liquidPrice;
-    pos.adlQuantile = position.adlQuantile;
-    pos.markPrice = position.markPrice;
-    pos.updateTime = position.updateTime;
+    int64_t currentTime = crypto::getCurrentTime();
+    // stra::TdPosition pos;
+    // pos.accountId = mAccountNameAccountId[position.accountId];
+    // pos.exchangType = stra::ExchangeType(position.exchangeTypeEnum);
+    // pos.instType = stra::InstType(position.instTypeEnum);
+    // strncpy(pos.strategyId, position.strategyId, stra::ID_LEN);
+    // strncpy(pos.instrument, position.instId, stra::INST_ID_LEN);
+    // pos.direction = stra::Direction(position.direction);
+    // pos.volume = position.volume;
+    // pos.maintMargin = position.maintMargin;
+    // pos.avgPrice = position.avgPrice;
+    // pos.unrealizedPnl = position.unrealizedPnl;
+    // pos.liquidPrice = position.liquidPrice;
+    // pos.adlQuantile = position.adlQuantile;
+    // pos.markPrice = position.markPrice;
+    // pos.updateTime = position.updateTime;
 
-    algoContext.OnPosition(pos);
-    ptContext.OnPosition(pos);
+    algoContext.OnPosition(position);
+    ptContext.OnPosition(position);
 }
 
 //账户总览推送
-void PairTradingStrategy::on_total_account(om::TotalAccount &totalAccount) {
+void PairTradingStrategy::on_total_account(pubsub::TotalAccount& totalAccount) {
     //DEBUGLINE
-    int64_t currentTime = GetCurrentTimeUs();
-    stra::TdTotalAccount ta;
-    ta.accountId = mAccountNameAccountId[totalAccount.accountId];
-    ta.exchangType = stra::ExchangeType(totalAccount.exchangeTypeEnum);
-    ta.instType = stra::InstType(totalAccount.instTypeEnum);
-    strncpy(ta.strategyId, totalAccount.strategyId, stra::ID_LEN);
-    ta.totalEquity = totalAccount.totalEquity;
-    ta.adjEquity = totalAccount.adjEquity;
-    ta.mmr = totalAccount.mmr;
-    ta.mgnRatio = totalAccount.mgnRatio;
-    ta.updateTime = totalAccount.updateTime;
+    int64_t currentTime = crypto::getCurrentTime();
+    // stra::TdTotalAccount ta;
+    // ta.accountId = mAccountNameAccountId[totalAccount.accountId];
+    // ta.exchangType = stra::ExchangeType(totalAccount.exchangeTypeEnum);
+    // ta.instType = stra::InstType(totalAccount.instTypeEnum);
+    // strncpy(ta.strategyId, totalAccount.strategyId, stra::ID_LEN);
+    // ta.totalEquity = totalAccount.totalEquity;
+    // ta.adjEquity = totalAccount.adjEquity;
+    // ta.mmr = totalAccount.mmr;
+    // ta.mgnRatio = totalAccount.mgnRatio;
+    // ta.updateTime = totalAccount.updateTime;
 
-    algoContext.OnTotalAccount(ta);
-    ptContext.OnTotalAccount(ta);
+    algoContext.OnTotalAccount(totalAccount);
+    ptContext.OnTotalAccount(totalAccount);
 }
 
 // rest，报单撤单返回的回报
 //订单成交变化
-void PairTradingStrategy::on_ordertrade(om::OrderTrade &orderTrade){
+void PairTradingStrategy::on_ordertrade(pubsub::OrderResponse& orderResponse) {
     //DEBUGLINE
-    int64_t currentTime = GetCurrentTimeUs();
-    stra::TdOrder order;
+    int64_t currentTime = crypto::getCurrentTime();
+    // stra::TdOrder order;
 
-    vector<string> v;
-    splitString(orderTrade.strategyRef, v, "_");
-    if (v.size() >= 2) {
-        order.algoId = stoll(v[0]);
-        order.pairId = stoll(v[1]);
-    }
+    // vector<string> v;
+    // splitString(orderTrade.strategyRef, v, "_");
+    // if (v.size() >= 2) {
+    //     order.algoId = stoll(v[0]);
+    //     order.pairId = stoll(v[1]);
+    // }
 
-    // int64_t sysOrdId{0};
-    order.clOrdId = orderTrade.clientOrderId;
-    strncpy(order.exOrdId, orderTrade.orderId, stra::ID_LEN);
-    strncpy(order.instrument, orderTrade.instId, stra::INST_ID_LEN);
-    order.exchangType = stra::ExchangeType(orderTrade.exchangeTypeEnum);
-    order.instType = stra::InstType(orderTrade.instTypeEnum);
-    order.orderStatus = stra::OrderStatus(orderTrade.orderStatus);
-    order.posDirection = stra::PosDirection(orderTrade.offsetFlag);
-    order.direction = stra::Direction(orderTrade.direction);
-    order.orderType = stra::OrderType(orderTrade.orderType);
-    order.reduceOnly = orderTrade.reduceOnly;
-    order.price = orderTrade.limitPrice;
-    order.volume = orderTrade.volumeTotal;
-    order.avgPrice = orderTrade.tradePrice;
-    order.totalPriceOnOrder = orderTrade.tradePrice;
-    order.totalVolumeOnOrder = orderTrade.volumeTraded;
-    // order.lastExecutedPriceOnOrder = orderTrade.tradePrice;
-    order.lastExecutedVolumeOnOrder = orderTrade.tradedDiff;
-    order.errorId = orderTrade.ErrorID;
-    strncpy(order.originErrorMsg, orderTrade.originMsg, 128);
-    order.insertTime = orderTrade.insertTime;
-    order.updateTime = orderTrade.updateTime;
-    order.tsSend = orderTrade.tsSent;
-    order.tsNet = orderTrade.tsNet;
-    order.apiSource = stra::ApiSource(orderTrade.apiSourceEnum);
-    order.isMaker = orderTrade.isMaker;
+    // // int64_t sysOrdId{0};
+    // order.clOrdId = orderTrade.clientOrderId;
+    // strncpy(order.exOrdId, orderTrade.orderId, stra::ID_LEN);
+    // strncpy(order.instrument, orderTrade.instId, stra::INST_ID_LEN);
+    // order.exchangType = stra::ExchangeType(orderTrade.exchangeTypeEnum);
+    // order.instType = stra::InstType(orderTrade.instTypeEnum);
+    // order.orderStatus = stra::OrderStatus(orderTrade.orderStatus);
+    // order.posDirection = stra::PosDirection(orderTrade.offsetFlag);
+    // order.direction = stra::Direction(orderTrade.direction);
+    // order.orderType = stra::OrderType(orderTrade.orderType);
+    // order.reduceOnly = orderTrade.reduceOnly;
+    // order.price = orderTrade.limitPrice;
+    // order.volume = orderTrade.volumeTotal;
+    // order.avgPrice = orderTrade.tradePrice;
+    // order.totalPriceOnOrder = orderTrade.tradePrice;
+    // order.totalVolumeOnOrder = orderTrade.volumeTraded;
+    // // order.lastExecutedPriceOnOrder = orderTrade.tradePrice;
+    // order.lastExecutedVolumeOnOrder = orderTrade.tradedDiff;
+    // order.errorId = orderTrade.ErrorID;
+    // strncpy(order.originErrorMsg, orderTrade.originMsg, 128);
+    // order.insertTime = orderTrade.insertTime;
+    // order.updateTime = orderTrade.updateTime;
+    // order.tsSend = orderTrade.tsSent;
+    // order.tsNet = orderTrade.tsNet;
+    // order.apiSource = stra::ApiSource(orderTrade.apiSourceEnum);
+    // order.isMaker = orderTrade.isMaker;
 
-    algoContext.OnOrder(order, currentTime);
+    algoContext.OnOrder(orderResponse, currentTime);
 }
 
 void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {

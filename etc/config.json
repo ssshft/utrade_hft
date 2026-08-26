@@ -13,8 +13,15 @@
         "topics": []
     },
     "op": {
-        "strategyOp": "AlgoPairStrategy",
+        "strategyOp": "PairTradingStrategy",
         "timerInterval": 1000,
-        "strategyIds": ["test1"]
+        "strategyIds": ["test1"],
+        "activeAccountId": "10000",
+        "passiveAccountId": "10001",
+        "pairKeys": ["BINANCE.USDT_SWAP.BTC-USDT|GATEIO.USDT_SWAP.BTC-USDT", "BINANCE.USDT_SWAP.ETH-USDT|GATEIO.USDT_SWAP.ETH-USDT"],
+        "maxPositionValue": "500000",
+        "maxAmount": "10000",
+        "targetAmount": "10000",
+        "csvStatePath": "./csv"
     }
 }

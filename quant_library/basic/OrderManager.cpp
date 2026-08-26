@@ -70,13 +70,13 @@ void OrderManager::RecoveryFromFile(string filePath) {
                 strncpy(order.instrument, v[6].c_str(), stra::INST_ID_LEN);
                 strncpy(order.instrumentKey, v[7].c_str(), stra::INST_KEY_LEN);
                 strncpy(order.pairInstrumentKey, v[8].c_str(), stra::INST_KEY_LEN);
-                order.exchangeType = stra::ExchangeType(stoi(v[9]));
-                order.instType = stra::InstType(stoi(v[10]));
-                order.orderType = stra::OrderType(stoi(v[11]));
+                order.exchangeType = ExchangeType(stoi(v[9]));
+                order.instType = InstType(stoi(v[10]));
+                order.orderType = OrderType(stoi(v[11]));
                 order.posDirection = stra::PosDirection(stoi(v[12]));
-                order.direction = stra::Direction(stoi(v[13]));
+                order.direction = Direction(stoi(v[13]));
                 order.marginType = stra::MarginType(stoi(v[14]));
-                order.orderStatus = stra::OrderStatus(stoi(v[15]));
+                order.orderStatus = OrderStatus(stoi(v[15]));
                 order.tradingType = stra::TradingType(stoi(v[16]));
                 order.price = stod(v[17]);
                 order.volume = stod(v[18]);
@@ -165,7 +165,7 @@ void OrderManager::RecoveryFromFile(string filePath) {
     int64_t oneDayUs = 24 * 60 * 60 * 1000 * 1000;
     for (auto iter = mOrd.begin(); iter != mOrd.end(); ++iter) {
         auto& quantOrder = iter->second;
-        if ((quantOrder.orderStatus == stra::OrderStatus_PENDING_NEW || quantOrder.orderStatus == stra::OrderStatus_PARTFILLED || quantOrder.orderStatus == stra::OrderStatus_CANCELLING) && currentTime - quantOrder.updateTime < oneDayUs) {
+        if ((quantOrder.orderStatus == OS_PENDING_NEW || quantOrder.orderStatus == OS_PARTFILLED || quantOrder.orderStatus == OS_CANCELLING) && currentTime - quantOrder.updateTime < oneDayUs) {
             InsertOrderByOrder(quantOrder);
         }
     }
@@ -290,7 +290,7 @@ void OrderManager::CalculateTotalPriceVolume() {
         string instrumentKey = order.instrumentKey;
         stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(instrumentKey);
         
-        if (order.instType == stra::FUTURES || order.instType == stra::SWAP) {
+        if (order.instType == USDT_SWAP || order.instType == USDT_FUTURES) {
             if (info.calculateType == 0) {
                 totalPrice = (totalPrice * totalVolume + order.price * order.volume) / (totalVolume + order.volume);
                 totalVolume += order.volume;

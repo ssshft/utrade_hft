@@ -125,40 +125,40 @@ std::vector<PairInfo*> PairInfoManager::GetAllPairInfos() {
 }
 
 
-void PairInfoManager::UpdateRtSpread(const std::string& pairKey, const stra::MdSpread& spread) {
+void PairInfoManager::UpdateRtSpread(const std::string& pairKey, const dbp::DbpData* pdata) {
     auto* pi = GetPairInfo(pairKey);
     if (!pi) {
         return;
     }
 
     auto& rt = pi->rtSpread;
-    rt.spreadBidAsk = spread.spreadBidAsk;
-    rt.spreadBidBid = spread.spreadBidBid;
-    rt.spreadAskBid = spread.spreadAskBid;
-    rt.spreadAskAsk = spread.spreadAskAsk;
+    rt.spreadBidAsk = pdata->spreadBidAsk;
+    rt.spreadBidBid = pdata->spreadBidBid;
+    rt.spreadAskBid = pdata->spreadAskBid;
+    rt.spreadAskAsk = pdata->spreadAskAsk;
 
-    rt.spreadBidAskTema = spread.spreadBidAskTema;
-    rt.spreadBidBidTema = spread.spreadBidBidTema;
-    rt.spreadAskBidTema = spread.spreadAskBidTema;
-    rt.spreadAskAskTema = spread.spreadAskAskTema;
+    rt.spreadBidAskTema = pdata->spreadBidAskTema;
+    rt.spreadBidBidTema = pdata->spreadBidBidTema;
+    rt.spreadAskBidTema = pdata->spreadAskBidTema;
+    rt.spreadAskAskTema = pdata->spreadAskAskTema;
 
-    rt.activePriceTema = spread.activePriceTema;
-    rt.passivePriceTema = spread.passivePriceTema;
+    rt.activePriceTema = pdata->activePriceTema;
+    rt.passivePriceTema = pdata->passivePriceTema;
 
-    rt.lastGenerateTs = spread.generateTs;
+    rt.lastGenerateTs = pdata->generateTs;
     rt.valid = true;
 
-    if (spread.activeFundingTs > rt.activeFundingRateTime) {
-        rt.activeFundingRate = spread.activeFundingRate;
-        rt.activeFundingRateTime = spread.activeFundingTs;
+    if (pdata->activeFundingTs > rt.activeFundingRateTime) {
+        rt.activeFundingRate = pdata->activeFundingRate;
+        rt.activeFundingRateTime = pdata->activeFundingTs;
     }
 
-    if (spread.passiveFundingTs > rt.passiveFundingRateTime) {
-        rt.passiveFundingRate = spread.passiveFundingRate;
-        rt.passiveFundingRateTime = spread.passiveFundingTs;
+    if (pdata->passiveFundingTs > rt.passiveFundingRateTime) {
+        rt.passiveFundingRate = pdata->passiveFundingRate;
+        rt.passiveFundingRateTime = pdata->passiveFundingTs;
     }
 
-    pi->modifyTime = GetCurrentTimeUs();
+    pi->modifyTime = crypto::getCurrentTime();
 }
 
 
@@ -183,8 +183,8 @@ void PairInfoManager::UpdateSmallStats(const std::string& pairKey, const SpreadS
 }
 
 
-void PairInfoManager::UpdateOnPosition(const stra::TdPosition& pos) {
-    std::string instrKey = std::string(stra::ExchangeTypeEnum2Str[pos.exchangType]) + "," + std::string(stra::InstTypeEnum2Str[pos.instType]) + "," + std::string(pos.instrument);
+void PairInfoManager::UpdateOnPosition(const pubsub::Position& pos) {
+    std::string instrKey = std::string(stra::ExchangeTypeEnum2Str[pos.exangeTypeEnum]) + "," + std::string(stra::InstTypeEnum2Str[pos.instTypeEnum]) + "," + std::string(pos.instId);
 
     const auto* pairs = FindPairsByInstrument(instrKey);
     if (!pairs) {
@@ -228,7 +228,7 @@ void PairInfoManager::UpdateOnPosition(const stra::TdPosition& pos) {
 }
 
 
-void PairInfoManager::UpdateLiquidStatus(const stra::TdPosition& pos) {
+void PairInfoManager::UpdateLiquidStatus(const pubsub::Position& pos) {
     UpdateOnPosition(pos);
 }
 
@@ -259,7 +259,7 @@ void PairInfoManager::UpdateLiquidStatus(PairInfo& pi, bool isActive, const stra
     UpdateSideLiquidStatus(pi, isActive, pos.liquidPrice, pos.markPrice);
 }
 
-void PairInfoManager::UpdateOnBalance(const stra::TdBalance& balance, const std::string& baseAsset) {
+void PairInfoManager::UpdateOnBalance(const pubsub::Balanc& balance, const std::string& baseAsset) {
     std::string symbol = std::string(balance.currency) + "-" + baseAsset;
 
     for (auto& kv : m_pairInfoMap) {
@@ -276,7 +276,7 @@ void PairInfoManager::UpdateOnBalance(const stra::TdBalance& balance, const std:
     }
 }
 
-void PairInfoManager::UpdateOnTotalAccount(const stra::TdTotalAccount& totalAccount) {
+void PairInfoManager::UpdateOnTotalAccount(const pubsub::TotalAccoun& totalAccount) {
 
 }
 

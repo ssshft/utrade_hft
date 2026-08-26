@@ -37,7 +37,7 @@
 
         std::vector<PairInfo*> GetAllPairInfos();
 
-        void UpdateRtSpread(const std::string& pairKey, const stra::MdSpread& spread);
+        void UpdateRtSpread(const std::string& pairKey, const dbp::DbpData* pdata);
 
         // 更新大周期价差统计
         void UpdateLargeStats(const std::string& pairKey, const SpreadStats& stats);
@@ -45,11 +45,11 @@
         // 更新小周期价差统计
         void UpdateSmallStats(const std::string& pairKey, const SpreadStats& stats);
 
-        void UpdateOnPosition(const stra::TdPosition& pos);
+        void UpdateOnPosition(const pubsub::Position& pos);
 
-        void UpdateOnBalance(const stra::TdBalance& balance, const std::string& baseAsset);
+        void UpdateOnBalance(const pubsub::Balanc& balance, const std::string& baseAsset);
 
-        void UpdateOnTotalAccount(const stra::TdTotalAccount& totalAccount);
+        void UpdateOnTotalAccount(const pubsub::TotalAccoun& totalAccount);
 
         void UpdateOnAlgoOrderFinished(const std::string& pairKey, double activePriceFilled, double volumeFilled, double passivePriceFilled); // volumeFilled 买主动腿
 
@@ -65,7 +65,7 @@
         void UpdateKlineStats(const std::string& instrumentKey, double dailyAmount, double meanClose, double oi, double oiUsdt);
 
         // 流动性检查 --- 强平价格监控
-        void UpdateLiquidStatus(const stra::TdPosition& pos);
+        void UpdateLiquidStatus(const pubsub::Position& pos);
 
         void UpdateLiquidStatus(PairInfo& pi, bool isActive, const stra::TdPosition& pos);
 

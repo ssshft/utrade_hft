@@ -6,6 +6,7 @@
 #include "AlgoPairOrder.h"
 #include "AlgoFishingOrder.h"
 #include "AlgoRebalanceOrder.h"
+#include "dbp/include.h"
 #include <string>
 
 inline stra::QuantSpread ConvertTdSpreadToStraSpread(const stra::MdSpread& tdSpread) {
@@ -106,15 +107,15 @@ inline stra::QuantSpread ConvertTdSpreadToStraSpread(const stra::MdSpread& tdSpr
     return spread;
 }
 
-inline void WriteQuantOrder(const stra::QuantOrder& order, const stra::QuantSpread& spread) {
+inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* pdata) {
     LOG_INFO("WriteQuantOrder start format!");
 	char s[stra::STR_LEN * 2];
     sprintf(s, "%s,%ld,%ld,%s,%s,%s,%s,%s,%s,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%s,%s,%ld,%ld,%ld,%d,%s,%d,%ld,%ld,%d,%d", 
 					order.strategyName, order.strategyOrderId, order.systemOrderId, order.exchangeOrderId, order.instrumentKey,
 		            stra::OrderTypeEnum2Str[order.orderType].c_str(), stra::DirectionEnum2Str[order.direction].c_str(), stra::OrderStatusEnum2Str[order.orderStatus].c_str(), order.orderTimeStatus.GetStr().c_str(),
                     order.targetPrice, order.price, order.volume, order.totalPriceOnOrder, order.totalVolumeOnOrder, order.tradeVolume,
-                    spread.activeBidPrice1, spread.activeBidVolume1, spread.activeAskPrice1, spread.activeAskVolume1,
-                    spread.passiveBidPrice1, spread.passiveBidVolume1, spread.passiveAskPrice1, spread.passiveAskVolume1,
+                    pdata->activeBidPrice[0], pdata->activeBidVolume[0], pdata->activeAskPrice[0], pdata->activeAskVolume[0],
+                    pdata->passiveBidPrice[0], pdata->passiveBidVolume[0], pdata->passiveAskPrice[0], pdata->passiveAskVolume[0],
 		            order.totalShortFee.GetStr().c_str(), order.totalLongFee.GetStr().c_str(),
 		            order.orderTime, order.updateTime, order.killTime,
                     order.errorId, order.originErrorMsg, order.reduceOnly,
@@ -127,13 +128,13 @@ inline void WriteQuantOrder(const stra::QuantOrder& order, const stra::QuantSpre
     contentQueue.Push(c);
 }
 
-inline void WritePairOrder(const PairOrder& order, const stra::QuantSpread& spread) {
+inline void WritePairOrder(const PairOrder& order, const dbp::DbpData* pdata) {
     char s[stra::STR_LEN];
     sprintf(s, "%ld,%ld,%s,%s,%s,%s,%f,%s,%s,%f,%f,%f,%f,%f,%s,%s,%f,%f,%f,%f,%f,%f,%f,%f,%f,%ld,%ld,%ld,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d,%ld,%ld,%.13f", 
                     order.pairId, order.algoPairId, order.strategyName, order.baseAsset, stra::TradingTypeEnum2Str[order.tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[order.tradingTypeOffset].c_str(), order.targetVolume,
-                    order.activeInstrumentKey, stra::DirectionEnum2Str[order.activeDirection].c_str(), order.activeTargetPrice, spread.activeBidPrice1, spread.activeBidVolume1, spread.activeAskPrice1, spread.activeAskVolume1,
-                    order.passiveInstrumentKey, stra::DirectionEnum2Str[order.passiveDirection].c_str(), order.passiveTargetPrice, spread.passiveBidPrice1, spread.passiveBidVolume1, spread.passiveAskPrice1, spread.passiveAskVolume1,
-                    spread.spreadBidAsk, spread.spreadBidBid, spread.spreadAskBid, spread.spreadAskAsk, spread.generateTs, spread.activeDepthTs, spread.passiveDepthTs,
+                    order.activeInstrumentKey, stra::DirectionEnum2Str[order.activeDirection].c_str(), order.activeTargetPrice, pdata->activeBidPrice[0], pdata->activeBidVolume[0], pdata->activeAskPrice[0], pdata->activeAskVolume[0],
+                    order.passiveInstrumentKey, stra::DirectionEnum2Str[order.passiveDirection].c_str(), order.passiveTargetPrice, pdata->passiveBidPrice[0], pdata->passiveBidVolume[0], pdata->passiveAskPrice[0], pdata->passiveAskVolume[0],
+                    pdata->spreadBidAsk, pdata->spreadBidBid, pdata->spreadAskBid, pdata->spreadAskAsk, pdata->generateTs, pdata->activeDepthTs, pdata->passiveDepthTs,
                     order.activeTotalPriceOnOrder, order.activeTotalVolumeOnOrder, order.passiveTotalPriceOnOrder, order.passiveTotalVolumeOnOrder,
                     order.pairTotalVolume, order.pairActiveTotalPrice, order.pairPassiveTotalPrice,
                     order.activeFrozenPrice, order.activeFrozenVolume, order.passiveFrozenPrice, order.passiveFrozenVolume,
