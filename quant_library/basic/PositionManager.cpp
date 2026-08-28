@@ -548,7 +548,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                 }
                 ass.openMarginAmount -= order.tradeVolume * info.multiple / order.price / account.openRealLeverage;
             }
-        } else if (order.direction == DT_SHORT {
+        } else if (order.direction == DT_SHORT) {
             string asset = order.tradeShortFee.asset;
             auto iter = account.mAsset.find(asset);
             if (iter != account.mAsset.end()) {

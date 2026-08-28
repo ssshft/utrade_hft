@@ -42,13 +42,16 @@ set(COMPILE_PATH ${COMPILE_VERSION})
 set(3RD_PATH /opt/version/3rd)
 
 #include
-set(INC_DIR              ${CMAKE_CURRENT_SOURCE_DIR}/include)
-set(QUANT_LIBRARY_DIR              ${CMAKE_CURRENT_SOURCE_DIR}/quant_library)
+set(INC_DIR                ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(QUANT_LIBRARY_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/quant_library)
 set(BASIC_DIR              ${CMAKE_CURRENT_SOURCE_DIR}/quant_library/basic)
-set(SYSTEM_INC_DIR          ${COMPILE_PATH}/include)
-set(FMT_INCLUDE_DIR          ${3RD_PATH}/fmt/include)
-set(DBP_INCLUDE_DIR        ${COMPILE_PATH}/dbp/sig)
-set(SHMQUEUE_INC_DIR          ${COMPILE_PATH}/include/shmqueue)
+set(SYSTEM_INC_DIR         ../include)
+
+
+set(SYSTEM_INC_DIR            ${COMPILE_PATH}/include)
+set(FMT_INCLUDE_DIR           ${3RD_PATH}/fmt/include)
+set(DBP_INCLUDE_DIR           ../dbp/sig)
+set(SHMQUEUE_INC_DIR          ../include/shmqueue)
 
 
 #link
@@ -95,8 +98,6 @@ link_libraries(
         tbb 
         stdc++fs 
         fmt
-        zmq
-        uv
 )
 
 add_executable(utrade_hft

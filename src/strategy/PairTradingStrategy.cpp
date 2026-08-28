@@ -191,8 +191,8 @@ void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpD
 
     int64_t currentTime = crypto::getCurrentTime();
 
-    algoContext.OnSpread(mdSpread, currentTime);
-    ptContext.OnSpread(mdSpread, currentTime);
+    // algoContext.OnSpread(mdSpread, currentTime);
+    // ptContext.OnSpread(mdSpread, currentTime);
 
     algoContext.OnSpread(topic, pdata);
     ptContext.OnSpread(topic, pdata);

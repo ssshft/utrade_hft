@@ -175,15 +175,16 @@ void OrderManager::InsertTransferByTransfer(const stra::QuantTransfer& transfer)
     mTransfer[transfer.strategyTransferId] = transfer;
 }
 
-void OrderManager::UpdateTransferOnTransfer(const stra::TdTransfer& transfer, int64_t eventTime) {
+void OrderManager::UpdateTransferOnTransfer(const stra::TdTransfer& transfer) {
+    int64_t nowTime = crypot::getCurrentTime();
     auto it = mTransfer.find(transfer.clOrdId);
     if (it != mTransfer.end()) {
         it->second.transferStatus = transfer.orderStatus;
-        it->second.updateTime = eventTime;
+        it->second.updateTime = nowTime;
 
         auto& dt = it->second.transferTimeStatus.detail[it->second.transferTimeStatus.size];
         dt.orderStatus = transfer.orderStatus;
-        dt.updateTime = eventTime;
+        dt.updateTime = nowTime;
         it->second.transferTimeStatus.size++;
 
         if (it->second.transferTimeStatus.size >= stra::TIME_STATUS_LEN) {
@@ -237,38 +238,39 @@ void OrderManager::DeleteOrdrByStrategyOrderId(int64_t strategyOrderId) {
     }
 }
 
-stra::QuantOrder OrderManager::UpdateOrderOnOrder(const stra::TdOrder& tdOrder, int64_t eventTime) { //区分回测和实盘:eventTime
+stra::QuantOrder OrderManager::UpdateOrderOnOrder(const pubsub::OrderResponse& orderResponse) { //区分回测和实盘:eventTime
     stra::QuantOrder ord;
-    int64_t strategyOrderId = tdOrder.clOrdId;
+    int64_t strategyOrderId = orderResponse.clientOrderId;
     auto it = mOrder.find(strategyOrderId);
     if (it != mOrder.end()) {
         auto& order = it->second;
-        ord = order.UpdateOrderOnOrder(tdOrder, eventTime);
+        ord = order.UpdateOrderOnOrder(orderResponse);
     }
     return ord;
 }
 
-stra::QuantOrder OrderManager::UpdateOrderOnQueryOrder(const stra::TdOrder& tdOrder, int64_t eventTime) { //区分回测和实盘:eventTime
+stra::QuantOrder OrderManager::UpdateOrderOnQueryOrder(const pubsub::OrderResponse& orderResponse) { //区分回测和实盘:eventTime
     stra::QuantOrder ord;
-    int64_t strategyOrderId = tdOrder.clOrdId;
+    int64_t strategyOrderId = orderResponse.clientOrderId;
     auto it = mOrder.find(strategyOrderId);
     if (it != mOrder.end()) {
         auto& order = it->second;
-        ord = order.UpdateOrderOnQueryOrder(tdOrder, eventTime);
+        ord = order.UpdateOrderOnQueryOrder(orderResponse);
     }
     return ord;
 }
 
-void OrderManager::UpdateOrderOnCancel(const stra::QuantOrder& order, int64_t eventTime) {  //eventTime GetCurrentTime
+void OrderManager::UpdateOrderOnCancel(const stra::QuantOrder& order) {  //eventTime GetCurrentTime
+    int64_t nowTime = crypto::getCurrentTime();
     auto it = mOrder.find(order.strategyOrderId);
     if (it != mOrder.end()) {
         auto& ord = it->second;
         ord.orderStatus = stra::OrderStatus_CANCEL;
-        ord.updateTime = eventTime;
+        ord.updateTime = nowTime;
 
         auto& dt = ord.orderTimeStatus.detail[ord.orderTimeStatus.size];
         dt.orderStatus = stra::OrderStatus_CANCEL;
-        dt.updateTime = eventTime;
+        dt.updateTime = nowTime;
         ord.orderTimeStatus.size++;
 
         if (ord.orderTimeStatus.size >= stra::TIME_STATUS_LEN) {

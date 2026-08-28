@@ -1,4 +1,5 @@
 #include "strategy/AlgoPairStrategy.h"
+#include "time_util.h"
 
 
 AlgoPairStrategy::AlgoPairStrategy(){
@@ -26,16 +27,16 @@ void AlgoPairStrategy::pre_start(Config *config){
 }
 
 //中控aec控制命令到达
-void AlgoPairStrategy::on_command(const string &cmdStr){
+void AlgoPairStrategy::on_command(const string &cmdStr) {
     //策略需要加上这一个行数
     _my_on_command(cmdStr);
     //策略这里自己处理cmd 命令
     context.OnCommand(cmdStr);
 }
 
-void AlgoPairStrategy::on_timer(const long &utcTime){
+void AlgoPairStrategy::on_timer(const long &utcTime) {
     //DEBUGLINE
-    int64_t currentTime = GetCurrentTimeUs();
+    int64_t currentTime = crypto::getCurrentTime();
     context.OnTimer(currentTime);
 }
 

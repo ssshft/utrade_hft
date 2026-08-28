@@ -2,6 +2,7 @@
 #define _ORDER_MANAGER_H
 
 #include "DataStruct.h"
+#include "pubsub_protocol.h"
 #include "ShmManager.h"
 #include <vector>
 #include <unordered_map>
@@ -18,14 +19,14 @@ class OrderManager {
         // void Recovery();
         void RecoveryFromFile(string filePath);
         void InsertTransferByTransfer(const stra::QuantTransfer& transfer);
-        void UpdateTransferOnTransfer(const stra::TdTransfer& transfer, int64_t eventTime);
+        void UpdateTransferOnTransfer(const stra::TdTransfer& transfer);
         void DeleteTransferByTransfer(const stra::QuantTransfer& transfer);
 
         void InsertOrderByOrder(const stra::QuantOrder& order);
-        void UpdateOrderOnCancel(const stra::QuantOrder& order, int64_t eventTime);
+        void UpdateOrderOnCancel(const stra::QuantOrder& order);
         void DeleteOrderByOrder(const stra::QuantOrder& order);
-        stra::QuantOrder UpdateOrderOnOrder(const stra::TdOrder& tdOrder, int64_t eventTime);
-        stra::QuantOrder UpdateOrderOnQueryOrder(const stra::TdOrder& tdOrder, int64_t eventTime);
+        stra::QuantOrder UpdateOrderOnOrder(const pubsub::OrderResponse& orderResponse);
+        stra::QuantOrder UpdateOrderOnQueryOrder(const pubsub::OrderResponse& orderResponse);
  
         unordered_map<int64_t, stra::QuantOrder>& GetAllOrders();
         stra::QuantOrder SelectOrderByStrategyOrderId(int64_t strategyOrderId);

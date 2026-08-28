@@ -874,7 +874,7 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
             BaseAlgoOrder* pAlgoOrder = it->second;
 
             if (strcmp(pAlgoOrder->pairInstrumentKey, topic->__name) == 0) {
-                pAlgoOrder->CancelOrderOnSpread(pdata, eventTime); // 执行撤单逻辑
+                pAlgoOrder->CancelOrderOnSpread(pdata); // 执行撤单逻辑
 
                 // 暂时注释
                 // pAlgoOrder->posMgrMakerTaker.UpdateAccountOnMarketDepth(activeBbo);  // 更新floatAmount
@@ -1437,45 +1437,59 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
     }
 }
 
-void AlgoContext::OnOrder(pubsub::OrderResponse& orderResponse) {
+void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
     try {
         int64_t nowTime = crypto::getCurrentTime();
   
+        int64_t algoId = 0;
+        int64_t pairId = 0;
+        std::vector<std::string> v;
+        splitString(orderResponse.strategyRef, v, "_");
+        if (v.size() >= 2) {
+            order.algoId = stoll(v[0]);
+            order.pairId = stoll(v[1]);
+        }
+        else {
+            LOG_ERROR("wrong orderResponse: {}", orderResponse.getString());
+            return;
+        }
 
-        BaseAlgoOrder* pAlgoOrder = alogOrderManager.SeletAlgoOrderByAlgoOrderId(order.algoId);
+        BaseAlgoOrder* pAlgoOrder = alogOrderManager.SeletAlgoOrderByAlgoOrderId(algoId);
         if (pAlgoOrder != nullptr) {
             if (pAlgoOrder->algoType == stra::AlgoType_PairTrading || pAlgoOrder->algoType == stra::AlgoType_FishingTrading || pAlgoOrder->algoType == stra::AlgoType_Rebalance) {
                 // 是配对单进行配对单的处理
-                PairOrder& pairOrder = pAlgoOrder->pairOrderMgr.SelectPairOrderByPairId(order.pairId);
+                PairOrder& pairOrder = pAlgoOrder->pairOrderMgr.SelectPairOrderByPairId(pairId);
                 if (pairOrder.pairId <= 0) {
                     return;
                 }
                 // 更新od_mgr与quant_order
 
                 dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pAlgoOrder->pairInstrumentKey);
-                stra::QuantOrder quantOrder = pAlgoOrder->orderMgr.SelectOrderByStrategyOrderId(order.clOrdId);
+                stra::QuantOrder quantOrder = pAlgoOrder->orderMgr.SelectOrderByStrategyOrderId(orderResponse.clientOrderId);
 
-                if (quantOrder.totalVolumeOnOrder - order.totalVolumeOnOrder > stra::MIN_FLOAT) {  // 过滤乱序的报单
+                if (quantOrder.totalVolumeOnOrder - orderResponse.volumeTraded > stra::MIN_FLOAT) {  // 过滤乱序的报单
                     return;
                 }
 
-                // 订单状态适配
-                if (order.apiSource == AS_CANCEL_ORDER && order.orderStatus == OS_REJECTED {
-                    if (order.exchangType == BYBIT || order.exchangType == BITGET) {
-                        order.orderStatus = OS_REJECTED;
-                    }
-                    else {
-                        order.orderStatus = OS_FAILED;
-                    }
-                } else if (order.apiSource == AS_QUERY_ORDER && order.orderStatus == OS_REJECTED && strlen(quantOrder.exchangeOrderId) > 0){
-                    if (order.exchangType == BYBIT || order.exchangType == BITGET) {
-                        order.orderStatus = OS_REJECTED;
-                    }
-                    else {
-                        order.orderStatus = OS_UNKNOWN;
-                    }
-                }
-                // 订单手续费适配
+                // 订单状态适配 待确定
+                // if (order.apiSource == AS_CANCEL_ORDER && order.orderStatus == OS_REJECTED {
+                //     if (order.exchangType == BYBIT || order.exchangType == BITGET) {
+                //         order.orderStatus = OS_REJECTED;
+                //     }
+                //     else {
+                //         order.orderStatus = OS_FAILED;
+                //     }
+                // } else if (order.apiSource == AS_QUERY_ORDER && order.orderStatus == OS_REJECTED && strlen(quantOrder.exchangeOrderId) > 0){
+                //     if (order.exchangType == BYBIT || order.exchangType == BITGET) {
+                //         order.orderStatus = OS_REJECTED;
+                //     }
+                //     else {
+                //         order.orderStatus = OS_UNKNOWN;
+                //     }
+                // }
+
+
+                // 订单手续费适配 是否可以去掉？
                 stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(quantOrder.instrumentKey);
                 double temp_fee_rate = 0.0;
                 if (quantOrder.isActiveOrder){
@@ -1493,29 +1507,34 @@ void AlgoContext::OnOrder(pubsub::OrderResponse& orderResponse) {
                         temp_fee_rate = pAlgoOrder->passiveTakerFeeRate;
                     }
                 }
-                if (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder > stra::MIN_FLOAT){
-                    if (quantOrder.instType == SPOT || quantOrder.instType == MARGIN){
-                        if (quantOrder.direction == DT_LONG){
-                            order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder * order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder * quantOrder.totalPriceOnOrder) / (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder);
-                            strncpy(order.lastExecutedTradeFeeCurrency, info.instLeft.c_str(), stra::ASSET_LEN);
-                            order.lastExecutedTradeFee = order.lastExecutedVolumeOnOrder * temp_fee_rate;
-                        }else{
-                            order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder) / (order.totalVolumeOnOrder / order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder / quantOrder.totalPriceOnOrder);
-                            strncpy(order.lastExecutedTradeFeeCurrency, info.instRight.c_str(), stra::ASSET_LEN);
-                            order.lastExecutedTradeFee = order.lastExecutedVolumeOnOrder * order.lastExecutedPriceOnOrder * temp_fee_rate;
-                        }
-                    }else{
-                        if (info.calculateType == 0){
-                            order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder * order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder * quantOrder.totalPriceOnOrder) / (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder);
-                            strncpy(order.lastExecutedTradeFeeCurrency, info.margin.c_str(), stra::ASSET_LEN);
-                            order.lastExecutedTradeFee = info.multiple * order.lastExecutedVolumeOnOrder * order.lastExecutedPriceOnOrder * temp_fee_rate;
-                        }else{
-                            order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder) / (order.totalVolumeOnOrder / order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder / quantOrder.totalPriceOnOrder);
-                            strncpy(order.lastExecutedTradeFeeCurrency, info.margin.c_str(), stra::ASSET_LEN);
-                            order.lastExecutedTradeFee = info.multiple * order.lastExecutedVolumeOnOrder / order.lastExecutedPriceOnOrder * temp_fee_rate;
-                        }
-                    }
-                }
+
+
+                // 是否需要计算本次成交价
+                // if (orderResponse.volumeTraded - quantOrder.totalVolumeOnOrder > stra::MIN_FLOAT){
+                //     if (quantOrder.instType == SPOT || quantOrder.instType == MARGIN){
+                //         if (quantOrder.direction == DT_LONG){
+                //             order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder * order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder * quantOrder.totalPriceOnOrder) / (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder);
+                //             strncpy(order.lastExecutedTradeFeeCurrency, info.instLeft.c_str(), stra::ASSET_LEN);
+                //             order.lastExecutedTradeFee = order.lastExecutedVolumeOnOrder * temp_fee_rate;
+                //         }else{
+                //             order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder) / (order.totalVolumeOnOrder / order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder / quantOrder.totalPriceOnOrder);
+                //             strncpy(order.lastExecutedTradeFeeCurrency, info.instRight.c_str(), stra::ASSET_LEN);
+                //             order.lastExecutedTradeFee = order.lastExecutedVolumeOnOrder * order.lastExecutedPriceOnOrder * temp_fee_rate;
+                //         }
+                //     }else{
+                //         if (info.calculateType == 0){
+                //             order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder * order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder * quantOrder.totalPriceOnOrder) / (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder);
+                //             strncpy(order.lastExecutedTradeFeeCurrency, info.margin.c_str(), stra::ASSET_LEN);
+                //             order.lastExecutedTradeFee = info.multiple * order.lastExecutedVolumeOnOrder * order.lastExecutedPriceOnOrder * temp_fee_rate;
+                //         }else{
+                //             order.lastExecutedPriceOnOrder = (order.totalVolumeOnOrder - quantOrder.totalVolumeOnOrder) / (order.totalVolumeOnOrder / order.totalPriceOnOrder - quantOrder.totalVolumeOnOrder / quantOrder.totalPriceOnOrder);
+                //             strncpy(order.lastExecutedTradeFeeCurrency, info.margin.c_str(), stra::ASSET_LEN);
+                //             order.lastExecutedTradeFee = info.multiple * order.lastExecutedVolumeOnOrder / order.lastExecutedPriceOnOrder * temp_fee_rate;
+                //         }
+                //     }
+                // }
+
+
                 // 进行延迟计算与检查
                 //LOG_INFO("OnOrder check orderstatus PEND_NEW CANCEL!");
                 if (quantOrder.orderStatus == OS_PEND || quantOrder.orderStatus == OS_CANCEL) {
@@ -1533,8 +1552,7 @@ void AlgoContext::OnOrder(pubsub::OrderResponse& orderResponse) {
                 //LOG_INFO("OnOrder check orderstatus PENDING_NEW CANCELLING!");
                 if (quantOrder.orderStatus == OS_PENDING_NEW || quantOrder.orderStatus == OS_CANCELLING) {
                     pAlgoOrder->exchangeDelayTimeSpan = 0.8 * pAlgoOrder->exchangeDelayTimeSpan + 0.2 * (nowTime - quantOrder.updateTime);
-                    int64_t oneSecond = 1000 * 1000;
-                    int64_t scd10 = 10 * oneSecond;
+                    int64_t scd10 = 10000000LL; // 10s
                     if (pAlgoOrder->exchangeDelayTimeSpan > scd10){
                         pAlgoOrder->exchangeDelayFlag = true;
                         // 进行异常播报
@@ -1544,14 +1562,12 @@ void AlgoContext::OnOrder(pubsub::OrderResponse& orderResponse) {
                     }
                 }
 
-                //LOG_INFO("OnOrder start update order!");
                 // 开始更新订单
-                if (order.apiSource == AS_QUERY_ORDER) {
-                    quantOrder = pAlgoOrder->orderMgr.UpdateOrderOnQueryOrder(order, eventTime);
+                if (orderResponse.apiSourceEnum == AS_QUERY_ORDER) {
+                    quantOrder = pAlgoOrder->orderMgr.UpdateOrderOnQueryOrder(orderResponse);
                 } else {
-                    quantOrder = pAlgoOrder->orderMgr.UpdateOrderOnOrder(order, eventTime);
+                    quantOrder = pAlgoOrder->orderMgr.UpdateOrderOnOrder(orderResponse);
                 }
-
 
                 //LOG_INFO("OnOrder write quant order!");
                 if (quantOrder.strategyOrderId > 0) {
@@ -1560,13 +1576,13 @@ void AlgoContext::OnOrder(pubsub::OrderResponse& orderResponse) {
                 
                 //LOG_INFO("OnOrder start update algoPairOrderByQuantOrder!");
                 // 更新algo_order的ps_mgr与pair_order
-                pAlgoOrder->UpdateAlgoPairOrderByQuantOrder(quantOrder, eventTime);
+                pAlgoOrder->UpdateAlgoPairOrderByQuantOrder(quantOrder);
                 if (quantOrder.orderStatus == OS_FILLED|| quantOrder.orderStatus == OS_REJECTED || quantOrder.orderStatus == OS_CANCELED) {
                     // 订单完结解冻
                     //LOG_INFO("OnOrder start update algoPairOrderByDeleteQuantOrder!");
-                    pAlgoOrder->UpdateAlgoPairOrderByDeleteQuantOrder(quantOrder, eventTime);
+                    pAlgoOrder->UpdateAlgoPairOrderByDeleteQuantOrder(quantOrder);
                     //LOG_INFO("OnOrder start orderStatus filled rejected canceled PairOrderTrade!");
-                    pAlgoOrder->PairOrderTrade(pairOrder, eventTime);
+                    pAlgoOrder->PairOrderTrade(pairOrder);
 
                     // algoOrder保存
                     // pAlgoOrder->SaveToFile();
@@ -1575,13 +1591,13 @@ void AlgoContext::OnOrder(pubsub::OrderResponse& orderResponse) {
                     // 主动腿未完结有成交则需要进行被动腿报单
                     //LOG_INFO("OnOrder start orderStatus not in filled rejected canceled PairOrderTrade!");
                     if (quantOrder.isActiveOrder && quantOrder.tradeVolume > stra::MIN_FLOAT){
-                        pAlgoOrder->PairOrderTrade(pairOrder, eventTime);
+                        pAlgoOrder->PairOrderTrade(pairOrder);
                     }
                 }
                 //LOG_INFO("OnOrder Update end!");
                 if (quantOrder.isActiveOrder) {
                     if (quantOrder.orderStatus == OS_NEW || quantOrder.orderStatus == OS_PARTFILLED) {
-                        pAlgoOrder->CancelOrderOnSpread(pdata, eventTime); // 执行撤单逻辑
+                        pAlgoOrder->CancelOrderOnSpread(pdata); // 执行撤单逻辑
                     }
                 }
             }
@@ -1655,7 +1671,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             auto& pairOrderMgr = it->second->pairOrderMgr;
             unordered_map<int64_t, PairOrder> allPairOrders = pairOrderMgr.GetAllPairOrders();
             for (auto ia = allPairOrders.begin(); ia != allPairOrders.end(); ++ia) {
-                it->second->PairOrderTrade(ia->second, eventTime);
+                it->second->PairOrderTrade(ia->second);
             }
             
             // 行情检查

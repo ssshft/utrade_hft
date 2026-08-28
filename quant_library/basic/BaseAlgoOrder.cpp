@@ -136,7 +136,7 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByInsertQuantOrder(const stra::QuantOrder
     }
 }
 
-void BaseAlgoOrder::UpdateAlgoPairOrderByDeleteQuantOrder(const stra::QuantOrder& order, int64_t eventTime) {
+void BaseAlgoOrder::UpdateAlgoPairOrderByDeleteQuantOrder(const stra::QuantOrder& order) {
     orderMgr.DeleteOrderByOrder(order);
     PairOrder& pairOrder = pairOrderMgr.SelectPairOrderByPairId(order.pairId);
     if (pairOrder.algoPairId > 0) {
@@ -150,7 +150,7 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByDeleteQuantOrder(const stra::QuantOrder
     }
 }
 
-void BaseAlgoOrder::UpdateAlgoPairOrderByQuantOrder(const stra::QuantOrder& order, int64_t eventTime) {
+void BaseAlgoOrder::UpdateAlgoPairOrderByQuantOrder(const stra::QuantOrder& order) {
     PairOrder& pairOrder = pairOrderMgr.SelectPairOrderByPairId(order.pairId);
     if (pairOrder.algoPairId > 0) {
         pairOrder.UpdatePairOrderByOrder(order);
@@ -162,8 +162,8 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByQuantOrder(const stra::QuantOrder& orde
     }
 }
 
-void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t eventTime) {
-    updateTime = eventTime;
+void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder) {
+    updateTime = crypto::getCurrentTime();
     if (pairOrder.activeTotalVolumeOnOrder > stra::MIN_FLOAT) {
         double activePrice = 0.0;
         double activeVolume = pairOrder.activeTotalVolumeOnOrder;
@@ -341,7 +341,8 @@ double BaseAlgoOrder::GetActiveVolumeByPassiveVolume(double volume, double price
     return activeVolume;
 }
 
-void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t eventTime) {
+void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
+    int64_t nowTime = crypto::getCurrentTime();
     if (algoOrderStatus == OS_CANCELLING) {
         auto& allOrders = orderMgr.GetAllOrders();
         for (auto it = allOrders.begin(); it != allOrders.end(); ++it) {
@@ -352,10 +353,10 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
             }
 
             if (it->second.isActiveOrder && (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED)) {
-                if (eventTime - it->second.updateTime > 1000 * 10) {
+                if (nowTime - it->second.updateTime > 1000 * 10) {
                     bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                     if (cancel_flag) {
-                        orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                        orderMgr.UpdateOrderOnCancel(it->second);
 			            WriteQuantOrder(it->second, pdata);
                         // 撤单成功报出去才能更新！！
                     }
@@ -381,11 +382,11 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                     if (it->second.orderType == OT_POST_ONLY){
                         // 主动腿Maker
                         // 时间撤单
-                        if (eventTime - it->second.updateTime > activeMakerCancelOrderTime) {
+                        if (nowTime - it->second.updateTime > activeMakerCancelOrderTime) {
 			                if ((it->second.direction == DT_LONG && it->second.price < pdata->activeBidPrice[0] - stra::MIN_FLOAT) || (it->second.direction == DT_SHORT && it->second.price > pdata->activeAskPrice[0] + stra::MIN_FLOAT)) {
                                 bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                                 if (cancel_flag) {
-                                    orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                    orderMgr.UpdateOrderOnCancel(it->second);
                     		        WriteQuantOrder(it->second, pdata);
                                     // 撤单成功报出去才能更新！！
                                 }
@@ -410,7 +411,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                         if (passive_price_check) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -428,7 +429,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                         if (active_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -439,7 +440,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                         if (pdata->exchActiveTradeDelay > tradesDelayThreshold || pdata->exchPassiveTradeDelay > tradesDelayThreshold) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -448,10 +449,10 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                     } else {
                         // 主动腿Taker
                         // 时间撤单
-                        if (eventTime - it->second.updateTime > activeTakerCancelOrderTime){
+                        if (nowTime - it->second.updateTime > activeTakerCancelOrderTime){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -475,7 +476,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                         if (passive_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -493,7 +494,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                         if (active_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -504,7 +505,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                         if (pdata->exchActiveTradeDelay > tradesDelayThreshold || pdata->exchPassiveTradeDelay > tradesDelayThreshold) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -520,10 +521,10 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                     if (it->second.orderType == OT_POST_ONLY) {
                         // 主动腿Maker
                         // 时间撤单
-                        if (eventTime - it->second.updateTime > passiveMakerCancelOrderTime){
+                        if (nowTime - it->second.updateTime > passiveMakerCancelOrderTime){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -539,7 +540,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                         if (passive_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -549,10 +550,10 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                     } else {
                         // 主动腿Taker
                         // 时间撤单
-                        if (eventTime - it->second.updateTime > passiveTakerCancelOrderTime){
+                        if (nowTime - it->second.updateTime > passiveTakerCancelOrderTime){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -568,7 +569,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
                         if (passive_price_check) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
-                                orderMgr.UpdateOrderOnCancel(it->second, eventTime);
+                                orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
                             }
@@ -581,7 +582,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t event
     }
 }
 
-void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime) {
+void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
     bool pass = LimitManager::Instance().PassLimit(pairOrder.passiveAccountId);
     if (!pass) {
         return;
@@ -641,9 +642,9 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime) {
          if (activeFrozenValue <= stra::MIN_FLOAT && passiveFrozenValue <= stra::MIN_FLOAT) {
             // 这时候pairOrder已经完结，进行完结更新
             //LOG_INFO("start UpdateAlgoPairOrderByPairOrder!");
-            UpdateAlgoPairOrderByPairOrder(pairOrder, eventTime);
+            UpdateAlgoPairOrderByPairOrder(pairOrder);
             pairOrder.status = 1;
-            pairOrder.updateTime = eventTime;
+            pairOrder.updateTime = crypto::getCurentTime();
             string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
             dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
             WritePairOrder(pairOrder, pdata);

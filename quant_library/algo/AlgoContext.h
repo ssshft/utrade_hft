@@ -34,7 +34,7 @@ public:
     void OnBalance(const pubsub::Balance& balance);
     void OnPosition(const pubsub::Position& position);
     void OnTotalAccount(const pubsub::TotalAccount& totalAccount);
-    void OnOrder(pubsub::OrderResponse& orderResponse);
+    void OnOrder(const pubsub::OrderResponse& orderResponse);
 
     BaseAlgoOrder* GetAlgoOrder(int64_t algoOrderId);
 

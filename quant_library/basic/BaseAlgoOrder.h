@@ -7,6 +7,7 @@
 #include "PairManager.h"
 #include "BasicInfoMgr.h"
 #include "dbp/include.h"
+#include "time_util.h"
 #include <string>
 
 
@@ -190,15 +191,15 @@ struct BaseAlgoOrder {
     void InitPositionMgr();
     void Update();
     void UpdateAlgoPairOrderByInsertQuantOrder(const stra::QuantOrder& order);
-    void UpdateAlgoPairOrderByDeleteQuantOrder(const stra::QuantOrder& order, int64_t eventTime);
-    void UpdateAlgoPairOrderByQuantOrder(const stra::QuantOrder& order, int64_t eventTime);
-    void UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t eventTime);
+    void UpdateAlgoPairOrderByDeleteQuantOrder(const stra::QuantOrder& order);
+    void UpdateAlgoPairOrderByQuantOrder(const stra::QuantOrder& order);
+    void UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder);
     double GetExpectActiveVolume();
     double GetExpectPassiveVolume();
     double GetLockedSpread();
     double GetActiveVolumeByPassiveVolume(double volume, double price);
-    void CancelOrderOnSpread(const dbp::DbpData* pdata, int64_t eventTime);
-    virtual void PairOrderTrade(PairOrder& pairOrder, int64_t eventTime);
+    void CancelOrderOnSpread(const dbp::DbpData* pdata);
+    virtual void PairOrderTrade(PairOrder& pairOrder);
     
     string GetLastestStatusInfo();
     void LoadFromFile(string filePath);

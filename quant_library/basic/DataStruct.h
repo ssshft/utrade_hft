@@ -13,6 +13,7 @@
 #include "crypto_errors.h"
 #include "json/nlohmann/json.hpp"
 #include "log_engine.h"
+#include "pubsub_protocol.h"
 
 using namespace std;
 using json = nlohmann::json;
@@ -490,6 +491,33 @@ namespace stra {
         {"TradingType_MIN", TradingType_MIN},
         {"MAKER_TAKER", MAKER_TAKER},
         {"TAKER_TAKER", TAKER_TAKER},
+        {"OPEN_SHORT", OPEN_SHORT},
+        {"OPEN_LONG", OPEN_LONG},
+        {"CLOSE_SHORT", CLOSE_SHORT},
+        {"CLOSE_LONG", CLOSE_LONG},
+        {"TradingType_MAX", TradingType_MAX}
+    };
+
+    enum TradingOffset {
+        TradingOffset_MIN = 0,
+        OPEN_SHORT,
+        OPEN_LONG,
+        CLOSE_SHORT,
+        CLOSE_LONG,
+        TradingType_MAX
+    };
+
+    static unordered_map<TradingOffset, string> TradingOffsetEnum2Str {
+        {TradingOffset_MIN, "TradingOffset_MIN"},
+        {OPEN_SHORT, "OPEN_SHORT"},
+        {OPEN_LONG, "OPEN_LONG"},
+        {CLOSE_SHORT, "CLOSE_SHORT"},
+        {CLOSE_LONG, "CLOSE_LONG"},
+        {TradingType_MAX, "TradingType_MAX"}
+    };
+
+    static unordered_map<string, TradingOffset> TradingOffsetStr2Enum {
+        {"TradingOffset_MIN", TradingOffset_MIN},
         {"OPEN_SHORT", OPEN_SHORT},
         {"OPEN_LONG", OPEN_LONG},
         {"CLOSE_SHORT", CLOSE_SHORT},
@@ -988,436 +1016,103 @@ namespace stra {
 
     struct QuantOrder {
         int64_t strategyOrderId{-1};
-        int64_t systemOrderId{-1};
-        char exchangeOrderId[ID_LEN]{""};
+        char systemOrderId[64][""];
+        char exchangeOrderId[64]{""};
         int strategyAccountId{-1};
         int64_t pairId{-1};
         int64_t algoPairId{-1};
         char instrument[INST_ID_LEN]{0};
         char instrumentKey[INST_KEY_LEN]{0};
         char pairInstrumentKey[INST_KEY_LEN]{0};
-        ExchangeType exchangeType{ET_MIN};
+        ExchangeType exchangeType{ExchangeType_MIN};
         InstType instType{InstType_MIN};
-        OrderType orderType{OrderType_MIN};
-        PosDirection posDirection{PosDirection_MIN};
-        Direction direction{Direction_MIN};
-        MarginType marginType{MarginType_MIN};
-        OrderStatus orderStatus{OrderStatus_MIN};
+        OrderType orderType{OT_MIN};
+        Direction direction{DT_MIN};
+        OrderStatus orderStatus{OS_MIN};
         TradingType tradingType{TradingType_MIN};
         TradingType tradingTypeOffset{TradingType_MIN};
         double price{0.0};
         double volume{0.0};
         double targetPrice{0.0};
-        double volumeFront{0.0};
-        double volumeAfter{0.0};
         double totalPriceOnOrder{-1.0};
         double totalVolumeOnOrder{0.0};
-        double lastTotalPriceOnOrder{-1.0};
-        double lastTotalVolumeOnOrder{0.0};
         double tradePrice{-1.0};
         double tradeVolume{0.0};
-        double tradeFee{0.0};
-        char tradeFeeCurrency[ASSET_LEN]{""};
-        AssetAmountDetail tradeShortFee;
-        AssetAmountDetail tradeLongFee;
-        AssetAmount totalShortFee;
-        AssetAmount totalLongFee;
-        TimeStatus orderTimeStatus;
         int errorId{0};
-        char originErrorMsg[MSG_LEN]{""};
+        char originErrorMsg[128]{""};
         char strategyName[NAME_LEN]{""};
         bool reduceOnly{false};
         bool isActiveOrder{false};
         bool rebalance{false};
-        int64_t orderTime{0};
         int64_t updateTime{0};
-        int64_t killTime{0};
         int queryCount{0};
 
         QuantOrder() {
-            orderTime = GetCurrentTimeUs();
-            updateTime = GetCurrentTimeUs();
+            updateTime = crypto::getCurrentTime();
         }
 
-        QuantOrder UpdateOrderOnOrder(const stra::TdOrder& tdOrder, int64_t eventTime) {
-            stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(instrumentKey);
-            double lastTotalAmountOnOrder = 0.0;
-            double totalAmountOnOrder = 0.0;
-            double lastExecutedVolumeOnOrder = 0.0;
-            double lastExecutedPriceOnOrder = 0.0;
-            double lastExecutedAmountOnOrder = 0.0;
-            double tradeAmount = 0.0;
+        QuantOrder UpdateOrderOnOrder(const pubsub::OrderResponse& orderResponse) {
             queryCount = 0;
-            // 报单状态更新
-            // 状态转换需要过滤
-            orderStatus = tdOrder.orderStatus;
-            updateTime = eventTime;
 
-            auto& dt = orderTimeStatus.detail[orderTimeStatus.size];
-            dt.updateTime = eventTime;
-            dt.orderStatus = orderStatus;
-            orderTimeStatus.size++;
-            if (orderTimeStatus.size >= TIME_STATUS_LEN) {
-                orderTimeStatus.size = TIME_STATUS_LEN - 1;
-                char msg[MSG_LEN];
-                LOG_INFO("orderTimeStatus size:%d > TIME_STATUS_LEN:%d", orderTimeStatus.size, TIME_STATUS_LEN);
-            }
+            orderStatus = orderResponse.orderStatus;
+            updateTime = crypto::getCurrentTime();
+            errorId = orderResponse.errorId;
+            strncpy(originErrorMsg, orderResponse.originMsg, 128);
+            strncpy(systemOrderId, orderResponse.orderSysId, 64);
+            strncpy(exchangeOrderId, orderResponse.orderId, 64);
 
-            errorId = tdOrder.errorId;
-            strncpy(originErrorMsg, tdOrder.originErrorMsg, MSG_LEN);
-
-            if (tdOrder.orderStatus == OrderStatus_PENDING_NEW) {
-                systemOrderId = tdOrder.sysOrdId;
-            } else if (tdOrder.orderStatus == OrderStatus_NEW) {
-                systemOrderId = tdOrder.sysOrdId;
-                strncpy(exchangeOrderId, tdOrder.exOrdId, stra::ID_LEN);
-            }
-
-            // if (tdOrder.totalVolumeOnOrder - totalVolumeOnOrder > MIN_FLOAT) {
-                if (info.calculateType == 0) {
-                    lastTotalPriceOnOrder = totalPriceOnOrder;
-                    lastTotalVolumeOnOrder = totalVolumeOnOrder;
-                    lastTotalAmountOnOrder = lastTotalPriceOnOrder * lastTotalVolumeOnOrder * info.multiple;
-                    totalVolumeOnOrder = tdOrder.totalVolumeOnOrder;
-                    totalPriceOnOrder = -1.0;
-                    if (totalVolumeOnOrder > stra::MIN_FLOAT) {
-                        totalPriceOnOrder = tdOrder.avgPrice;
-                    }
-                    totalAmountOnOrder = totalVolumeOnOrder * totalPriceOnOrder * info.multiple;
-                    lastExecutedVolumeOnOrder = tdOrder.lastExecutedVolumeOnOrder;
-                    lastExecutedPriceOnOrder = tdOrder.lastExecutedPriceOnOrder;
-                    lastExecutedAmountOnOrder = lastExecutedVolumeOnOrder * lastExecutedPriceOnOrder * info.multiple;
-                    tradeVolume = totalVolumeOnOrder - lastTotalVolumeOnOrder;
-		    //LOG_INFO("QuantOrder updateOrder totalVolumeOnOrder:%f lastTotalVolumeOnOrder:%f", totalVolumeOnOrder, lastTotalVolumeOnOrder);
-                    tradeAmount = totalAmountOnOrder - lastTotalAmountOnOrder;
-                    tradePrice = -1.0;
-                    if (tradeVolume > stra::MIN_FLOAT) {
-                        tradePrice = tradeAmount / (tradeVolume * info.multiple);
-                    }
-
-                    tradeFee = 0.0;
-                    if (lastExecutedAmountOnOrder > MIN_FLOAT) {
-                        tradeFee = tdOrder.lastExecutedTradeFee * tradeAmount / lastExecutedAmountOnOrder;
-                    }
-
-                    strncpy(tradeFeeCurrency, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                    if (tradeFee > MIN_FLOAT && strlen(tradeFeeCurrency) > 0) {
-                        if (direction == Direction_LONG) {
-                            bool assetExist = false;
-                            for (int i = 0; i < totalLongFee.size; ++i) {
-                                if (strcmp(totalLongFee.detail[i].asset, tradeFeeCurrency) == 0) {
-                                    totalLongFee.detail[i].amount += tradeFee;
-                                    assetExist = true;
-                                    break;
-                                }
-                            }
-                            if (!assetExist) {
-                                auto& dt = totalLongFee.detail[totalLongFee.size];
-                                strncpy(dt.asset, tradeFeeCurrency, ASSET_LEN);
-                                dt.amount = tradeFee;
-                                totalLongFee.size++;
-                                if (totalLongFee.size >= ASSET_AMOUNT_LEN) {
-                                    totalLongFee.size = ASSET_AMOUNT_LEN - 1;
-                                    char msg[MSG_LEN];
-                                    LOG_INFO("totalLongFee size:%d > ASSET_AMOUNT_LEN:%d", totalLongFee.size, ASSET_AMOUNT_LEN);
-                                }
-                            }
-
-                            strncpy(tradeLongFee.asset, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                            tradeLongFee.amount = tradeFee;
-                        } else {
-                            bool assetExist = false;
-                            for (int i = 0; i < totalShortFee.size; ++i) {
-                                if (strcmp(totalShortFee.detail[i].asset, tradeFeeCurrency) == 0) {
-                                    totalShortFee.detail[i].amount += tradeFee;
-                                    assetExist = true;
-                                    break;
-                                }
-                            }
-                            if (!assetExist) {
-                                auto& dt = totalShortFee.detail[totalShortFee.size];
-                                strncpy(dt.asset, tradeFeeCurrency, ASSET_LEN);
-                                dt.amount = tradeFee;
-                                totalShortFee.size++;
-                                if (totalShortFee.size >= ASSET_AMOUNT_LEN) {
-                                    totalShortFee.size = ASSET_AMOUNT_LEN - 1;
-                                    char msg[MSG_LEN];
-                                    LOG_INFO("totalShortFee size:%d > ASSET_AMOUNT_LEN:%d", totalShortFee.size, ASSET_AMOUNT_LEN);
-                                }
-                            }
-                            strncpy(tradeShortFee.asset, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                            tradeShortFee.amount = tradeFee;
-                        }
-                    }
-                } else if (info.calculateType == 1) {
-                    lastTotalPriceOnOrder = totalPriceOnOrder;
-                    lastTotalVolumeOnOrder = totalVolumeOnOrder;
-                    lastTotalAmountOnOrder = lastTotalVolumeOnOrder * info.multiple;
-                    totalVolumeOnOrder = tdOrder.totalVolumeOnOrder;
-                    totalPriceOnOrder = -1.0;
-                    if (totalVolumeOnOrder > MIN_FLOAT) {
-                        totalPriceOnOrder = tdOrder.avgPrice;
-                    }
-                    totalAmountOnOrder = totalVolumeOnOrder * info.multiple;
-                    lastExecutedVolumeOnOrder = tdOrder.lastExecutedVolumeOnOrder;
-                    lastExecutedPriceOnOrder = tdOrder.lastExecutedPriceOnOrder;
-                    lastExecutedAmountOnOrder = lastExecutedVolumeOnOrder * info.multiple;
-                    tradeVolume = totalVolumeOnOrder - lastTotalVolumeOnOrder;
-                    tradeAmount = tradeVolume * info.multiple;
-                    tradePrice = -1.0;
-                    if (tradeVolume > MIN_FLOAT) {
-                        tradePrice = tradeVolume / (totalVolumeOnOrder / totalPriceOnOrder - lastTotalVolumeOnOrder / lastTotalPriceOnOrder);
-                    }
-
-                    double tradeFee = 0.0;
-                    if (lastExecutedAmountOnOrder > MIN_FLOAT) {
-                        tradeFee = tdOrder.lastExecutedTradeFee * (tradeAmount / tradePrice) / (lastExecutedAmountOnOrder / lastExecutedPriceOnOrder);
-                    }
-
-                    strncpy(tradeFeeCurrency, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                    if (tradeFee > MIN_FLOAT && strlen(tradeFeeCurrency) > 0) {
-                        if (direction == Direction_LONG) {
-                            bool assetExist = false;
-                            for (int i = 0; i < totalLongFee.size; ++i) {
-                                if (strcmp(totalLongFee.detail[i].asset, tradeFeeCurrency) == 0) {
-                                    totalLongFee.detail[i].amount += tradeFee;
-                                    assetExist = true;
-                                    break;
-                                }
-                            }
-                            if (!assetExist) {
-                                auto& dt = totalLongFee.detail[totalLongFee.size];
-                                strncpy(dt.asset, tradeFeeCurrency, ASSET_LEN);
-                                dt.amount = tradeFee;
-                                totalLongFee.size++;
-                                if (totalLongFee.size >= ASSET_AMOUNT_LEN) {
-                                    totalLongFee.size = ASSET_AMOUNT_LEN - 1;
-                                    char msg[MSG_LEN];
-                                    LOG_INFO("totalLongFee size:%d > ASSET_AMOUNT_LEN:%d", totalLongFee.size, ASSET_AMOUNT_LEN);
-                                }
-                            }
-                            strncpy(tradeLongFee.asset, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                            tradeLongFee.amount = tradeFee;
-                        } else {
-                            bool assetExist = false;
-                            for (int i = 0; i < totalShortFee.size; ++i) {
-                                if (strcmp(totalShortFee.detail[i].asset, tradeFeeCurrency) == 0) {
-                                    totalShortFee.detail[i].amount += tradeFee;
-                                    assetExist = true;
-                                    break;
-                                }
-                            }
-                            if (!assetExist) {
-                                auto& dt = totalShortFee.detail[totalShortFee.size];
-                                strncpy(dt.asset, tradeFeeCurrency, ASSET_LEN);
-                                dt.amount = tradeFee;
-                                totalShortFee.size++;
-                                if (totalShortFee.size >= ASSET_AMOUNT_LEN) {
-                                    totalShortFee.size = ASSET_AMOUNT_LEN - 1;
-                                    char msg[MSG_LEN];
-                                    LOG_INFO("totalShortFee size:%d > ASSET_AMOUNT_LEN:%d", totalShortFee.size, ASSET_AMOUNT_LEN);
-                                }
-                            }
-                            strncpy(tradeShortFee.asset, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                            tradeShortFee.amount = tradeFee;
-                        }
-                    }
+            if (rcmd.body.orderResponse.instTypeEnum == C_SWAP || rcmd.body.orderResponse.instTypeEnum == C_FUTURES) { {
+                tradeVolume = orderResponse.volumeTraded - totalVolumeOnOrder;
+                tradePrice = -1.0;
+                if (tradeVolume > stra::MIN_FLOAT) {
+                    tradePrice = tradeVolume / (orderResponse.volumeTraded / orderResponse.tradePrice  - totalVolumeOnOrder / totalPriceOnOrder);
                 }
-            // }
+
+                totalVolumeOnOrder = orderResponse.volumeTraded;
+                totalPriceOnOrder = orderResponse.tradePrice;
+            } else {
+                tradeVolume = orderResponse.volumeTraded - totalVolumeOnOrder;
+                tradePrice = -1.0;
+                if (tradeVolume > stra::MIN_FLOAT) {
+                    tradePrice = (orderResponse.volumeTraded * orderResponse.tradePrice  - totalVolumeOnOrder * totalPriceOnOrder) / tradeVolume;
+                }
+
+                totalVolumeOnOrder = orderResponse.volumeTraded;
+                totalPriceOnOrder = orderResponse.tradePrice;
+            }
+            
             return *this;
         }
 
-        QuantOrder UpdateOrderOnQueryOrder(const stra::TdOrder& tdOrder, int64_t eventTime) {
-           stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(instrumentKey);
-            double lastTotalAmountOnOrder = 0.0;
-            double totalAmountOnOrder = 0.0;
-            double lastExecutedVolumeOnOrder = 0.0;
-            double lastExecutedPriceOnOrder = 0.0;
-            double lastExecutedAmountOnOrder = 0.0;
-            double tradeAmount = 0.0;
+        QuantOrder UpdateOrderOnQueryOrder(const pubsub::OrderResponse& orderResponse) {
             queryCount += 1;
-            // 报单状态更新
-            // 状态转换需要过滤
-            if (tdOrder.errorId == OrderNotFoundError && strlen(exchangeOrderId) <= 0) {
-                orderStatus = OS_REJECTED;
-                char msg[stra::MSG_LEN];
-                sprintf(msg, "strategyName:%s algoPairId:%ld strategyOrderId:%ld", strategyName, algoPairId, strategyOrderId);
-                rLarkMsg.Push(string(msg));
-            } else {
-                orderStatus = tdOrder.orderStatus;
-            }
-            updateTime = eventTime;
+            orderStatus = orderResponse.orderStatus;
+            updateTime = crypto::getCurrentTime();
+            errorId = orderResponse.errorId;
+            strncpy(originErrorMsg, orderResponse.originMsg, 128);
+            strncpy(systemOrderId, orderResponse.orderSysId, 64);
+            strncpy(exchangeOrderId, orderResponse.orderId, 64);
 
-            auto& dt = orderTimeStatus.detail[orderTimeStatus.size];
-            dt.updateTime = eventTime;
-            dt.orderStatus = orderStatus;
-            orderTimeStatus.size++;
-            if (orderTimeStatus.size >= TIME_STATUS_LEN) {  // 不抛异常，写log或覆盖
-                orderTimeStatus.size = TIME_STATUS_LEN - 1;
-                char msg[MSG_LEN];
-                LOG_INFO("orderTimeStatus size:%d > TIME_STATUS_LEN:%d", orderTimeStatus.size, TIME_STATUS_LEN);
-            }
-
-            errorId = tdOrder.errorId;
-            strncpy(originErrorMsg, tdOrder.originErrorMsg, MSG_LEN);
-
-            if (tdOrder.orderStatus == OrderStatus_PENDING_NEW) {
-                systemOrderId = tdOrder.sysOrdId;
-            } else if (tdOrder.orderStatus == OrderStatus_NEW) {
-                systemOrderId = tdOrder.sysOrdId;
-                strncpy(exchangeOrderId, tdOrder.exOrdId, stra::ID_LEN);
-            }
-
-            if (tdOrder.totalVolumeOnOrder - totalVolumeOnOrder > MIN_FLOAT) {
-                if (info.calculateType == 0) {
-                    lastTotalPriceOnOrder = totalPriceOnOrder;
-                    lastTotalVolumeOnOrder = totalVolumeOnOrder;
-                    lastTotalAmountOnOrder = lastTotalPriceOnOrder * lastTotalVolumeOnOrder * info.multiple;
-                    totalVolumeOnOrder = tdOrder.totalVolumeOnOrder;
-                    totalPriceOnOrder = -1.0;
-                    if (totalVolumeOnOrder > stra::MIN_FLOAT) {
-                        totalPriceOnOrder = tdOrder.avgPrice;
-                    }
-                    totalAmountOnOrder = totalVolumeOnOrder * totalPriceOnOrder * info.multiple;
-                    lastExecutedVolumeOnOrder = tdOrder.lastExecutedVolumeOnOrder;
-                    lastExecutedPriceOnOrder = tdOrder.lastExecutedPriceOnOrder;
-                    lastExecutedAmountOnOrder = lastExecutedVolumeOnOrder * lastExecutedPriceOnOrder * info.multiple;
-                    tradeVolume = totalVolumeOnOrder - lastTotalVolumeOnOrder;
-                    tradeAmount = totalAmountOnOrder - lastTotalAmountOnOrder;
-                    tradePrice = -1.0;
-                    if (tradeVolume > stra::MIN_FLOAT) {
-                        tradePrice = tradeAmount / (tradeVolume * info.multiple);
-                    }
-
-                    tradeFee = 0.0;
-                    if (lastExecutedAmountOnOrder > MIN_FLOAT) {
-                        tradeFee = tdOrder.lastExecutedTradeFee * tradeAmount / lastExecutedAmountOnOrder;
-                    }
-
-                    strncpy(tradeFeeCurrency, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                    if (tradeFee > MIN_FLOAT && strlen(tradeFeeCurrency) > 0) {
-                        if (direction == Direction_LONG) {
-                            bool assetExist = false;
-                            for (int i = 0; i < totalLongFee.size; ++i) {
-                                if (strcmp(totalLongFee.detail[i].asset, tradeFeeCurrency) == 0) {
-                                    totalLongFee.detail[i].amount += tradeFee;
-                                    assetExist = true;
-                                    break;
-                                }
-                            }
-                            if (!assetExist) {
-                                auto& dt = totalLongFee.detail[totalLongFee.size];
-                                strncpy(dt.asset, tradeFeeCurrency, ASSET_LEN);
-                                dt.amount = tradeFee;
-                                totalLongFee.size++;
-                                if (totalLongFee.size >= ASSET_AMOUNT_LEN) {
-                                    totalLongFee.size = ASSET_AMOUNT_LEN - 1;
-                                    char msg[MSG_LEN];
-                                    LOG_INFO("totalLongFee size:%d > ASSET_AMOUNT_LEN:%d", totalLongFee.size, ASSET_AMOUNT_LEN);
-                                }
-                            }
-
-                            strncpy(tradeLongFee.asset, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                            tradeLongFee.amount = tradeFee;
-                        } else {
-                            bool assetExist = false;
-                            for (int i = 0; i < totalShortFee.size; ++i) {
-                                if (strcmp(totalShortFee.detail[i].asset, tradeFeeCurrency) == 0) {
-                                    totalShortFee.detail[i].amount += tradeFee;
-                                    assetExist = true;
-                                    break;
-                                }
-                            }
-                            if (!assetExist) {
-                                auto& dt = totalShortFee.detail[totalShortFee.size];
-                                strncpy(dt.asset, tradeFeeCurrency, ASSET_LEN);
-                                dt.amount = tradeFee;
-                                totalShortFee.size++;
-                                if (totalShortFee.size >= ASSET_AMOUNT_LEN) {
-                                    totalShortFee.size = ASSET_AMOUNT_LEN - 1;
-                                    char msg[MSG_LEN];
-                                    LOG_INFO("totalShortFee size:%d > ASSET_AMOUNT_LEN:%d", totalShortFee.size, ASSET_AMOUNT_LEN);
-                                }
-                            }
-                            strncpy(tradeShortFee.asset, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                            tradeShortFee.amount = tradeFee;
-                        }
-                    }
-                } else if (info.calculateType == 1) {
-                    lastTotalPriceOnOrder = totalPriceOnOrder;
-                    lastTotalVolumeOnOrder = totalVolumeOnOrder;
-                    lastTotalAmountOnOrder = lastTotalVolumeOnOrder * info.multiple;
-                    totalVolumeOnOrder = tdOrder.totalVolumeOnOrder;
-                    totalPriceOnOrder = -1.0;
-                    if (totalVolumeOnOrder > MIN_FLOAT) {
-                        totalPriceOnOrder = tdOrder.avgPrice;
-                    }
-                    totalAmountOnOrder = totalVolumeOnOrder * info.multiple;
-                    lastExecutedVolumeOnOrder = tdOrder.lastExecutedVolumeOnOrder;
-                    lastExecutedPriceOnOrder = tdOrder.lastExecutedPriceOnOrder;
-                    lastExecutedAmountOnOrder = lastExecutedVolumeOnOrder * info.multiple;
-                    tradeVolume = totalVolumeOnOrder - lastTotalVolumeOnOrder;
-                    tradeAmount = tradeVolume * info.multiple;
-                    tradePrice = -1.0;
-                    if (tradeVolume > MIN_FLOAT) {
-                        tradePrice = tradeVolume / (totalVolumeOnOrder / totalPriceOnOrder - lastTotalVolumeOnOrder / lastTotalPriceOnOrder);
-                    }
-
-                    double tradeFee = 0.0;
-                    if (lastExecutedAmountOnOrder > MIN_FLOAT) {
-                        tradeFee = tdOrder.lastExecutedTradeFee * (tradeAmount / tradePrice) / (lastExecutedAmountOnOrder / lastExecutedPriceOnOrder);
-                    }
-
-                    strncpy(tradeFeeCurrency, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                    if (tradeFee > MIN_FLOAT && strlen(tradeFeeCurrency) > 0) {
-                        if (direction == Direction_LONG) {
-                            bool assetExist = false;
-                            for (int i = 0; i < totalLongFee.size; ++i) {
-                                if (strcmp(totalLongFee.detail[i].asset, tradeFeeCurrency) == 0) {
-                                    totalLongFee.detail[i].amount += tradeFee;
-                                    assetExist = true;
-                                    break;
-                                }
-                            }
-                            if (!assetExist) {
-                                auto& dt = totalLongFee.detail[totalLongFee.size];
-                                strncpy(dt.asset, tradeFeeCurrency, ASSET_LEN);
-                                dt.amount = tradeFee;
-                                totalLongFee.size++;
-                                if (totalLongFee.size >= ASSET_AMOUNT_LEN) {
-                                    totalLongFee.size = ASSET_AMOUNT_LEN - 1;
-                                    char msg[MSG_LEN];
-                                    LOG_INFO("totalLongFee size:%d > ASSET_AMOUNT_LEN:%d", totalLongFee.size, ASSET_AMOUNT_LEN);
-                                }
-                            }
-                            strncpy(tradeLongFee.asset, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                            tradeLongFee.amount = tradeFee;
-                        } else {
-                            bool assetExist = false;
-                            for (int i = 0; i < totalShortFee.size; ++i) {
-                                if (strcmp(totalShortFee.detail[i].asset, tradeFeeCurrency) == 0) {
-                                    totalShortFee.detail[i].amount += tradeFee;
-                                    assetExist = true;
-                                    break;
-                                }
-                            }
-                            if (!assetExist) {
-                                auto& dt = totalShortFee.detail[totalShortFee.size];
-                                strncpy(dt.asset, tradeFeeCurrency, ASSET_LEN);
-                                dt.amount = tradeFee;
-                                totalShortFee.size++;
-                                if (totalShortFee.size >= ASSET_AMOUNT_LEN) {
-                                    totalShortFee.size = ASSET_AMOUNT_LEN - 1;
-                                    char msg[MSG_LEN];
-                                    LOG_INFO("totalShortFee size:%d > ASSET_AMOUNT_LEN:%d", totalShortFee.size, ASSET_AMOUNT_LEN);
-                                }
-                            }
-                            strncpy(tradeShortFee.asset, tdOrder.lastExecutedTradeFeeCurrency, ASSET_LEN);
-                            tradeShortFee.amount = tradeFee;
-                        }
-                    }
+            if (rcmd.body.orderResponse.instTypeEnum == C_SWAP || rcmd.body.orderResponse.instTypeEnum == C_FUTURES) { {
+                tradeVolume = orderResponse.volumeTraded - totalVolumeOnOrder;
+                tradePrice = -1.0;
+                if (tradeVolume > stra::MIN_FLOAT) {
+                    tradePrice = tradeVolume / (orderResponse.volumeTraded / orderResponse.tradePrice  - totalVolumeOnOrder / totalPriceOnOrder);
                 }
+
+                totalVolumeOnOrder = orderResponse.volumeTraded;
+                totalPriceOnOrder = orderResponse.tradePrice;
+            } else {
+                tradeVolume = orderResponse.volumeTraded - totalVolumeOnOrder;
+                tradePrice = -1.0;
+                if (tradeVolume > stra::MIN_FLOAT) {
+                    tradePrice = (orderResponse.volumeTraded * orderResponse.tradePrice  - totalVolumeOnOrder * totalPriceOnOrder) / tradeVolume;
+                }
+
+                totalVolumeOnOrder = orderResponse.volumeTraded;
+                totalPriceOnOrder = orderResponse.tradePrice;
             }
+
             return *this;
         }
 
