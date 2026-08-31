@@ -13,8 +13,13 @@ static int64_t NowUs() {
     return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-PairTradingStrategy::PairTradingStrategy() = default;
-PairTradingStrategy::~PairTradingStrategy() = default;
+PairTradingStrategy::PairTradingStrategy() {
+    algoContext.SetTradeClient(tradeClient);
+};
+
+PairTradingStrategy::~PairTradingStrategy() {
+
+};
 
 void PairTradingStrategy::pre_start(Config* config) {
     _init(config);
@@ -48,7 +53,7 @@ void PairTradingStrategy::pre_start(Config* config) {
         m_ptCfg.csvStatePath = op["csvStatePath"].GetString();
     }
 
-    algoContext.SetTradeClient(tradeClient);
+    algoContext.SetDbp(dbpreader);
     algoContext.PreStart();
 
     ptContext.SetAlgoCommandCallback([this](const std::string& json) {

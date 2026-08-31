@@ -123,7 +123,7 @@ stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
     order.instType = activeInstType;
     order.orderType = activeOrderType;
     order.direction = activeDirection;
-    order.posDirection = stra::PosDirection_OPEN;
+    order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
 
     auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
@@ -239,7 +239,7 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
     order.instType = activeInstType;
     order.orderType = activeOrderType;
     order.direction = activeDirection;
-    order.posDirection = stra::PosDirection_OPEN;
+    order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
 
     auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
@@ -347,7 +347,7 @@ stra::QuantOrder PairOrder::CreateOrginActiveOrder(int64_t strategyOrderId) {
     order.instType = activeInstType;
     order.orderType = activeOrderType;
     order.direction = activeDirection;
-    order.posDirection = stra::PosDirection_OPEN;
+    order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
 
     auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
@@ -724,7 +724,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
     order.instType = passiveInstType;
     order.orderType = passiveOrderType;
     order.direction = passiveDirection;
-    order.posDirection = stra::PosDirection_OPEN;
+    order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
     order.price = price;
 //order.volume = round(volume / passiveInfo.lotSize) * passiveInfo.lotSize;
@@ -1059,7 +1059,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     order.instType = passiveInstType;
     order.orderType = passiveOrderType;
     order.direction = passiveDirection;
-    order.posDirection = stra::PosDirection_OPEN;
+    order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
     order.price = price;
     //order.volume = round(volume / passiveInfo.lotSize) * passiveInfo.lotSize;

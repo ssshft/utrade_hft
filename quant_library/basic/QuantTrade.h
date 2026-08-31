@@ -24,7 +24,7 @@ public:
         string strategyId = StrategyConfig::GetInstance().GetStrategyIdByAccountId(order.strategyAccountId);
         char ref[stra::ID_LEN];
         sprintf(ref, "%ld_%ld", order.algoPairId, order.pairId);
-        tradeClient->add_new_order(ExchangeType(order.exchangeType), InstType(order.instType), strategyId.c_str(), order.instrument, OffsetFlag(order.posDirection), Direction(order.direction), OrderType(order.orderType), order.price, order.volume, order.strategyOrderId, order.reduceOnly, ref);
+        tradeClient->add_new_order(ExchangeType(order.exchangeType), InstType(order.instType), strategyId.c_str(), order.instrument, OffsetFlag(order.offsetFlag), Direction(order.direction), OrderType(order.orderType), order.price, order.volume, order.strategyOrderId, order.reduceOnly, ref);
         return true;
     }
 

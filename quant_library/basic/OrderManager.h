@@ -3,7 +3,6 @@
 
 #include "DataStruct.h"
 #include "pubsub_protocol.h"
-#include "ShmManager.h"
 #include <vector>
 #include <unordered_map>
 #include <string>

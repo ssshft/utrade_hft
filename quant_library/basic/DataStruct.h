@@ -274,54 +274,6 @@ namespace stra {
         {"LendingType_MAX", LendingType_MAX}
     };
 
-    enum OffsetFlag {
-        OffsetFlag_MIN = 0,
-        OffsetFlag_OPEN,
-        OffsetFlag_CLOSE,
-        OffsetFlag_CANCEL,
-        OffsetFlag_MAX
-    };
-
-    static unordered_map<OffsetFlag, string> OffsetFlagEnum2Str {
-        {OffsetFlag_MIN, "OffsetFlag_MIN"},
-        {OffsetFlag_OPEN, "OffsetFlag_OPEN"},
-        {OffsetFlag_CLOSE, "OffsetFlag_CLOSE"},
-        {OffsetFlag_CANCEL, "OffsetFlag_CANCEL"},
-        {OffsetFlag_MAX, "OffsetFlag_MAX"}
-    };
-
-    static unordered_map<std::string, OffsetFlag> OffsetFlagStr2Enum {
-        {"OffsetFlag_MIN", OffsetFlag_MIN},
-        {"OffsetFlag_OPEN", OffsetFlag_OPEN},
-        {"OffsetFlag_CLOSE", OffsetFlag_CLOSE},
-        {"OffsetFlag_CANCEL", OffsetFlag_CANCEL},
-        {"OffsetFlag_MAX", OffsetFlag_MAX}
-    };
-
-    enum PosDirection {
-        PosDirection_MIN = 0,
-        PosDirection_OPEN,
-        PosDirection_CLOSE,
-        PosDirection_NET,
-        PosDirection_MAX
-    };
-
-    static unordered_map<PosDirection, string> PosDirectionEnum2Str {
-        {PosDirection_MIN, "PosDirection_MIN"},
-        {PosDirection_OPEN, "PosDirection_OPEN"},
-        {PosDirection_CLOSE, "PosDirection_CLOSE"},
-        {PosDirection_NET, "PosDirection_NET"},
-        {PosDirection_MAX, "PosDirection_MAX"}
-    };
-
-    static unordered_map<string, PosDirection> PosDirectionStr2Enum {
-        {"PosDirection_MIN", PosDirection_MIN},
-        {"PosDirection_OPEN", PosDirection_OPEN},
-        {"PosDirection_CLOSE", PosDirection_CLOSE},
-        {"PosDirection_NET", PosDirection_NET},
-        {"PosDirection_MAX", PosDirection_MAX}
-    };
-
     enum AlgoType {
         AlgoType_MIN = 0,
         AlgoType_Basic,
@@ -762,74 +714,6 @@ namespace stra {
         int64_t exchPassiveTradeDelay{0};
     };
 
-    struct MdDepth {
-        ExchangeType exchangeType;
-        InstType instType;
-        MarketType marketType;
-        string exchangeId{""};
-        string instTypeStr{""};
-        string marketTypeStr{""};
-        string originInstId{""};
-        string instId{""};
-        string base{""};
-        string quote{""};
-        string margin{""};
-        vector<double> vAskPrice;
-        vector<double> vAskVolume;
-        vector<double> vBidPrice;
-        vector<double> vBidVolume;
-        int64_t ts{0};
-        int64_t tsNet{0};
-        int64_t tsParse{0};
-    };
-
-    struct MdKline {
-        ExchangeType exchangeType;
-        InstType instType;
-        MarketType marketType;
-        char instrument[INST_ID_LEN];
-        double highPrice{0.0};
-        double lowPrice{0.0};
-        double openPrice{0.0};
-        double closePrice{0.0};
-        double avgPrice{0.0};
-        double totalVolume{0.0};
-        double totalAmount{0.0};
-        double takerLongVolume{0.0};
-        double takerLongAmount{0.0};
-        double takerShortVolume{0.0};
-        double takerShortAmount{0.0};
-        int numOfTrade{0};
-        string isFinished{""};
-        int64_t ts{0};
-        int64_t tsNet{0};
-        int64_t tsParse{0};
-    };
-
-    struct MdFrate {
-        ExchangeType exchangeType;
-        InstType instType;
-        MarketType marketType;
-        double fundingRate{0.0};
-        double nextFundingRate{0.0};
-        int64_t fundingTime{0};
-        int64_t ts{0};
-        int64_t tsNet{0};
-        int64_t tsParse{0};
-    };
-
-    struct MdTrade {
-        ExchangeType exchangeType;
-        InstType instType;
-        MarketType marketType;
-        double px{0.0};
-        double size{0.0};
-        string side{""};
-        int64_t ts{0};
-        int64_t tsNet{0};
-        int64_t tsParse{0};
-    };
-
     struct TdOrder {
         int64_t algoId{0};
         int64_t pairId{0};
@@ -840,7 +724,6 @@ namespace stra {
         ExchangeType exchangType{ExchangeType_MIN};
         InstType instType{InstType_MIN};
         OrderStatus orderStatus{OS_MIN};
-        PosDirection posDirection{PosDirection_NET};
         Direction direction{DT_MIN};
         OrderType orderType{OT_MIN};
         bool reduceOnly{false};
@@ -909,35 +792,10 @@ namespace stra {
 
     };
 
-    struct TradeInfo {
-        int tradeInfoId;
-        int accountId;
-        double totalAmount;
-        double limitPrice;
-        char instrument[INST_ID_LEN];
-        char instrumentKey[INST_KEY_LEN];
-        ExchangeType exchangeType;
-        InstType instType;
-        Direction direction;
-        MarginType marginType;
-        double frozenAmount;
-        double filledAmount;
-        double filledPrice;
-        double filledVolume;
-        double publicFilledPrice;
-        double publicFilledVolume;
-        double privateFilledPrice;
-        double privateFilledVolume;
-        double filledPct;
-        double expectFilledPct;
-        bool isFinished;
-        AssetAmount totalFee;
-    };
-
     struct QuantOrder {
         int64_t strategyOrderId{-1};
-        char systemOrderId[64]{""};
-        char exchangeOrderId[64]{""};
+        char systemOrderId[64]{0};
+        char exchangeOrderId[64]{0};
         int strategyAccountId{-1};
         int64_t pairId{-1};
         int64_t algoPairId{-1};
@@ -948,6 +806,7 @@ namespace stra {
         InstType instType{InstType_MIN};
         OrderType orderType{OT_MIN};
         Direction direction{DT_MIN};
+        OffsetFlag offsetFlag{OF_MIN};
         OrderStatus orderStatus{OS_MIN};
         TradingType tradingType{TradingType_MIN};
         TradingType tradingTypeOffset{TradingType_MIN};
@@ -971,6 +830,8 @@ namespace stra {
             updateTime = crypto::getCurrentTime();
         }
 
+        
+
         QuantOrder UpdateOrderOnOrder(const pubsub::OrderResponse& orderResponse) {
             queryCount = 0;
 
@@ -981,7 +842,7 @@ namespace stra {
             strncpy(systemOrderId, orderResponse.orderSysId, 64);
             strncpy(exchangeOrderId, orderResponse.orderId, 64);
 
-            if (rcmd.body.orderResponse.instTypeEnum == C_SWAP || rcmd.body.orderResponse.instTypeEnum == C_FUTURES) { {
+            if (orderResponse.instTypeEnum == C_SWAP || orderResponse.instTypeEnum == C_FUTURES) {
                 tradeVolume = orderResponse.volumeTraded - totalVolumeOnOrder;
                 tradePrice = -1.0;
                 if (tradeVolume > stra::MIN_FLOAT) {
@@ -1013,7 +874,7 @@ namespace stra {
             strncpy(systemOrderId, orderResponse.orderSysId, 64);
             strncpy(exchangeOrderId, orderResponse.orderId, 64);
 
-            if (rcmd.body.orderResponse.instTypeEnum == C_SWAP || rcmd.body.orderResponse.instTypeEnum == C_FUTURES) { {
+            if (orderResponse.instTypeEnum == C_SWAP || orderResponse.instTypeEnum == C_FUTURES) {
                 tradeVolume = orderResponse.volumeTraded - totalVolumeOnOrder;
                 tradePrice = -1.0;
                 if (tradeVolume > stra::MIN_FLOAT) {
@@ -1036,25 +897,6 @@ namespace stra {
             return *this;
         }
 
-        string GetStr() const {
-            /*
-            string s = fmt::format("{},{},{},{},{},{},"
-                            "{},{},{},{},{},{},{},"
-                            "{},{},{},{},{},{},{},{},"
-                            "{},{},{},{},{},{},{},"
-                            "{},{},{},{},{},{},"
-                            "{},{},{},{},{},{},"
-                            "{},{},{},{},{}", 
-                            strategyOrderId, systemOrderId, exchangeOrderId, strategyAccountId, pairId, algoPairId, 
-                            instrument, instrumentKey, pairInstrumentKey, exchangeType, instType, orderType, posDirection, 
-                            direction, marginType, orderStatus, tradingType, price, volume, targetPrice, volumeFront, 
-                            volumeAfter, totalPriceOnOrder, totalVolumeOnOrder, lastTotalPriceOnOrder, lastTotalVolumeOnOrder, tradePrice, tradeVolume, 
-                            tradeFee, tradeFeeCurrency, tradeShortFee.GetStr(), tradeLongFee.GetStr(), totalShortFee.GetStr(), totalLongFee.GetStr(), 
-                            orderTimeStatus.GetEnumStr(), errorId, originErrorMsg, strategyName, reduceOnly, isActiveOrder, rebalance, orderTime, updateTime, killTime, queryCount);          
-            return s;
-            */
-            return "";
-        }
     };
 
     struct QuantKline {
@@ -1109,72 +951,6 @@ namespace stra {
         double avgInterval{0.0};
         double maxInterval{300};
         double minInterval{5};
-    };
-
-    struct QuantTransfer {
-        int64_t algoOrderId{0};
-        int64_t pairOrderId{0};
-        int64_t strategyTransferId{0};
-        char algoStrategyName[NAME_LEN]{0};
-        char pairInstrumentKey[INST_KEY_LEN]{0};
-        char systemTransferId[ORDER_ID_LEN]{0};
-        char exchangeTransferId[ORDER_ID_LEN]{0};
-        char transferAsset[ASSET_LEN]{0};
-        int withdrawStrategyAccountId{0};
-        int depositStrategyAccountId{0};
-        double transferVolume{0.0};
-        double activePrice{0.0};
-        double passivePrice{0.0};
-        ExchangeType exchangeType{ET_MIN};
-        OrderStatus transferStatus{OrderStatus_MIN};
-        TimeStatus transferTimeStatus;
-        OrderType pairOrderType{OrderType_MIN};
-        int64_t updateTime{0};
-
-        string GetStr() const {
-            char s[STR_LEN];
-            fmt::format_to(s, "algoOrderId:{} pairOrderId:{} strategyTransferId:{} algoStrategyName:{} pairInstrumentKey:{} "
-                            "systemTransferId:{} exchangeTransferId:{} transferAsset:{} withdrawStrategyAccountId:{} "
-                            "depositStrategyAccountId:{} transferVolume:{} activePrice:{} passivePrice:{} exchangeType:{} "
-                            "transferStatus:{} transferTimeStatus:{} pairOrderType:{} updateTime:{}", algoOrderId, pairOrderId,
-                            strategyTransferId, algoStrategyName, pairInstrumentKey, systemTransferId, exchangeTransferId,
-                            transferAsset, withdrawStrategyAccountId, depositStrategyAccountId, transferVolume, activePrice,
-                            passivePrice, ExchangeTypeEnum2Str[exchangeType], OrderStatusEnum2Str[transferStatus], transferTimeStatus.GetStr(),
-                            OrderTypeEnum2Str[pairOrderType], updateTime);
-            return string(s);
-        }
-    };
-
-    struct QuantFrate {
-        int64_t timestamp{0};
-        int64_t arriveTime{0};
-        int64_t exchangeTime{0};
-        int64_t platformTime{0};
-        int64_t fundingTime{0};
-        ExchangeType exchangeType;
-        char instrument[INST_ID_LEN];
-        InstType instType;
-        double fundingRate{0.0};
-        double nextFundingRate{0.0};
-    };
-
-    struct QuantLending {
-        int64_t strategyTransferId{0};
-        int strategyAccountId{0};
-        char asset[ASSET_LEN]{0};
-        double lendingVolume{0.0};
-        OrderStatus orderStatus{OrderStatus_MIN};
-        LendingType lendingType{LendingType_MIN};
-        TimeStatus lendingStatus;
-        int64_t updateTime{0};
-
-        string GetStr() const {
-            char s[STR_LEN];
-            fmt::format_to(s, "strategyTransferId:{} strategyAccountId:{} asset:{} lendingVolume:{} orderStatus:{} lendingType:{}"
-                            "lendingStatus:{} updateTime:{}", strategyTransferId, strategyAccountId, asset, lendingVolume, 
-                            OrderStatusEnum2Str[orderStatus], LendingTypeEnum2Str[lendingType], lendingStatus.GetStr(), updateTime);
-            return string(s);
-        }
     };
 
     struct AssetUnit {  // marginAmount floatAmount positionValue 会根据depth变化
@@ -1261,300 +1037,7 @@ namespace stra {
             return ss.str();
         }
 
-        void LoadFromFile(string filePath) {
-            std::ifstream accountFile(filePath.c_str());
-            if (!accountFile) {
-                LOG_INFO("File: %s does not exist!", filePath.c_str());
-                return;
-            }
-
-            json accountInfo;
-            accountFile >> accountInfo;
-
-            auto i = accountInfo.find("strategyAccountId");
-            if (i != accountInfo.end()) {
-                strategyAccountId = int(i.value());
-            }
-            
-            i = accountInfo.find("systemAccountId");
-            if (i != accountInfo.end()) {
-                systemAccountId = int(i.value());
-            }
-
-            i = accountInfo.find("physicalAccountId");
-            if (i != accountInfo.end()) {
-                physicalAccountId = int(i.value());
-            }
-
-            i = accountInfo.find("accountType");
-            if (i != accountInfo.end()) {
-                accountType = stra::AccountTypeStr2Enum[string(i.value())];
-            }
-
-            i = accountInfo.find("marginType");
-            if (i != accountInfo.end()) {
-                marginType = stra::AccountMarginTypeStr2Enum[string(i.value())];
-            }
-
-            i = accountInfo.find("accountMarginType");
-            if (i != accountInfo.end()) {
-                accountMarginType = stra::AccountMarginTypeStr2Enum[string(i.value())];
-            }
-
-            i = accountInfo.find("openRealLeverage");
-            if (i != accountInfo.end()) {
-                openRealLeverage = double(i.value());
-            }
-
-            
-            i = accountInfo.find("assetInfo");
-            if (i != accountInfo.end()) {
-                json assetInfo = i.value();
-                for (auto j = assetInfo.begin(); j != assetInfo.end(); ++j) {
-                    stra::AssetUnit assetUnit;
-                    json asset = j.value();
-                    auto k = asset.find("asset");
-                    if (k != asset.end()) {
-                        strncpy(assetUnit.asset, string(k.value()).c_str(), stra::ASSET_LEN);
-                    }
-
-                    k = asset.find("baseAsset");
-                    if (k != asset.end()) {
-                        strncpy(assetUnit.baseAsset, string(k.value()).c_str(), stra::ASSET_LEN);
-                    }
-
-                    k = asset.find("initAmount");
-                    if (k != asset.end()) {
-                        assetUnit.initAmount = double(k.value());
-                    }
-
-                    k = asset.find("totalAmount");
-                    if (k != asset.end()) {
-                        assetUnit.totalAmount = double(k.value());
-                    }
-
-                    k = asset.find("transferAmount");
-                    if (k != asset.end()) {
-                        assetUnit.transferAmount = double(k.value());
-                    }
-
-                    k = asset.find("frozenAmount");
-                    if (k != asset.end()) {
-                        assetUnit.frozenAmount = double(k.value());
-                    }
-
-                    k = asset.find("marginAmount");
-                    if (k != asset.end()) {
-                        assetUnit.marginAmount = double(k.value());
-                    }
-
-                    k = asset.find("openMarginAmount");
-                    if (k != asset.end()) {
-                        assetUnit.openMarginAmount = double(k.value());
-                    }
-
-                    k = asset.find("feeAmount");
-                    if (k != asset.end()) {
-                        assetUnit.feeAmount = double(k.value());
-                    }
-
-                    k = asset.find("fundAmount");
-                    if (k != asset.end()) {
-                        assetUnit.fundAmount = double(k.value());
-                    }
-
-                    k = asset.find("loanAmount");
-                    if (k != asset.end()) {
-                        assetUnit.loanAmount = double(k.value());
-                    }
-
-                    k = asset.find("interestAmount");
-                    if (k != asset.end()) {
-                        assetUnit.interestAmount = double(k.value());
-                    }
-
-                    k = asset.find("closeAmount");
-                    if (k != asset.end()) {
-                        assetUnit.closeAmount = double(k.value());
-                    }
-
-                    k = asset.find("floatAmount");
-                    if (k != asset.end()) {
-                        assetUnit.floatAmount = double(k.value());
-                    }
-
-                    k = asset.find("positionValue");
-                    if (k != asset.end()) {
-                        assetUnit.positionValue = double(k.value());
-                    }
-
-                    mAsset[assetUnit.asset] = assetUnit;
-                }
-            }
-
-
-            i = accountInfo.find("positionInfo");
-            if (i != accountInfo.end()) {
-                json positionInfo = i.value();
-                for (auto j = positionInfo.begin(); j != positionInfo.end(); ++j) {
-                    stra::PositionUnit positionUnit;
-                    json position = j.value();
-                    auto k = position.find("instrumentKey");
-                    if (k != position.end()) {
-                        strncpy(positionUnit.instrumentKey, string(k.value()).c_str(), stra::INST_KEY_LEN);
-                    }
-
-                    k = position.find("baseAsset");
-                    if (k != position.end()) {
-                        strncpy(positionUnit.baseAsset, string(k.value()).c_str(), stra::ASSET_LEN);
-                    }
-
-                    k = position.find("longPosition");
-                    if (k != position.end()) {
-                        positionUnit.longPosition = double(k.value());
-                    }
-
-                    k = position.find("longAvgPrice");
-                    if (k != position.end()) {
-                        positionUnit.longAvgPrice = double(k.value());
-                    }
-                    
-                    k = position.find("shortPosition");
-                    if (k != position.end()) {
-                        positionUnit.shortPosition = double(k.value());
-                    }
-
-                    k = position.find("shortAvgPrice");
-                    if (k != position.end()) {
-                        positionUnit.shortAvgPrice = double(k.value());
-                    }
-
-                    k = position.find("floatAmount");
-                    if (k != position.end()) {
-                        positionUnit.floatAmount = double(k.value());
-                    }
-
-                    k = position.find("closeAmount");
-                    if (k != position.end()) {
-                        positionUnit.closeAmount = double(k.value());
-                    }
-
-                    k = position.find("positionValue");
-                    if (k != position.end()) {
-                        positionUnit.positionValue = double(k.value());
-                    }
-
-                    k = position.find("frozenLongPosition");
-                    if (k != position.end()) {
-                        positionUnit.frozenLongPosition = double(k.value());
-                    }
-
-                    k = position.find("frozenLongPrice");
-                    if (k != position.end()) {
-                        positionUnit.frozenLongPrice = double(k.value());
-                    }
-
-                    k = position.find("frozenShortPosition");
-                    if (k != position.end()) {
-                        positionUnit.frozenShortPosition = double(k.value());
-                    }
-
-                    k = position.find("frozenShortPrice");
-                    if (k != position.end()) {
-                        positionUnit.frozenShortPrice = double(k.value());
-                    }
-
-                    k = position.find("lastFloatAmount");
-                    if (k != position.end()) {
-                        positionUnit.lastFloatAmount = double(k.value());
-                    }
-
-                    k = position.find("lastPositionValue");
-                    if (k != position.end()) {
-                        positionUnit.lastPositionValue = double(k.value());
-                    }
-                    mPosition[positionUnit.instrumentKey] = positionUnit;
-                }
-            }
-
-
-            i = accountInfo.find("transferInfo");
-            if (i != accountInfo.end()) {
-                json transferInfo = i.value();
-                for (int i = 0; i < transferInfo.size(); ++i) {
-                    int transferId = int(transferInfo.at(i));
-                    vTransfer.emplace_back(transferId);
-                }
-            }
-        }
-
-        void SaveToFile(string filePath) {
-            json accountInfo;
-            accountInfo["strategyAccountId"] = strategyAccountId;
-            accountInfo["systemAccountId"] = systemAccountId;
-            accountInfo["physicalAccountId"] = physicalAccountId;
-            accountInfo["accountType"] = stra::AccountTypeEnum2Str[accountType];
-            accountInfo["marginType"] = stra::AccountMarginTypeEnum2Str[marginType];
-            accountInfo["accountMarginType"] = stra::AccountMarginTypeEnum2Str[accountMarginType];
-            accountInfo["openRealLeverage"] = openRealLeverage;
-
-            json assetInfo;
-            for (auto iter = mAsset.begin(); iter != mAsset.end(); ++iter) {
-                json asset;
-                asset["asset"] = iter->second.asset;
-                asset["baseAsset"] = iter->second.baseAsset;
-                asset["initAmount"] = iter->second.initAmount;
-                asset["totalAmount"] = iter->second.totalAmount;
-                asset["transferAmount"] = iter->second.transferAmount;
-                asset["frozenAmount"] = iter->second.frozenAmount;
-                asset["marginAmount"] = iter->second.marginAmount;
-                asset["openMarginAmount"] = iter->second.openMarginAmount;
-                asset["feeAmount"] = iter->second.feeAmount;
-                asset["fundAmount"] = iter->second.fundAmount;
-                asset["loanAmount"] = iter->second.loanAmount;
-                asset["interestAmount"] = iter->second.interestAmount;
-                asset["closeAmount"] = iter->second.closeAmount;
-                asset["floatAmount"] = iter->second.floatAmount;
-                asset["positionValue"] = iter->second.positionValue;
-                assetInfo[iter->second.asset] = asset;
-            }
-            accountInfo["assetInfo"] = assetInfo;
-
-            json positionInfo;
-            for (auto iter = mPosition.begin(); iter != mPosition.end(); ++iter) {
-                json position;
-                position["instrumentKey"] = iter->second.instrumentKey;
-                position["baseAsset"] = iter->second.baseAsset;
-                position["longPosition"] = iter->second.longPosition;
-                position["longAvgPrice"] = iter->second.longAvgPrice;
-                position["shortPosition"] = iter->second.shortPosition;
-                position["shortAvgPrice"] = iter->second.shortAvgPrice;
-                position["floatAmount"] = iter->second.floatAmount;
-                position["closeAmount"] = iter->second.closeAmount;
-                position["positionValue"] = iter->second.positionValue;
-                position["frozenLongPosition"] = iter->second.frozenLongPosition;
-                position["frozenLongPrice"] = iter->second.frozenLongPrice;
-                position["frozenShortPosition"] = iter->second.frozenShortPosition;
-                position["frozenShortPrice"] = iter->second.frozenShortPrice;
-                position["lastFloatAmount"] = iter->second.lastFloatAmount;
-                position["lastPositionValue"] = iter->second.lastPositionValue;
-                positionInfo[iter->second.instrumentKey] = position;
-            }
-            accountInfo["positionInfo"] = positionInfo;
-        
-            json transferInfo;
-            for (size_t i = 0; i < vTransfer.size(); ++i) {
-                transferInfo.emplace_back(vTransfer[i]);
-            }
-            accountInfo["transferInfo"] = transferInfo;
-
-            std::ofstream o(filePath.c_str());
-            o << std::setw(4) << accountInfo;
-        }
-
     }; 
-
-
 
     // 不同的交易所应定义不同的结构体，目前只定义了binance
 

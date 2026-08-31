@@ -22,10 +22,10 @@ struct PairOrder {
     stra::TradingType tradingTypeOffset;
     char activeInstrumentKey[stra::INST_KEY_LEN]{""};
     char activeInstrument[stra::INST_ID_LEN]{""};
-    stra::InstType activeInstType;
-    stra::ExchangeType activeExchangeType;
-    stra::Direction activeDirection;
-    stra::OrderType activeOrderType;
+    InstType activeInstType;
+    ExchangeType activeExchangeType;
+    Direction activeDirection;
+    OrderType activeOrderType;
     stra::PriceType activePriceType;
     double activePricePct{0.0};
     int activeAccountId{-1};
@@ -43,10 +43,10 @@ struct PairOrder {
 
     char passiveInstrumentKey[stra::INST_KEY_LEN]{""};
     char passiveInstrument[stra::INST_ID_LEN]{""};
-    stra::InstType passiveInstType;
-    stra::ExchangeType passiveExchangeType;
-    stra::Direction passiveDirection;
-    stra::OrderType passiveOrderType;
+    InstType passiveInstType;
+    ExchangeType passiveExchangeType;
+    Direction passiveDirection;
+    OrderType passiveOrderType;
     stra::PriceType passivePriceType;
     double passivePricePct{0.0};
     int passiveAccountId{-1};
@@ -115,7 +115,7 @@ class PairOrderManager {
         void DeletePairOrderByPairId(int64_t pairId);
         void UpdatePairOrderByOrder(const stra::QuantOrder& order);
         int GetSizeByOrderType(stra::TradingType tradingType);
-        int GetSizeByOrderTypeAndActiveDirection(stra::TradingType tradingType, stra::Direction activeDirection);
+        int GetSizeByOrderTypeAndActiveDirection(stra::TradingType tradingType, Direction activeDirection);
         unordered_map<int64_t, PairOrder>& GetAllPairOrders();
 
     private:

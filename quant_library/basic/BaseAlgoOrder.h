@@ -25,7 +25,7 @@ struct BaseAlgoOrder {
     int64_t algoOrderId{0};
     char pairInstrumentKey[stra::INST_KEY_LEN]{""};
     char baseAsset[stra::ASSET_LEN]{""};
-    stra::OrderStatus algoOrderStatus{stra::OrderStatus_MIN};
+    OrderStatus algoOrderStatus{OS_MIN};
 
     char activeInstrumentKey[stra::INST_KEY_LEN]{""};
     int activeAccountId{0};
@@ -36,7 +36,7 @@ struct BaseAlgoOrder {
     // unordered_map<string, int> mActiveDepthMakerCheckTarget;
     stra::CheckType activeDepthTakerCheckType;
     // unordered_map<string, int> mActiveDepthTakerCheckTarget;
-    stra::OrderType activeOrderType;
+    OrderType activeOrderType;
 
 
     char passiveInstrumentKey[stra::INST_KEY_LEN];
@@ -49,7 +49,7 @@ struct BaseAlgoOrder {
     // unordered_map<string, double> mPassiveDepthMakerCheckTarget;  // 固定参数
     stra::CheckType passiveDepthTakerCheckType;
     // unordered_map<string, double> mPassiveDepthTakerCheckTarget;
-    stra::OrderType passiveOrderType;
+    OrderType passiveOrderType;
 
     double passiveVolumePct;
 
@@ -210,7 +210,7 @@ struct BaseAlgoOrder {
 
     virtual PairOrder GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId);
     virtual PairOrder CreatePairOrder(stra::TradingType tradingType);
-    virtual PairOrder CreatePairOrder(stra::TradingType tradingType, stra::Direction activeDirection);
+    virtual PairOrder CreatePairOrder(stra::TradingType tradingType, Direction activeDirection);
 
     bool passInfoParameterCheck();
 };
