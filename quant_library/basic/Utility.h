@@ -92,20 +92,14 @@ inline int DiffPeriod(int64_t preDateTime, int64_t currentTime, int period) {
 }
 
 inline int64_t GenerateStrategyOrderId() {
-	// strategyOrderId++;
-	// return strategyOrderId;
 	return crypto::rdtscp();
 }
 
 inline int64_t GenerateStrategyPairId() {
-	// strategyPairId++;
-	// return strategyPairId;
 	return crypto::rdtscp();
 }
 
 inline int64_t GenerateStrategyAlgoPairId() {
-	// strategyAlgoPairId++;
-	// return strategyAlgoPairId;
 	return crypto::rdtscp();
 }
 

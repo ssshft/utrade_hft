@@ -4,7 +4,6 @@
 #include <string>
 #include <unordered_map>
 #include "DataStruct.h"
-#include "DataManager.h"
 #include "json/nlohmann/json.hpp"
 #include <fstream>
 #include <iomanip>

@@ -1490,23 +1490,23 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
 
 
                 // 订单手续费适配 是否可以去掉？
-                stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(quantOrder.instrumentKey);
-                double temp_fee_rate = 0.0;
-                if (quantOrder.isActiveOrder){
-                    // if (order.isMaker)
-                    if (quantOrder.orderType == OT_POST_ONLY) {
-                        temp_fee_rate = pAlgoOrder->activeMakerFeeRate;
-                    } else {
-                        temp_fee_rate = pAlgoOrder->activeTakerFeeRate;
-                    }
-                } else {
-                    // if (order.isMaker){
-                    if (quantOrder.orderType == OT_POST_ONLY) {
-                        temp_fee_rate = pAlgoOrder->passiveMakerFeeRate;
-                    } else {
-                        temp_fee_rate = pAlgoOrder->passiveTakerFeeRate;
-                    }
-                }
+                // stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(quantOrder.instrumentKey);
+                // double temp_fee_rate = 0.0;
+                // if (quantOrder.isActiveOrder){
+                //     // if (order.isMaker)
+                //     if (quantOrder.orderType == OT_POST_ONLY) {
+                //         temp_fee_rate = pAlgoOrder->activeMakerFeeRate;
+                //     } else {
+                //         temp_fee_rate = pAlgoOrder->activeTakerFeeRate;
+                //     }
+                // } else {
+                //     // if (order.isMaker){
+                //     if (quantOrder.orderType == OT_POST_ONLY) {
+                //         temp_fee_rate = pAlgoOrder->passiveMakerFeeRate;
+                //     } else {
+                //         temp_fee_rate = pAlgoOrder->passiveTakerFeeRate;
+                //     }
+                // }
 
 
                 // 是否需要计算本次成交价
@@ -1655,7 +1655,6 @@ void AlgoContext::OnTimer(int64_t eventTime) {
         for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end();) {
             auto& orderMgr = it->second->orderMgr;
             auto& allOrders = orderMgr.GetAllOrders();
-            auto& allTransfers = orderMgr.GetAllTransfers();
 
             if (eventTime - lastAlgoUpdateTime > 10 * 60 * second1) {
                 it->second->Update();
@@ -1754,54 +1753,49 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             }
             // 结束订单检查
             if (it->second->ttOLSwitch == false && it->second->ttOSSwitch == false && it->second->mtOLSwitch == false && it->second->mtOSSwitch == false) {
-                double price = DataManager::Instance().GetMidPrice(it->second->activeInstrumentKey);
-                if (price > 0) {
-                    if (it->second->algoType == stra::AlgoType_Rebalance) {
-                        AlgoRebalanceOrder* pRebalanceOrder = (AlgoRebalanceOrder*)(it->second);
-                        if (pRebalanceOrder->activeTrade == 1) {
-                            orderAmount = fabs(it->second->pairTotalVolume);
-                        }
-                        else {
-                            orderAmount = fabs(it->second->pairPassiveTotalVolume);
-                        }
-
-                        double minSize = pRebalanceOrder->activeTrade == 1 ? it->second->activeInfo.minSize : it->second->passiveInfo.minSize;
-
-
-                        if (orderAmount < minSize && allPairOrders.size() == 0) {
-                            //
-                            //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
-                            it->second->algoOrderStatus = OS_FILLED;
-                            it->second->commandType = stra::CommandType_FINISHED;
-                            it->second->updateTime = eventTime;
-                            // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
-                            string pubMsg = it->second->GeneratePubStr();
-                            QuantPub::Instance().Publish(pubMsg);
-                            rLarkMsg.Push(pubMsg);
-                            WriteAlgoOrder(it->second);
-                            deleteAlgoOrderFlag = true;
-                        }
-
+                if (it->second->algoType == stra::AlgoType_Rebalance) {
+                    AlgoRebalanceOrder* pRebalanceOrder = (AlgoRebalanceOrder*)(it->second);
+                    if (pRebalanceOrder->activeTrade == 1) {
+                        orderAmount = fabs(it->second->pairTotalVolume);
                     }
                     else {
-                        orderAmount = fabs(it->second->pairTotalVolume);
-                        if (orderAmount < it->second->activeInfo.minSize && allPairOrders.size() == 0) {
-                            //
-                            //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
-                            it->second->algoOrderStatus = OS_FILLED;
-                            it->second->commandType = stra::CommandType_FINISHED;
-                            it->second->updateTime = eventTime;
-                            // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
-                            string pubMsg = it->second->GeneratePubStr();
-                            QuantPub::Instance().Publish(pubMsg);
-                            rLarkMsg.Push(pubMsg);
-                            WriteAlgoOrder(it->second);
-                            deleteAlgoOrderFlag = true;
-                        }    
+                        orderAmount = fabs(it->second->pairPassiveTotalVolume);
                     }
 
+                    double minSize = pRebalanceOrder->activeTrade == 1 ? it->second->activeInfo.minSize : it->second->passiveInfo.minSize;
 
-                }             
+
+                    if (orderAmount < minSize && allPairOrders.size() == 0) {
+                        //
+                        //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
+                        it->second->algoOrderStatus = OS_FILLED;
+                        it->second->commandType = stra::CommandType_FINISHED;
+                        it->second->updateTime = eventTime;
+                        // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
+                        string pubMsg = it->second->GeneratePubStr();
+                        QuantPub::Instance().Publish(pubMsg);
+                        rLarkMsg.Push(pubMsg);
+                        WriteAlgoOrder(it->second);
+                        deleteAlgoOrderFlag = true;
+                    }
+
+                }
+                else {
+                    orderAmount = fabs(it->second->pairTotalVolume);
+                    if (orderAmount < it->second->activeInfo.minSize && allPairOrders.size() == 0) {
+                        //
+                        //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
+                        it->second->algoOrderStatus = OS_FILLED;
+                        it->second->commandType = stra::CommandType_FINISHED;
+                        it->second->updateTime = eventTime;
+                        // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
+                        string pubMsg = it->second->GeneratePubStr();
+                        QuantPub::Instance().Publish(pubMsg);
+                        rLarkMsg.Push(pubMsg);
+                        WriteAlgoOrder(it->second);
+                        deleteAlgoOrderFlag = true;
+                    }    
+                }        
             }
 
             // rebalanceFlag设置

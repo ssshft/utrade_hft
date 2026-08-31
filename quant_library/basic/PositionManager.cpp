@@ -727,15 +727,6 @@ void PositionManager::CalcualtePnl(string activeInstrumentKey) { // profit = tot
             } else {
                 totalPnl += assetPnl / price;
             }
-            // if (price > stra::MIN_FLOAT) {
-            //     totalPnl += assetPnl * price;
-            // } else {
-            //     double assetPrice = DataManager::Instance().GetAssetPrice(it->second.asset);
-            //     double baseAssetPrice = DataManager::Instance().GetAssetPrice(baseAsset);
-            //     if (baseAssetPrice > stra::MIN_FLOAT) {
-            //         totalPnl += assetPnl * assetPrice / baseAssetPrice;
-            //     }
-            // }
         }
     }
 }

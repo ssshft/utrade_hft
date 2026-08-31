@@ -1,5 +1,4 @@
 #include "AccountManager.h"
-#include "DataManager.h"
 #include "SpreadManager.h"
 #include "StrategyConfig.h"
 
@@ -55,7 +54,6 @@ void AccountManager::OnPosition(const pubsub::Position& position) {
     string instrumentKey = ExchangeTypeEnum2Str[position.exchangeTypeEnum] + "." + InstTypeEnum2Str[position.instTypeEnum] + "." + position.instId;
     stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(instrumentKey);
 
-    stra::QuantMarketDepth depth = DataManager::Instance().GetLastDepth(instrumentKey);
     const Bbo& bbo = SpreadManager::Instance().GetBbo(instrumentKey)
     double lastPrice = (bbo.askPrice + bbo.bidPrice) / 2;
     if (lastPrice < stra::MIN_FLOAT) { // 没有行情取markPrice保证有价格

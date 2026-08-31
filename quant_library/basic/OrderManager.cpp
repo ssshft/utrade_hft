@@ -32,21 +32,6 @@ OrderManager::~OrderManager() {
 //             InsertOrderByOrder(quantOrder);
 //         }
 //     }
-
-//     unordered_map<int64_t, stra::QuantTransfer> mTran;
-// 	auto shmQuantTransfer = shmManager->GetShmQuantTransfer();
-//     auto transferHead = shmQuantTransfer->beginFrame();
-//     for (int i = 1; i <= shmQuantTransfer->header()->frameCount; ++i) {
-//         auto& quantTransfer = transferHead[i];
-//         mTran[quantTransfer.strategyTransferId] = quantTransfer;
-//     }
-
-//     for (auto iter = mTran.begin(); iter != mTran.end(); ++iter) {
-//         auto& quantTransfer = iter->second;
-//         if ((quantTransfer.transferStatus == stra::OrderStatus_PENDING_NEW || quantTransfer.transferStatus == stra::OrderStatus_PARTFILLED || quantTransfer.transferStatus == stra::OrderStatus_CANCELLING) && currentTime - quantTransfer.updateTime < oneDayUs) {
-//             InsertTransferByTransfer(quantTransfer);
-//         }
-//     }
 // }
 
 void OrderManager::RecoveryFromFile(string filePath) {
@@ -171,10 +156,6 @@ void OrderManager::RecoveryFromFile(string filePath) {
     }
 }
 
-void OrderManager::InsertTransferByTransfer(const stra::QuantTransfer& transfer) {
-    mTransfer[transfer.strategyTransferId] = transfer;
-}
-
 void OrderManager::UpdateTransferOnTransfer(const stra::TdTransfer& transfer) {
     int64_t nowTime = crypot::getCurrentTime();
     auto it = mTransfer.find(transfer.clOrdId);
@@ -190,15 +171,6 @@ void OrderManager::UpdateTransferOnTransfer(const stra::TdTransfer& transfer) {
         if (it->second.transferTimeStatus.size >= stra::TIME_STATUS_LEN) {
             it->second.transferTimeStatus.size = stra::TIME_STATUS_LEN - 1;
             LOG_INFO("transferTimeStatus size:%d > TIME_STATUS_LEN:%d", it->second.transferTimeStatus.size, stra::TIME_STATUS_LEN);
-        }
-    }
-}
-
-void OrderManager::DeleteTransferByTransfer(const stra::QuantTransfer& transfer) {
-    if (transfer.transferStatus == stra::OrderStatus_REJECTED or transfer.transferStatus == stra::OrderStatus_FILLED) {
-        auto it = mTransfer.find(transfer.strategyTransferId);
-        if (it != mTransfer.end()) {
-            mTransfer.erase(it);
         }
     }
 }
@@ -278,10 +250,6 @@ void OrderManager::UpdateOrderOnCancel(const stra::QuantOrder& order) {  //event
             LOG_INFO("orderTimeStatus size:%d > TIME_STATUS_LEN:%d", ord.orderTimeStatus.size, stra::TIME_STATUS_LEN);
         }
     }
-}
-
-unordered_map<int64_t, stra::QuantTransfer>& OrderManager::GetAllTransfers() {
-    return mTransfer;
 }
 
 void OrderManager::CalculateTotalPriceVolume() {

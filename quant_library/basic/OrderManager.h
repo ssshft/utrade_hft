@@ -18,10 +18,6 @@ class OrderManager {
         // void Init(ShmManager* shm);
         // void Recovery();
         void RecoveryFromFile(string filePath);
-        void InsertTransferByTransfer(const stra::QuantTransfer& transfer);
-        void UpdateTransferOnTransfer(const stra::TdTransfer& transfer);
-        void DeleteTransferByTransfer(const stra::QuantTransfer& transfer);
-
         void InsertOrderByOrder(const stra::QuantOrder& order);
         void UpdateOrderOnCancel(const stra::QuantOrder& order);
         void DeleteOrderByOrder(const stra::QuantOrder& order);
@@ -31,13 +27,11 @@ class OrderManager {
         unordered_map<int64_t, stra::QuantOrder>& GetAllOrders();
         stra::QuantOrder SelectOrderByStrategyOrderId(int64_t strategyOrderId);
         void DeleteOrdrByStrategyOrderId(int64_t strategyOrderId);
-        unordered_map<int64_t, stra::QuantTransfer>& GetAllTransfers();
         void CalculateTotalPriceVolume();
 
     private:
         // ShmManager* shmManager;
 
-        unordered_map<int64_t, stra::QuantTransfer> mTransfer;
         unordered_map<int64_t, stra::QuantOrder> mOrder;
 
         double totalPrice;

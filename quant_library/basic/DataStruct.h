@@ -160,33 +160,6 @@ namespace stra {
         {"CheckType_MAX", CheckType_MAX}
     };
 
-    enum OrderEffectMethod {
-        OEM_MIN,
-        OEM_GTC,
-        OEM_IOC,
-        OEM_FOK,
-        OEM_GTX,
-        OEM_MAX
-    };
-
-    static unordered_map<OrderEffectMethod, string> OrderEffectMethodEnum2Str {
-        {OEM_MIN, "OEM_MIN"},
-        {OEM_GTC, "OEM_GTC"},
-        {OEM_IOC, "OEM_IOC"},
-        {OEM_FOK, "OEM_FOK"},
-        {OEM_GTX, "OEM_GTX"},
-        {OEM_MAX, "OEM_MAX"}
-    };
-
-    static unordered_map<string, OrderEffectMethod> OrderEffectMethodStr2Enum {
-        {"OEM_MIN", OEM_MIN},
-        {"OEM_GTC", OEM_GTC},
-        {"OEM_IOC", OEM_IOC},
-        {"OEM_FOK", OEM_FOK},
-        {"OEM_GTX", OEM_GTX},
-        {"OEM_MAX", OEM_MAX}
-    };
-
     enum AccountType {
         AT_MIN = 0,
         AT_FUND,
