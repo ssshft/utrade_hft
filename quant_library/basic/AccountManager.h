@@ -20,18 +20,14 @@ class AccountManager {
         void OnInsertOrder(const stra::QuantOrder& order);
         void OnDeleteOrder(const stra::QuantOrder& order);
         void OnOrder(const stra::QuantOrder& order);
-        void UpdateAccountOnMarketDepth(const stra::QuantMarketDepth& depth);
+        //void UpdateAccountOnMarketDepth(const stra::QuantMarketDepth& depth);
         bool FundVerify(const stra::QuantOrder& order, double assetTick, stra::InstrumentInfo& info);
         bool FundVerifyUnified(const stra::QuantOrder& order, double assetTick, stra::InstrumentInfo& info);
         bool FundVerifyClassic(const stra::QuantOrder& order, double assetTick, stra::InstrumentInfo& info);
 
-        void LoadFromFile(string filePath);
-        void SaveToFile(string filePath);
-
     private:
         AccountManager();
         unordered_map<int, stra::QuantAccount> mAccount;
-        bool check;
 };
 
 #endif

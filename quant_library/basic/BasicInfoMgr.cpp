@@ -82,6 +82,7 @@ string& BasicInfoMgr::GetSysIdByOriginId(string instrumentKey) {
 }
 
 void BasicInfoMgr::UpdateInstrumentInfo() {
+    /*
     string value = "";
     GetAllInstrumentInfo(value);
     if (value.length() > 0) {
@@ -183,6 +184,7 @@ void BasicInfoMgr::UpdateInstrumentInfo() {
             }
         }
     }
+    */
 }
 
 bool BasicInfoMgr::Get(const char* key, string& value) {

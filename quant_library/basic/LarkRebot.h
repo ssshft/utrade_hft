@@ -1,8 +1,5 @@
 #pragma once
 
-#include <cpprest/http_client.h>
-#include <cpprest/http_msg.h>
-#include <cpprest/json.h>
 #include <string>
 #include "DataStruct.h"
 #include "Utility.h"

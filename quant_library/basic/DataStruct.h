@@ -471,6 +471,7 @@ namespace stra {
         {"TradingType_MAX", TradingType_MAX}
     };
 
+    /*
     enum TradingOffset {
         TradingOffset_MIN = 0,
         OPEN_SHORT,
@@ -497,14 +498,15 @@ namespace stra {
         {"CLOSE_LONG", CLOSE_LONG},
         {"TradingType_MAX", TradingType_MAX}
     };
+    */
 
     struct TimeStatusDetail {
         int64_t updateTime{0};
-        OrderStatus orderStatus{OrderStatus_MIN};
+        OrderStatus orderStatus{OS_MIN};
         
         string GetStr() const {
             char s[MSG_LEN];
-            sprintf(s, "%ld-%s", updateTime, OrderStatusEnum2Str[orderStatus].c_str());
+            sprintf(s, "%ld-%s", updateTime, OrderStatusEnum2StrMap[orderStatus].c_str());
             return string(s);
         }
 
@@ -835,12 +837,12 @@ namespace stra {
         int64_t sysOrdId{0};
         char exOrdId[ID_LEN];
         char instrument[INST_ID_LEN]{0};
-        ExchangeType exchangType{ET_MIN};
+        ExchangeType exchangType{ExchangeType_MIN};
         InstType instType{InstType_MIN};
-        OrderStatus orderStatus{OrderStatus_MIN};
+        OrderStatus orderStatus{OS_MIN};
         PosDirection posDirection{PosDirection_NET};
-        Direction direction{Direction_MIN};
-        OrderType orderType{OrderType_MIN};
+        Direction direction{DT_MIN};
+        OrderType orderType{OT_MIN};
         bool reduceOnly{false};
         double price{-1.0};
         double volume{0.0};
@@ -860,27 +862,15 @@ namespace stra {
         ApiSource apiSource;
         bool isMaker;
 
-        string GetStr() const {
-            char s[STR_LEN];
-            fmt::format_to(s, "algoId:{} pairId:{} clOrdId:{} sysOrdId:{} exOrdId:{} instrument:{} exchangType:{} instType:{} orderStatus:{} "
-                            "posDirection:{} direction:{} orderType:{} reduceOnly:{} price:{} volume:{} avgPrice:{} totalPriceOnOrder:{}"
-                            "totalVolumeOnOrder:{} lastExecutedPriceOnOrder:{} lastExecutedVolumeOnOrder:{} lastExecutedTradeFee:{}"
-                            "lastExecutedTradeFeeCurrency:{} errorId:{} originErrorMsg:{} insertTime:{} updateTime:{} tsSend:{} tsNet:{}", 
-                            algoId, pairId, clOrdId, sysOrdId, exOrdId, instrument, ExchangeTypeEnum2Str[exchangType], InstTypeEnum2Str[instType], 
-                            OrderStatusEnum2Str[orderStatus], PosDirectionEnum2Str[posDirection], DirectionEnum2Str[direction], OrderTypeEnum2Str[orderType], reduceOnly, 
-                            price, volume, avgPrice, totalPriceOnOrder, totalVolumeOnOrder, lastExecutedPriceOnOrder, lastExecutedVolumeOnOrder, 
-                            lastExecutedTradeFee, lastExecutedTradeFeeCurrency, errorId, originErrorMsg, insertTime, updateTime, tsSend, tsNet);
-            return string(s);
-        }
     };
 
     struct TdPosition {
         int accountId{0};
-        ExchangeType exchangType{ET_MIN};
+        ExchangeType exchangType{ExchangeType_MIN};
         InstType instType{InstType_MIN};
         char strategyId[ID_LEN]{0};
         char instrument[INST_ID_LEN]{0};
-        Direction direction{Direction_MIN};
+        Direction direction{DT_MIN};
         double volume{0.0};
         double maintMargin{0.0};
         double avgPrice{0.0};
@@ -890,16 +880,11 @@ namespace stra {
         double markPrice{0.0};
         int64_t updateTime{0};
 
-        string GetStr() const {
-            string s = fmt::format("accountId:{},exchangType:{},instType:{},strategyId:{},instrument:{},direction:{},volume:{},maintMargin:{},avgPrice:{},unrealizedPnl:{},liquidPrice:{},adlQuantile:{},markPrice:{},updateTime", 
-                                    accountId, ExchangeTypeEnum2Str[exchangType], InstTypeEnum2Str[instType], strategyId, instrument, DirectionEnum2Str[direction], volume, maintMargin, avgPrice, unrealizedPnl, liquidPrice, adlQuantile, markPrice, updateTime);
-            return s;
-        }
     };
 
     struct TdBalance {
         int accountId{0};
-        ExchangeType exchangType{ET_MIN};
+        ExchangeType exchangType{ExchangeType_MIN};
         InstType instType{InstType_MIN};
         char strategyId[ID_LEN]{0};
         char currency[ASSET_LEN]{0};
@@ -909,16 +894,11 @@ namespace stra {
         double frozen{0.0};
         int64_t updateTime{0};
 
-        string GetStr() const {
-            string s = fmt::format("accountId:{},exchangType:{},instType:{},strategyId:{},currency:{},total:{},available:{},unrealizedPnl:{},frozen:{},updateTime", 
-                                    accountId, ExchangeTypeEnum2Str[exchangType], InstTypeEnum2Str[instType], strategyId, currency, total, available, unrealizedPnl, frozen, updateTime);
-            return s;
-        }
     };
 
     struct TdTotalAccount {
         int accountId{0};
-        ExchangeType exchangType{ET_MIN};
+        ExchangeType exchangType{ExchangeType_MIN};
         InstType instType{InstType_MIN};
         char strategyId[ID_LEN]{0};
         double totalEquity{0.0};
@@ -927,39 +907,6 @@ namespace stra {
         double mgnRatio{0.0};
         int64_t updateTime{0};
 
-        string GetStr() const {
-            string s = fmt::format("accountId:{},exchangType:{},instType:{},strategyId:{},totalEquity:{},adjEquity:{},mmr:{},mgnRatio:{},updateTime",
-                                    accountId, ExchangeTypeEnum2Str[exchangType], InstTypeEnum2Str[instType], strategyId, totalEquity, adjEquity, mmr, mgnRatio, updateTime);
-            return s;
-        }
-    };
-
-    struct TdTransfer {
-        int64_t clOrdId{0};
-        int64_t sysOrdId{0};
-        char exOrdId[ID_LEN];
-        OrderStatus orderStatus{OrderStatus_MIN};
-
-        string GetStr() const {
-            char s[MSG_LEN];
-            fmt::format_to(s, "clOrdId:{} sysOrdId:{} exOrdId:{} orderStatus:{}", 
-                            clOrdId, sysOrdId, exOrdId, OrderStatusEnum2Str[orderStatus]);
-            return string(s);
-        }
-    };
-
-    struct TdLending {
-        int64_t clOrdId{0};
-        int64_t sysOrdId{0};
-        char exOrdId[ID_LEN];
-        OrderStatus orderStatus{OrderStatus_MIN};
-
-        string GetStr() const {
-            char s[MSG_LEN];
-            fmt::format_to(s, "clOrdId:{} sysOrdId:{} exOrdId:{} orderStatus:{}", 
-                            clOrdId, sysOrdId, exOrdId, OrderStatusEnum2Str[orderStatus]);
-            return string(s);
-        }
     };
 
     struct TradeInfo {
@@ -989,7 +936,7 @@ namespace stra {
 
     struct QuantOrder {
         int64_t strategyOrderId{-1};
-        char systemOrderId[64][""];
+        char systemOrderId[64]{""};
         char exchangeOrderId[64]{""};
         int strategyAccountId{-1};
         int64_t pairId{-1};
@@ -1684,6 +1631,6 @@ struct AccountInfo {
 };
 
 
-extern unordered_map<string, int> mAccountNameAccountId;
+extern std::unordered_map<std::string, int> mAccountNameAccountId;
 
 #endif

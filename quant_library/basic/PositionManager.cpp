@@ -11,104 +11,8 @@ PositionManager::~PositionManager() {
 
 }
 
-void PositionManager::RecoveryFromFile(string assetFilePath, string positionFilePath) {
-    ifstream fAsset;
-    fAsset.open(assetFilePath.c_str(), ios::in);
-    if (fAsset.is_open()) {
-        string line;
-        while (getline(fAsset, line)) {
-            vector<string> v;
-            splitString(line, v, ",");
-            if (v.size() >= 15) {
-                stra::AssetUnit asset;
-                strncpy(asset.asset, v[0].c_str(), stra::ASSET_LEN);
-                strncpy(asset.baseAsset, v[1].c_str(), stra::ASSET_LEN);
-                asset.initAmount = stod(v[2]);
-                asset.totalAmount = stod(v[3]);
-                asset.transferAmount = stod(v[4]);
-                asset.frozenAmount = stod(v[5]);
-                asset.marginAmount = stod(v[6]);
-                asset.openMarginAmount = stod(v[7]);
-                asset.feeAmount = stod(v[8]);
-                asset.fundAmount = stod(v[9]);
-                asset.loanAmount = stod(v[10]);
-                asset.interestAmount = stod(v[11]);
-                asset.closeAmount = stod(v[12]);
-                asset.floatAmount = stod(v[13]);
-                asset.positionValue = stod(v[14]);
-
-                account.mAsset[asset.asset] = asset;
-            }
-        }
-    }
-
-
-    ifstream fPosition;
-    fPosition.open(positionFilePath.c_str(), ios::in);
-    if (fPosition.is_open()) {
-        string line;
-        while (getline(fPosition, line)) {
-            vector<string> v;
-            splitString(line, v, ",");
-            if (v.size() >= 15) {
-                stra::PositionUnit position;
-                strncpy(position.instrumentKey, v[0].c_str(), stra::INST_KEY_LEN);
-                strncpy(position.baseAsset, v[1].c_str(), stra::ASSET_LEN);
-                position.longPosition = stod(v[2]);
-                position.longAvgPrice = stod(v[3]);
-                position.shortPosition = stod(v[4]);
-                position.shortAvgPrice = stod(v[5]);
-                position.floatAmount = stod(v[6]);
-                position.closeAmount = stod(v[7]);
-                position.positionValue = stod(v[8]);
-                position.frozenLongPosition = stod(v[9]);
-                position.frozenLongPrice = stod(v[10]);
-                position.frozenShortPosition = stod(v[11]);
-                position.frozenShortPrice = stod(v[12]);
-                position.lastFloatAmount = stod(v[13]);
-                position.lastPositionValue = stod(v[14]);
-
-                account.mPosition[position.instrumentKey] = position;
-            }
-        }
-    }
-}
-
 void PositionManager::SetBaseAsset(char* ass) {
     strncpy(baseAsset, ass, stra::ASSET_LEN);
-}
-
-void PositionManager::OnInsertTransfer(const stra::QuantTransfer& transfer) {
-    if (account.strategyAccountId == transfer.withdrawStrategyAccountId) {
-        auto& ass = account.mAsset[transfer.transferAsset];
-        strncpy(ass.asset, transfer.transferAsset, stra::ASSET_LEN);
-        ass.frozenAmount += transfer.transferVolume;
-    }
-}
-
-void PositionManager::UpdateTransferOnTransfer(const stra::QuantTransfer& transfer) {
-    auto iter = account.mAsset.find(transfer.transferAsset);
-    if (iter == account.mAsset.end()) {
-        return;
-    }
-
-    if (transfer.transferStatus == OS_FILLED) {
-        if (account.strategyAccountId == transfer.withdrawStrategyAccountId) {
-            auto& ass = account.mAsset[transfer.transferAsset];
-            ass.frozenAmount -= transfer.transferVolume;
-            ass.totalAmount -= transfer.transferVolume;
-            ass.transferAmount -= transfer.transferVolume;
-        } else if (account.strategyAccountId == transfer.depositStrategyAccountId) {
-            auto& ass = account.mAsset[transfer.transferAsset];
-            ass.totalAmount += transfer.transferVolume;
-            ass.transferAmount += transfer.transferVolume;
-        }
-    } else if (transfer.transferStatus == OS_REJECTED {
-        if (account.strategyAccountId == transfer.withdrawStrategyAccountId) {
-            auto& ass = account.mAsset[transfer.transferAsset];
-            ass.frozenAmount -= transfer.transferVolume;
-        }
-    }
 }
 
 void PositionManager::OnInsertOrder(const stra::QuantOrder& order) {
@@ -612,6 +516,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
     }
 }
 
+/*
 void PositionManager::UpdateAccountOnMarketDepth(const stra::QuantMarketDepth& depth) {
     if (depth.instType == USDT_SWAP || depth.instType == USDT_FUTURES || depth.instType == BUSD_SWAP || depth.instType == C_SWAP || depth.instType == C_FUTURES) {
         double lastPrice = (depth.vAskPrice[0] + depth.vBidPrice[0]) / 2;
@@ -653,6 +558,7 @@ void PositionManager::UpdateAccountOnMarketDepth(const stra::QuantMarketDepth& d
         }
     }
 }
+*/
 
 void PositionManager::CalcualteFloatPnl() {
     unordered_map<string, double> mFloat;
@@ -741,12 +647,4 @@ unordered_map<string, double>& PositionManager::GetPnl() {
 
 double PositionManager::GetTotalPnl() {
     return totalPnl;
-}
-
-void PositionManager::LoadFromFile(string filePath) {
-    account.LoadFromFile(filePath);
-}
-
-void PositionManager::SaveToFile(string filePath) {
-    account.SaveToFile(filePath);
 }

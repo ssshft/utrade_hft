@@ -41,6 +41,7 @@ void LarkRebot::Run() {
 }
 
 void LarkRebot::SendMsg(string msg) {
+	/*
 	try {
 		web::http::client::http_client_config config;
         config.set_timeout(utility::seconds(5));
@@ -74,9 +75,11 @@ void LarkRebot::SendMsg(string msg) {
     } catch (...) {
 		std::cerr << "LarkRebot SendMsg caught a unknown exception!" << std::endl;
 	}
+	*/
 }
 
 void LarkRebot::SendMsg(string msg, ReceiveInfo& receiveInfo) {
+	/*
 	try {
 		web::http::client::http_client_config config;
         config.set_timeout(utility::seconds(5));
@@ -114,9 +117,11 @@ void LarkRebot::SendMsg(string msg, ReceiveInfo& receiveInfo) {
     } catch (...) {
 		std::cerr << "LarkRebot SendMsg caught a unknown exception!" << std::endl;
 	}
+	*/
 }
 
 void LarkRebot::SendGroupMsg(string msg, ReceiveGroupInfo& receiveGroupInfo) {
+	/*
 	try {
 		web::http::client::http_client_config config;
         config.set_timeout(utility::seconds(5));
@@ -153,9 +158,11 @@ void LarkRebot::SendGroupMsg(string msg, ReceiveGroupInfo& receiveGroupInfo) {
     } catch (...) {
 		std::cerr << "LarkRebot SendGroupMsg caught a unknown exception!" << std::endl;
 	}
+	*/
 }
 
 void LarkRebot::SendGroupMsgCard(MsgCard& msgCard, ReceiveGroupInfo& receiveGroupInfo) {
+	/*
 	try {
 		web::http::client::http_client_config config;
         config.set_timeout(utility::seconds(5));
@@ -201,9 +208,11 @@ void LarkRebot::SendGroupMsgCard(MsgCard& msgCard, ReceiveGroupInfo& receiveGrou
     } catch (...) {
 		std::cerr << "LarkRebot SendGroupMsgCard caught a unknown exception!" << std::endl;
 	}
+	*/
 }
 
 void LarkRebot::SendVoiceCall(string msg, string receiveId) {
+	/*
 	int64_t currentTime = gettickcount();
 	int64_t lastSendTime = 0;
 	auto iter = mIdTime.find(receiveId);
@@ -244,9 +253,11 @@ void LarkRebot::SendVoiceCall(string msg, string receiveId) {
     } catch (...) {
 		std::cerr << "LarkRebot SendVoiceCall caught a unknown exception!" << std::endl;
 	}
+	*/
 }
 
 void LarkRebot::SendGroupVoiceCall(string msg, string groupId, vector<string>& vUserId) {
+	/*
 	if (groupId.size() <= 0) {
 		return;
 	}
@@ -304,4 +315,5 @@ void LarkRebot::SendGroupVoiceCall(string msg, string groupId, vector<string>& v
     } catch (...) {
 		std::cerr << "LarkRebot SendGroupVoiceCall caught a unknown exception!" << std::endl;
 	}
+	*/
 }

@@ -3,8 +3,6 @@
 
 #include "Utility.h"
 #include <unistd.h>
-#include <cpp_redis/cpp_redis>
-#include <cpprest/json.h>
 
 
 using namespace std;

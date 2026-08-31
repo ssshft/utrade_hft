@@ -12,7 +12,7 @@
 #include "basic/AlgoRebalanceOrder.h"
 
 
-unordered_map<string, int> mAccountNameAccountId;
+std::unordered_map<std::string, int> mAccountNameAccountId;
 
 AlgoContext::AlgoContext() {
     isreal = true;

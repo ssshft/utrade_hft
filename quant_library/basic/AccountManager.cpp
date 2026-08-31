@@ -3,11 +3,10 @@
 #include "StrategyConfig.h"
 
 AccountManager::AccountManager() {
-    check = true;
+
 }
 
 AccountManager::~AccountManager() {
-    mTransfer.clear();
     mAccount.clear();
     mLending.clear();
 }
@@ -101,7 +100,7 @@ void AccountManager::OnInsertOrder(const stra::QuantOrder& order) {
                 ass.frozenAmount += order.price * order.volume;
                 pos.frozenLongPrice = (pos.frozenLongPrice * pos.frozenLongPosition + order.price * order.volume) / (pos.frozenLongPosition + order.volume);
                 pos.frozenLongPosition += order.volume;
-            } else if (order.direction == DT_SHORT {
+            } else if (order.direction == DT_SHORT) {
                 auto& ass = it->second.mAsset[info.left];
                 ass.frozenAmount += order.volume;
                 pos.frozenShortPrice = (pos.frozenShortPrice * pos.frozenShortPosition + order.price * order.volume) / (pos.frozenShortPosition + order.volume);
@@ -597,7 +596,7 @@ void AccountManager::OnOrder(const stra::QuantOrder& order) {
         }
     }
 }
-
+/*
 void AccountManager::UpdateAccountOnMarketDepth(const stra::QuantMarketDepth& depth) {
     if (depth.instType == USDT_SWAP || depth.instType == USDT_FUTURES || depth.instType == BUSD_SWAP || depth.instType == C_SWAP || depth.instType == C_FUTURES) {
         double lastPrice = (depth.vAskPrice[0] + depth.vBidPrice[0]) / 2;
@@ -649,6 +648,7 @@ void AccountManager::UpdateAccountOnMarketDepth(const stra::QuantMarketDepth& de
         }
     }
 }
+*/
 
 bool AccountManager::FundVerifyClassic(const stra::QuantOrder& order, double assetTick, stra::InstrumentInfo& info) {
     auto it = mAccount.find(order.strategyAccountId);
@@ -745,9 +745,6 @@ bool AccountManager::FundVerifyClassic(const stra::QuantOrder& order, double ass
 }
 
 bool AccountManager::FundVerify(const stra::QuantOrder& order, double assetTick, stra::InstrumentInfo& info) {
-    if (!check) {
-        return true;
-    }
     auto it = mAccount.find(order.strategyAccountId);
     if (it != mAccount.end()) {
         if (it->second.accountType == stra::AT_UNIFIED) {
@@ -807,66 +804,4 @@ bool AccountManager::FundVerifyUnified(const stra::QuantOrder& order, double ass
         LOG_INFO("FundVerify cannot find accountId:%d", order.strategyAccountId);
     }
     return false;
-}
-
-void AccountManager::LoadFromFile(string filePath) {
-    std::ifstream accountFile(filePath.c_str());
-    if (!accountFile) {
-        LOG_INFO("File: %s does not exist!", filePath.c_str());
-        return;
-    }
-
-    json accountJson;
-    accountFile >> accountJson;
-
-    for (auto j = accountJson.begin(); j != accountJson.end(); ++j) {
-        stra::QuantAccount account;
-        json accountInfo = j.value();
-        auto i = accountInfo.find("strategyAccountId");
-        if (i != accountInfo.end()) {
-            account.strategyAccountId = int(i.value());
-        }
-
-        string strategyAccountName = "";
-        i = accountInfo.find("strategyAccountName");
-        if (i != accountInfo.end()) {
-            strategyAccountName = string(i.value());
-        }
-        
-        i = accountInfo.find("systemAccountId");
-        if (i != accountInfo.end()) {
-            account.systemAccountId = int(i.value());
-        }
-
-        i = accountInfo.find("physicalAccountId");
-        if (i != accountInfo.end()) {
-            account.physicalAccountId = int(i.value());
-        }
-
-        i = accountInfo.find("accountType");
-        if (i != accountInfo.end()) {
-            account.accountType = stra::AccountTypeStr2Enum[string(i.value())];
-        }
-
-        i = accountInfo.find("marginType");
-        if (i != accountInfo.end()) {
-            account.marginType = stra::AccountMarginTypeStr2Enum[string(i.value())];
-        }
-
-        i = accountInfo.find("accountMarginType");
-        if (i != accountInfo.end()) {
-            account.accountMarginType = stra::AccountMarginTypeStr2Enum[string(i.value())];
-        }
-
-        i = accountInfo.find("openRealLeverage");
-        if (i != accountInfo.end()) {
-            account.openRealLeverage = double(i.value());
-        }
-
-        mAccount[account.strategyAccountId] = account;
-        mAccountNameAccountId[strategyAccountName] = account.strategyAccountId;
-    }
-}
-
-void AccountManager::SaveToFile(string filePath) {
 }
