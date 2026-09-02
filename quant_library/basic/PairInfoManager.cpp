@@ -6,7 +6,7 @@
 
 namespace pt {
 
-void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeAccountId, int passiveAccountId) {
+void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeAccountId, int passiveAccountId, sm::SecurityManager* s) {
     m_pairKeys = pairKeys;
     
     for (const auto& pk : m_pairKeys) {
@@ -28,18 +28,25 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
         pi.SetActiveKey(activeKey.c_str());
         pi.SetPassiveKey(passiveKey.c_str());
 
-        auto& bim = BasicInfoMgr::GetInstance();
-        stra::InstrumentInfo activeInfo;
-        stra::InstrumentInfo passiveInfo;
+        smc = s;
 
-        if (bim.GetInstrumentInfo(activeKey, activeInfo)) {
+        vector<string> vActive;
+        splitString(activeKey, vActive, ".");
+
+        vector<string> vPassive;
+        splitString(passiveKey, vPassive, ".");
+
+        md::InstrumentInfo activeInfo;
+        md::InstrumentInfo passiveInfo;
+
+        if (smc->get_instrument_info(ExchangeTypeStr2EnumMap[vActive[0]], InstTypeStr2EnumMap[vActive[1]], vActive[2].c_str(), activeInfo)) {
             pi.activeParam.multiple = activeInfo.multiple;
             pi.activeParam.minMove = activeInfo.tickSize;
             pi.activeParam.minVolume = activeInfo.minSize;
             pi.activeParam.calcType = activeInfo.calculateType;
         }
 
-        if (bim.GetInstrumentInfo(passiveKey, passiveInfo)) {
+        if (smc->get_instrument_info(ExchangeTypeStr2EnumMap[vPassive[0]], InstTypeStr2EnumMap[vPassive[1]], vPassive[2].c_str(), passiveInfo)) {
             pi.passiveParam.multiple = passiveInfo.multiple;
             pi.passiveParam.minMove = passiveInfo.tickSize;
             pi.passiveParam.minVolume = passiveInfo.minSize;
@@ -184,7 +191,7 @@ void PairInfoManager::UpdateSmallStats(const std::string& pairKey, const SpreadS
 
 
 void PairInfoManager::UpdateOnPosition(const pubsub::Position& pos) {
-    std::string instrKey = std::string(stra::ExchangeTypeEnum2Str[pos.exangeTypeEnum]) + "," + std::string(stra::InstTypeEnum2Str[pos.instTypeEnum]) + "," + std::string(pos.instId);
+    std::string instrKey = ExchangeTypeEnum2StrMap[pos.exchangeTypeEnum] + "," + InstTypeEnum2StrMap[pos.instTypeEnum] + "," + std::string(pos.instId);
 
     const auto* pairs = FindPairsByInstrument(instrKey);
     if (!pairs) {
@@ -192,10 +199,10 @@ void PairInfoManager::UpdateOnPosition(const pubsub::Position& pos) {
     }
 
     double volume = 0.0;
-    if (pos.direction == stra::Direction_LONG) {
+    if (pos.direction == DT_LONG) {
         volume = pos.volume;
     }
-    else if (pos.direction == stra::Direction_SHORT) {
+    else if (pos.direction == DT_SHORT) {
         volume = -pos.volume;
     }
 
@@ -255,11 +262,11 @@ static void UpdateSideLiquidStatus(PairInfo& pi, bool isActive, double liquidPri
 }
 
 
-void PairInfoManager::UpdateLiquidStatus(PairInfo& pi, bool isActive, const stra::TdPosition& pos) {
+void PairInfoManager::UpdateLiquidStatus(PairInfo& pi, bool isActive, const pubsub::Position& pos) {
     UpdateSideLiquidStatus(pi, isActive, pos.liquidPrice, pos.markPrice);
 }
 
-void PairInfoManager::UpdateOnBalance(const pubsub::Balanc& balance, const std::string& baseAsset) {
+void PairInfoManager::UpdateOnBalance(const pubsub::Balance& balance, const std::string& baseAsset) {
     std::string symbol = std::string(balance.currency) + "-" + baseAsset;
 
     for (auto& kv : m_pairInfoMap) {
@@ -276,7 +283,7 @@ void PairInfoManager::UpdateOnBalance(const pubsub::Balanc& balance, const std::
     }
 }
 
-void PairInfoManager::UpdateOnTotalAccount(const pubsub::TotalAccoun& totalAccount) {
+void PairInfoManager::UpdateOnTotalAccount(const pubsub::TotalAccount& totalAccount) {
 
 }
 

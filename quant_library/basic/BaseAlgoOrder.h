@@ -9,7 +9,7 @@
 #include "dbp/include.h"
 #include "time_util.h"
 #include <string>
-
+#include "securitymanager.h"
 
 struct BaseAlgoOrder {
     char sccId[stra::INST_ID_LEN]{""};
@@ -177,17 +177,19 @@ struct BaseAlgoOrder {
 
     double minOrderAmount;
 
-    stra::InstrumentInfo activeInfo;
-    stra::InstrumentInfo passiveInfo;
+    md::InstrumentInfo activeInfo;
+    md::InstrumentInfo passiveInfo;
 
     PositionManager posMgrMakerTaker;
     PositionManager posMgrTakerTaker;
     OrderManager orderMgr;
     PairOrderManager pairOrderMgr;
 
+    sm::SecurityManager* smc{nullptr};
+
 
     BaseAlgoOrder();
-    void Init();
+    void Init(sm::SecurityManager* s);
     void InitPositionMgr();
     void Update();
     void UpdateAlgoPairOrderByInsertQuantOrder(const stra::QuantOrder& order);

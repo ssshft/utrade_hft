@@ -96,9 +96,16 @@ BaseAlgoOrder::BaseAlgoOrder() {
 
 }
 
-void BaseAlgoOrder::Init() {
-    activeInfo = BasicInfoMgr::GetInstance().GetBasicInfo(activeInstrumentKey);
-    passiveInfo = BasicInfoMgr::GetInstance().GetBasicInfo(passiveInstrumentKey);
+void BaseAlgoOrder::Init(sm::SecurityManager* s) {
+    vector<string> vActive;
+    splitString(activeInstrumentKey, vActive, ".");
+
+    vector<string> vPassive;
+    splitString(passiveInstrumentKey, vPassive, ".");
+
+    smc->get_instrument_info(ExchangeTypeStr2EnumMap[vActive[0]], InstTypeStr2EnumMap[vActive[1]], vActive[2].c_str(), activeInfo);
+    smc->get_instrument_info(ExchangeTypeStr2EnumMap[vPassive[0]], InstTypeStr2EnumMap[vPassive[1]], vPassive[2].c_str(), passiveInfo);
+
     InitPositionMgr();
 
     double minAmount = StrategyConfig::GetInstance().GetMinOrderAmount();
@@ -107,19 +114,23 @@ void BaseAlgoOrder::Init() {
     }
 
     tradesDelayThreshold = StrategyConfig::GetInstance().GetTradesThreshold() * 1000;
+
+    smc = s;
 }
 
 void BaseAlgoOrder::InitPositionMgr() {
+    posMgrMakerTaker.Init(smc);
     posMgrMakerTaker.SetBaseAsset(baseAsset);
     //posMgrMakerTaker.LoadFromFile("maker_taker.json");
 
+    posMgrTakerTaker.Init(smc);
     posMgrTakerTaker.SetBaseAsset(baseAsset);
     //posMgrTakerTaker.LoadFromFile("taker_taker.json");
 }
 
 void BaseAlgoOrder::Update() {
-    activeInfo = BasicInfoMgr::GetInstance().GetBasicInfo(activeInstrumentKey);
-    passiveInfo = BasicInfoMgr::GetInstance().GetBasicInfo(passiveInstrumentKey);
+    smc->get_instrument_info(ExchangeTypeStr2EnumMap[vActive[0]], InstTypeStr2EnumMap[vActive[1]], vActive[2].c_str(), activeInfo);
+    smc->get_instrument_info(ExchangeTypeStr2EnumMap[vPassive[0]], InstTypeStr2EnumMap[vPassive[1]], vPassive[2].c_str(), passiveInfo);
 }
 
 void BaseAlgoOrder::UpdateAlgoPairOrderByInsertQuantOrder(const stra::QuantOrder& order) {
@@ -644,7 +655,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
             //LOG_INFO("start UpdateAlgoPairOrderByPairOrder!");
             UpdateAlgoPairOrderByPairOrder(pairOrder);
             pairOrder.status = 1;
-            pairOrder.updateTime = crypto::getCurentTime();
+            pairOrder.updateTime = crypto::getCurrentTime();
             string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
             dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
             WritePairOrder(pairOrder, pdata);
@@ -746,9 +757,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
         }
     } else {
         // 这时候pairOrder未完结，进行后续交易
-        double assetTick = 0.0;
-        stra::InstrumentInfo info = pairOrder.passiveInfo;
-        bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+        bool verify = AccountManager::Instance().FundVerify(quant_order, pairOrder.passiveInfo);
         if (verify) {
             // 通过验资正常报单
             bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -801,778 +810,15 @@ string BaseAlgoOrder::GetLastestStatusInfo() {
 }
 
 void BaseAlgoOrder::LoadFromFile(string filePath) {
-    std::ifstream algoOrderFile(filePath.c_str());
-	if (!algoOrderFile) {
-		LOG_INFO("File: %s does not exist!", filePath.c_str());
-		return;
-	}
-
-    json algoOrderInfo;
-	algoOrderFile >> algoOrderInfo;
-
-    auto i = algoOrderInfo.find("algoType");
-    if (i != algoOrderInfo.end()) {
-        algoType =  stra::AlgoTypeStr2Enum[string(i.value())];
-    }
-    
-    i = algoOrderInfo.find("algoStrategyName");
-    if (i != algoOrderInfo.end()) {
-        strncpy(algoStrategyName, string(i.value()).c_str(), stra::NAME_LEN);
-    }
-
-    i = algoOrderInfo.find("algoOrderId");
-    if (i != algoOrderInfo.end()) {
-        algoOrderId = int64_t(i.value());
-    }
-
-    i = algoOrderInfo.find("pairInstrumentKey");
-    if (i != algoOrderInfo.end()) {
-        strncpy(pairInstrumentKey, string(i.value()).c_str(), stra::INST_KEY_LEN);
-    }
-
-    i = algoOrderInfo.find("baseAsset");
-    if (i != algoOrderInfo.end()) {
-        strncpy(baseAsset, string(i.value()).c_str(), stra::ASSET_LEN);
-    }
-
-    i = algoOrderInfo.find("algoOrderStatus");
-    if (i != algoOrderInfo.end()) {
-        algoOrderStatus =  stra::OrderStatusStr2Enum[string(i.value())];
-    }
-
-
-    i = algoOrderInfo.find("activeInstrumentKey");
-    if (i != algoOrderInfo.end()) {
-        strncpy(activeInstrumentKey, string(i.value()).c_str(), stra::INST_KEY_LEN);
-    }
-
-    i = algoOrderInfo.find("activePriceTakerPct");
-    if (i != algoOrderInfo.end()) {
-        activePriceTakerPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activePriceMakerPct");
-    if (i != algoOrderInfo.end()) {
-        activePriceMakerPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activeAccountId");
-    if (i != algoOrderInfo.end()) {
-        activeAccountId = int(i.value());
-    }
-
-    i = algoOrderInfo.find("activeDriveType");
-    if (i != algoOrderInfo.end()) {
-        activeDriveType =  stra::DriveTypeStr2Enum[string(i.value())];
-    }
-
-    i = algoOrderInfo.find("activeDepthMakerCheck");
-    if (i != algoOrderInfo.end()) {
-        activeDepthMakerCheck = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("activeDepthTakerCheck");
-    if (i != algoOrderInfo.end()) {
-        activeDepthTakerCheck = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("activeDepthMakerCheckType");
-    if (i != algoOrderInfo.end()) {
-        activeDepthMakerCheckType =  stra::CheckTypeStr2Enum[string(i.value())];
-    }
-
-    i = algoOrderInfo.find("activeDepthTakerCheckType");
-    if (i != algoOrderInfo.end()) {
-        activeDepthTakerCheckType =  stra::CheckTypeStr2Enum[string(i.value())];
-    }
-
-    i = algoOrderInfo.find("activeOrderType");
-    if (i != algoOrderInfo.end()) {
-        activeOrderType =  stra::OrderTypeStr2Enum[string(i.value())];
-    }
-
-
-    i = algoOrderInfo.find("passiveInstrumentKey");
-    if (i != algoOrderInfo.end()) {
-        strncpy(passiveInstrumentKey, string(i.value()).c_str(), stra::INST_KEY_LEN);
-    }
-
-    i = algoOrderInfo.find("passivePriceTakerPct");
-    if (i != algoOrderInfo.end()) {
-        passivePriceTakerPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("passivePriceMakerPct");
-    if (i != algoOrderInfo.end()) {
-        passivePriceMakerPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveAccountId");
-    if (i != algoOrderInfo.end()) {
-        passiveAccountId = int(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveDriveType");
-    if (i != algoOrderInfo.end()) {
-        passiveDriveType =  stra::DriveTypeStr2Enum[string(i.value())];
-    }
-
-    i = algoOrderInfo.find("passiveDepthMakerCheck");
-    if (i != algoOrderInfo.end()) {
-        passiveDepthMakerCheck = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveDepthTakerCheck");
-    if (i != algoOrderInfo.end()) {
-        passiveDepthTakerCheck = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveDepthMakerCheckType");
-    if (i != algoOrderInfo.end()) {
-        passiveDepthMakerCheckType =  stra::CheckTypeStr2Enum[string(i.value())];
-    }
-
-    i = algoOrderInfo.find("passiveDepthTakerCheckType");
-    if (i != algoOrderInfo.end()) {
-        passiveDepthTakerCheckType =  stra::CheckTypeStr2Enum[string(i.value())];
-    }
-
-    i = algoOrderInfo.find("passiveOrderType");
-    if (i != algoOrderInfo.end()) {
-        passiveOrderType =  stra::OrderTypeStr2Enum[string(i.value())];
-    }
-
-
-    i = algoOrderInfo.find("passiveVolumePct");
-    if (i != algoOrderInfo.end()) {
-        passiveVolumePct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activeMakerCancelOrderTime");
-    if (i != algoOrderInfo.end()) {
-        activeMakerCancelOrderTime = int64_t(i.value());
-    }
-
-    i = algoOrderInfo.find("activeTakerCancelOrderTime");
-    if (i != algoOrderInfo.end()) {
-        activeTakerCancelOrderTime = int64_t(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveMakerCancelOrderTime");
-    if (i != algoOrderInfo.end()) {
-        passiveMakerCancelOrderTime = int64_t(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveTakerCancelOrderTime");
-    if (i != algoOrderInfo.end()) {
-        passiveTakerCancelOrderTime = int64_t(i.value());
-    }
-
-    i = algoOrderInfo.find("activePassiveCancelOrderPct");
-    if (i != algoOrderInfo.end()) {
-        activePassiveCancelOrderPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activeMakerCancelOrderPct");
-    if (i != algoOrderInfo.end()) {
-        activeMakerCancelOrderPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activeTakerCancelOrderPct");
-    if (i != algoOrderInfo.end()) {
-        activeTakerCancelOrderPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveMakerCancelOrderPct");
-    if (i != algoOrderInfo.end()) {
-        passiveMakerCancelOrderPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveTakerCancelOrderPct");
-    if (i != algoOrderInfo.end()) {
-        passiveTakerCancelOrderPct = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activeMakerFeeRate");
-    if (i != algoOrderInfo.end()) {
-        activeMakerFeeRate = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activeTakerFeeRate");
-    if (i != algoOrderInfo.end()) {
-        activeTakerFeeRate = double(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveMakerFeeRate");
-    if (i != algoOrderInfo.end()) {
-        passiveMakerFeeRate = double(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveTakerFeeRate");
-    if (i != algoOrderInfo.end()) {
-        passiveTakerFeeRate = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activeTakerSlippage");
-    if (i != algoOrderInfo.end()) {
-        activeTakerSlippage = double(i.value());
-    }
-
-    i = algoOrderInfo.find("activeMakerSlippage");
-    if (i != algoOrderInfo.end()) {
-        activeMakerSlippage = double(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveTakerSlippage");
-    if (i != algoOrderInfo.end()) {
-        passiveTakerSlippage = double(i.value());
-    }
-
-    i = algoOrderInfo.find("passiveMakerSlippage");
-    if (i != algoOrderInfo.end()) {
-        passiveMakerSlippage = double(i.value());
-    }
-
-
-    i = algoOrderInfo.find("pairActiveTotalPrice");
-    if (i != algoOrderInfo.end()) {
-        pairActiveTotalPrice = double(i.value());
-    }
-
-    i = algoOrderInfo.find("pairTotalVolume");
-    if (i != algoOrderInfo.end()) {
-        pairTotalVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("pairPassiveTotalPrice");
-    if (i != algoOrderInfo.end()) {
-        pairPassiveTotalPrice = double(i.value());
-    }
-
-    i = algoOrderInfo.find("makerTakerFs");
-    if (i != algoOrderInfo.end()) {
-        makerTakerFs = double(i.value());
-    }
-
-    i = algoOrderInfo.find("takerTakerFs");
-    if (i != algoOrderInfo.end()) {
-        takerTakerFs = double(i.value());
-    }
-
-    i = algoOrderInfo.find("maxMTOrderSize");
-    if (i != algoOrderInfo.end()) {
-        maxMTOrderSize = double(i.value());
-    }
-
-    i = algoOrderInfo.find("maxTTOrderSize");
-    if (i != algoOrderInfo.end()) {
-        maxMTOrderSize = double(i.value());
-    }
-
-
-    i = algoOrderInfo.find("targetSpreadType");
-    if (i != algoOrderInfo.end()) {
-        targetSpreadType =  stra::TargetSpredPriceStr2Enum[string(i.value())];
-    }
-
-    i = algoOrderInfo.find("activeVolumeCalcualteType");
-    if (i != algoOrderInfo.end()) {
-        activeVolumeCalcualteType =  stra::ActiveVolumeCalcualteTypeStr2Enum[string(i.value())];
-    }
-
-
-    i = algoOrderInfo.find("ttTargetVolume");
-    if (i != algoOrderInfo.end()) {
-        ttTargetVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtTargetVolume");
-    if (i != algoOrderInfo.end()) {
-        mtTargetVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("profitSwitch");
-    if (i != algoOrderInfo.end()) {
-        profitSwitch = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("profitPct");
-    if (i != algoOrderInfo.end()) {
-        profitPct = double(i.value());
-    }
-
-
-    i = algoOrderInfo.find("ttOLStartSpread");
-    if (i != algoOrderInfo.end()) {
-        ttOLStartSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttOLEndSpread");
-    if (i != algoOrderInfo.end()) {
-        ttOLEndSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttOLStartVolume");
-    if (i != algoOrderInfo.end()) {
-        ttOLStartVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttOLEndVolume");
-    if (i != algoOrderInfo.end()) {
-        ttOLEndVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttOLSwitch");
-    if (i != algoOrderInfo.end()) {
-        ttOLSwitch = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("ttCLStartSpread");
-    if (i != algoOrderInfo.end()) {
-        ttCLStartSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttCLEndSpread");
-    if (i != algoOrderInfo.end()) {
-        ttCLEndSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttCLStartVolume");
-    if (i != algoOrderInfo.end()) {
-        ttCLStartVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttCLEndVolume");
-    if (i != algoOrderInfo.end()) {
-        ttCLEndVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttCLSwitch");
-    if (i != algoOrderInfo.end()) {
-        ttCLSwitch = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("ttOSStartSpread");
-    if (i != algoOrderInfo.end()) {
-        ttOSStartSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttOSEndSpread");
-    if (i != algoOrderInfo.end()) {
-        ttOSEndSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttOSStartVolume");
-    if (i != algoOrderInfo.end()) {
-        ttOSStartVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttOSEndVolume");
-    if (i != algoOrderInfo.end()) {
-        ttOSEndVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttOSSwitch");
-    if (i != algoOrderInfo.end()) {
-        ttOSSwitch = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("ttCSStartSpread");
-    if (i != algoOrderInfo.end()) {
-        ttCSStartSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttCSEndSpread");
-    if (i != algoOrderInfo.end()) {
-        ttCSEndSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttCSStartVolume");
-    if (i != algoOrderInfo.end()) {
-        ttCSStartVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttCSEndVolume");
-    if (i != algoOrderInfo.end()) {
-        ttCSEndVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttCSSwitch");
-    if (i != algoOrderInfo.end()) {
-        ttCSSwitch = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("mtOLStartSpread");
-    if (i != algoOrderInfo.end()) {
-        mtOLStartSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtOLEndSpread");
-    if (i != algoOrderInfo.end()) {
-        mtOLEndSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtOLStartVolume");
-    if (i != algoOrderInfo.end()) {
-        mtOLStartVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtOLEndVolume");
-    if (i != algoOrderInfo.end()) {
-        mtOLEndVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtOLSwitch");
-    if (i != algoOrderInfo.end()) {
-        mtOLSwitch = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("mtCLStartSpread");
-    if (i != algoOrderInfo.end()) {
-        mtCLStartSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtCLEndSpread");
-    if (i != algoOrderInfo.end()) {
-        mtCLEndSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtCLStartVolume");
-    if (i != algoOrderInfo.end()) {
-        mtCLStartVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtCLEndVolume");
-    if (i != algoOrderInfo.end()) {
-        mtCLEndVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtCLSwitch");
-    if (i != algoOrderInfo.end()) {
-        mtCLSwitch = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("mtOSStartSpread");
-    if (i != algoOrderInfo.end()) {
-        mtOSStartSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtOSEndSpread");
-    if (i != algoOrderInfo.end()) {
-        mtOSEndSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtOSStartVolume");
-    if (i != algoOrderInfo.end()) {
-        mtOSStartVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtOSEndVolume");
-    if (i != algoOrderInfo.end()) {
-        mtOSEndVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtOSSwitch");
-    if (i != algoOrderInfo.end()) {
-        mtOSSwitch = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("mtCSStartSpread");
-    if (i != algoOrderInfo.end()) {
-        mtCSStartSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtCSEndSpread");
-    if (i != algoOrderInfo.end()) {
-        mtCSEndSpread = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtCSStartVolume");
-    if (i != algoOrderInfo.end()) {
-        mtCSStartVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtCSEndVolume");
-    if (i != algoOrderInfo.end()) {
-        mtCSEndVolume = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtCSSwitch");
-    if (i != algoOrderInfo.end()) {
-        mtCSSwitch = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("mtRebalanceSwitch");
-    if (i != algoOrderInfo.end()) {
-        mtRebalanceSwitch = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("ttRebalanceSwitch");
-    if (i != algoOrderInfo.end()) {
-        ttRebalanceSwitch = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("mtRebalanceFlag");
-    if (i != algoOrderInfo.end()) {
-        mtRebalanceFlag = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("ttRebalanceFlag");
-    if (i != algoOrderInfo.end()) {
-        ttRebalanceFlag = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("mtPriceTrendProtectFlag");
-    if (i != algoOrderInfo.end()) {
-        mtPriceTrendProtectFlag = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("ttPriceTrendProtectFlag");
-    if (i != algoOrderInfo.end()) {
-        ttPriceTrendProtectFlag = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("activePriceTickFlag");
-    if (i != algoOrderInfo.end()) {
-        activePriceTickFlag = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("activePriceTickNum");
-    if (i != algoOrderInfo.end()) {
-        activePriceTickNum = int(i.value());
-    }
-
-
-    i = algoOrderInfo.find("passivePriceTickFlag");
-    if (i != algoOrderInfo.end()) {
-        passivePriceTickFlag = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("passivePriceTickNum");
-    if (i != algoOrderInfo.end()) {
-        passivePriceTickNum = int(i.value());
-    }
-
-
-    i = algoOrderInfo.find("systemDelayTimeSpan");
-    if (i != algoOrderInfo.end()) {
-        systemDelayTimeSpan = int64_t(i.value());
-    }
-
-    i = algoOrderInfo.find("exchangeDelayTimeSpan");
-    if (i != algoOrderInfo.end()) {
-        exchangeDelayTimeSpan = int64_t(i.value());
-    } 
-
-
-    i = algoOrderInfo.find("systemDelayFlag");
-    if (i != algoOrderInfo.end()) {
-        systemDelayFlag = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("exchangeDelayFlag");
-    if (i != algoOrderInfo.end()) {
-        exchangeDelayFlag = bool(i.value());
-    }
-
-
-    i = algoOrderInfo.find("mtSlipage");
-    if (i != algoOrderInfo.end()) {
-        mtSlipage = double(i.value());
-    }
-
-    i = algoOrderInfo.find("ttSlipage");
-    if (i != algoOrderInfo.end()) {
-        ttSlipage = double(i.value());
-    }
-
-    i = algoOrderInfo.find("mtSlipageFlag");
-    if (i != algoOrderInfo.end()) {
-        mtSlipageFlag = bool(i.value());
-    }
-
-    i = algoOrderInfo.find("ttSlipageFlag");
-    if (i != algoOrderInfo.end()) {
-        ttSlipageFlag = bool(i.value());
-    }
+  
 }
 
 void BaseAlgoOrder::SaveToFile() {
-    json algoOrderInfo;
-    algoOrderInfo["algoType"] = stra::AlgoTypeEnum2Str[algoType];
-    algoOrderInfo["algoStrategyName"] = string(algoStrategyName);
-    algoOrderInfo["algoOrderId"] = algoOrderId;
-    algoOrderInfo["pairInstrumentKey"] = string(pairInstrumentKey);
-    algoOrderInfo["baseAsset"] = string(baseAsset);
-    algoOrderInfo["algoOrderStatus"] = stra::OrderStatusEnum2Str[algoOrderStatus];
 
-    algoOrderInfo["activeInstrumentKey"] = string(activeInstrumentKey);
-    algoOrderInfo["activePriceTakerPct"] = activePriceTakerPct;
-    algoOrderInfo["activePriceMakerPct"] = activePriceMakerPct;
-    algoOrderInfo["activeAccountId"] = activeAccountId;
-    algoOrderInfo["activeDriveType"] = stra::DriveTypeEnum2Str[activeDriveType];
-    algoOrderInfo["activeDepthMakerCheck"] = activeDepthMakerCheck;
-    algoOrderInfo["activeDepthTakerCheck"] = activeDepthTakerCheck;
-    algoOrderInfo["activeDepthMakerCheckType"] = stra::CheckTypeEnum2Str[activeDepthMakerCheckType];
-    algoOrderInfo["activeDepthTakerCheckType"] = stra::CheckTypeEnum2Str[activeDepthTakerCheckType];
-    algoOrderInfo["activeOrderType"] = stra::OrderTypeEnum2Str[activeOrderType];
-
-
-    algoOrderInfo["passiveInstrumentKey"] = string(passiveInstrumentKey);
-    algoOrderInfo["passivePriceTakerPct"] = passivePriceTakerPct;
-    algoOrderInfo["passivePriceMakerPct"] = passivePriceMakerPct;
-    algoOrderInfo["passiveAccountId"] = passiveAccountId;
-    algoOrderInfo["passiveDriveType"] = stra::DriveTypeEnum2Str[passiveDriveType];
-    algoOrderInfo["passiveDepthMakerCheck"] = passiveDepthMakerCheck;
-    algoOrderInfo["passiveDepthTakerCheck"] = passiveDepthTakerCheck;
-    algoOrderInfo["passiveDepthMakerCheckType"] = stra::CheckTypeEnum2Str[passiveDepthMakerCheckType];
-    algoOrderInfo["passiveDepthTakerCheckType"] = stra::CheckTypeEnum2Str[passiveDepthTakerCheckType];
-    algoOrderInfo["passiveOrderType"] = stra::OrderTypeEnum2Str[passiveOrderType];
-
-
-    algoOrderInfo["passiveVolumePct"] = passiveVolumePct;
-
-    algoOrderInfo["activeMakerCancelOrderTime"] = activeMakerCancelOrderTime;
-    algoOrderInfo["activeTakerCancelOrderTime"] = activeTakerCancelOrderTime;
-    algoOrderInfo["passiveMakerCancelOrderTime"] = passiveMakerCancelOrderTime;
-    algoOrderInfo["passiveTakerCancelOrderTime"] = passiveTakerCancelOrderTime;
-    algoOrderInfo["activePassiveCancelOrderPct"] = activePassiveCancelOrderPct;
-    algoOrderInfo["activeMakerCancelOrderPct"] = activeMakerCancelOrderPct;
-    algoOrderInfo["activeTakerCancelOrderPct"] = activeTakerCancelOrderPct;
-    algoOrderInfo["passiveMakerCancelOrderPct"] = passiveMakerCancelOrderPct;
-    algoOrderInfo["passiveTakerCancelOrderPct"] = passiveTakerCancelOrderPct;
-
-    
-    algoOrderInfo["activeMakerFeeRate"] = activeMakerFeeRate;
-    algoOrderInfo["activeTakerFeeRate"] = activeTakerFeeRate;
-    algoOrderInfo["passiveMakerFeeRate"] = passiveMakerFeeRate;
-    algoOrderInfo["passiveTakerFeeRate"] = passiveTakerFeeRate;
-    algoOrderInfo["activeTakerSlippage"] = activeTakerSlippage;
-    algoOrderInfo["activeMakerSlippage"] = activeMakerSlippage;
-    algoOrderInfo["passiveTakerSlippage"] = passiveTakerSlippage;
-    algoOrderInfo["passiveMakerSlippage"] = passiveMakerSlippage;
-
-
-    algoOrderInfo["pairActiveTotalPrice"] = pairActiveTotalPrice;
-    algoOrderInfo["pairTotalVolume"] = pairTotalVolume;
-    algoOrderInfo["pairPassiveTotalPrice"] = pairPassiveTotalPrice;
-
-
-    algoOrderInfo["makerTakerFs"] = makerTakerFs;
-    algoOrderInfo["takerTakerFs"] = takerTakerFs;
-    algoOrderInfo["maxMTOrderSize"] = maxMTOrderSize;
-    algoOrderInfo["maxTTOrderSize"] = maxTTOrderSize;
-
-    algoOrderInfo["targetSpreadType"] = stra::TargetSpredPriceEnum2Str[targetSpreadType];
-    algoOrderInfo["activeVolumeCalcualteType"] = stra::ActiveVolumeCalcualteTypeEnum2Str[activeVolumeCalcualteType];
-
-
-    algoOrderInfo["ttTargetVolume"] = ttTargetVolume;
-    algoOrderInfo["mtTargetVolume"] = mtTargetVolume;
-    algoOrderInfo["profitSwitch"] = profitSwitch;
-    algoOrderInfo["profitPct"] = profitPct;
-
-
-    algoOrderInfo["ttOLStartSpread"] = ttOLStartSpread;
-    algoOrderInfo["ttOLEndSpread"] = ttOLEndSpread;
-    algoOrderInfo["ttOLStartVolume"] = ttOLStartVolume;
-    algoOrderInfo["ttOLEndVolume"] = ttOLEndVolume;
-    algoOrderInfo["ttOLSwitch"] = ttOLSwitch;
-
-
-    algoOrderInfo["ttCLStartSpread"] = ttCLStartSpread;
-    algoOrderInfo["ttCLEndSpread"] = ttCLEndSpread;
-    algoOrderInfo["ttCLStartVolume"] = ttCLStartVolume;
-    algoOrderInfo["ttCLEndVolume"] = ttCLEndVolume;
-    algoOrderInfo["ttCLSwitch"] = ttCLSwitch;
-
-
-    algoOrderInfo["ttOSStartSpread"] = ttOSStartSpread;
-    algoOrderInfo["ttOSEndSpread"] = ttOSEndSpread;
-    algoOrderInfo["ttOSStartVolume"] = ttOSStartVolume;
-    algoOrderInfo["ttOSEndVolume"] = ttOSEndVolume;
-    algoOrderInfo["ttOSSwitch"] = ttOSSwitch;
-
-
-    algoOrderInfo["ttCSStartSpread"] = ttCSStartSpread;
-    algoOrderInfo["ttCSEndSpread"] = ttCSEndSpread;
-    algoOrderInfo["ttCSStartVolume"] = ttCSStartVolume;
-    algoOrderInfo["ttCSEndVolume"] = ttCSEndVolume;
-    algoOrderInfo["ttCSSwitch"] = ttCSSwitch;
-
-
-    algoOrderInfo["mtOLStartSpread"] = mtOLStartSpread;
-    algoOrderInfo["mtOLEndSpread"] = mtOLEndSpread;
-    algoOrderInfo["mtOLStartVolume"] = mtOLStartVolume;
-    algoOrderInfo["mtOLEndVolume"] = mtOLEndVolume;
-    algoOrderInfo["mtOLSwitch"] = mtOLSwitch;
-
-
-    algoOrderInfo["mtCLStartSpread"] = mtCLStartSpread;
-    algoOrderInfo["mtCLEndSpread"] = mtCLEndSpread;
-    algoOrderInfo["mtCLStartVolume"] = mtCLStartVolume;
-    algoOrderInfo["mtCLEndVolume"] = mtCLEndVolume;
-    algoOrderInfo["mtCLSwitch"] = mtCLSwitch;
-
-
-    algoOrderInfo["mtOSStartSpread"] = mtOSStartSpread;
-    algoOrderInfo["mtOSEndSpread"] = mtOSEndSpread;
-    algoOrderInfo["mtOSStartVolume"] = mtOSStartVolume;
-    algoOrderInfo["mtOSEndVolume"] = mtOSEndVolume;
-    algoOrderInfo["mtOSSwitch"] = mtOSSwitch;
-
-
-    algoOrderInfo["mtCSStartSpread"] = mtCSStartSpread;
-    algoOrderInfo["mtCSEndSpread"] = mtCSEndSpread;
-    algoOrderInfo["mtCSStartVolume"] = mtCSStartVolume;
-    algoOrderInfo["mtCSEndVolume"] = mtCSEndVolume;
-    algoOrderInfo["mtCSSwitch"] = mtCSSwitch;
-
-
-    algoOrderInfo["mtRebalanceSwitch"] = mtRebalanceSwitch;
-    algoOrderInfo["ttRebalanceSwitch"] = ttRebalanceSwitch;
-
-    algoOrderInfo["mtRebalanceFlag"] = mtRebalanceFlag;
-    algoOrderInfo["ttRebalanceFlag"] = ttRebalanceFlag;
-
-    algoOrderInfo["mtPriceTrendProtectFlag"] = mtPriceTrendProtectFlag;
-    algoOrderInfo["ttPriceTrendProtectFlag"] = ttPriceTrendProtectFlag;
-
-    algoOrderInfo["activePriceTickFlag"] = activePriceTickFlag;
-    algoOrderInfo["activePriceTickNum"] = activePriceTickNum;
-
-    algoOrderInfo["passivePriceTickFlag"] = passivePriceTickFlag;
-    algoOrderInfo["passivePriceTickNum"] = passivePriceTickNum;
-
-    
-    algoOrderInfo["systemDelayTimeSpan"] = systemDelayTimeSpan;
-    algoOrderInfo["exchangeDelayTimeSpan"] = exchangeDelayTimeSpan;
-    algoOrderInfo["systemDelayFlag"] = systemDelayFlag;
-    algoOrderInfo["exchangeDelayFlag"] = exchangeDelayFlag;
-    algoOrderInfo["mtSlipage"] = mtSlipage;
-    algoOrderInfo["ttSlipage"] = ttSlipage;
-    algoOrderInfo["mtSlipageFlag"] = mtSlipageFlag;
-    algoOrderInfo["ttSlipageFlag"] = ttSlipageFlag;
-
-
-    stringstream ss;
-    ss << algoOrderId << "_algoPairOrder.json";
-    string filePath = ss.str();
-	std::ofstream o(filePath.c_str());
-	o << std::setw(4) << algoOrderInfo;
 }
 
 string BaseAlgoOrder::GeneratePubStr() {
+    /*
     json pub;
     pub["sccId"] = string(sccId);
     pub["toAec"] = string(toAec);
@@ -1736,9 +982,12 @@ string BaseAlgoOrder::GeneratePubStr() {
     pub["jsonBody"] = body;
 
     return pub.dump();
+    */
+    return "";
 }
 
 string BaseAlgoOrder::GeneratePubStrOnUpdate() {
+    /*
     json pub;
     pub["sccId"] = string(sccId);
     pub["toAec"] = string(toAec);
@@ -1901,6 +1150,8 @@ string BaseAlgoOrder::GeneratePubStrOnUpdate() {
     pub["jsonBody"] = body;
 
     return pub.dump();
+    */
+    return "";
 }
 
 PairOrder BaseAlgoOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId) {
@@ -1913,7 +1164,7 @@ PairOrder BaseAlgoOrder::CreatePairOrder(stra::TradingType tradingType) {
     return pairOrder;
 }
 
-PairOrder BaseAlgoOrder::CreatePairOrder(stra::TradingType tradingType, stra::Direction activeDirection) {
+PairOrder BaseAlgoOrder::CreatePairOrder(stra::TradingType tradingType, Direction activeDirection) {
     PairOrder pairOrder;
     return pairOrder;
 }

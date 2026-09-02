@@ -280,13 +280,13 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
 
     double targetActiveVolume = 0;
     // order 相关
-    stra::Direction activeDirection;
-    stra::Direction passiveDirection;
+    Direction activeDirection;
+    Direction passiveDirection;
     double targetVolume;
     double activeTargetPrice;
     double passiveTargetPrice;
-    stra::OrderType acOrderType;
-    stra::OrderType paOrderType;
+    OrderType acOrderType;
+    OrderType paOrderType;
     if (tradingTypeOffset == stra::OPEN_SHORT) {
         if (tempSpread < startSpread) {
             targetActiveVolume = 0;
@@ -308,8 +308,8 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
             }
         }
         if (targetActiveVolume > expectActiveVolume && targetActiveVolume > 0) {
-            activeDirection = stra::Direction_LONG;
-            passiveDirection = stra::Direction_SHORT;
+            activeDirection = DT_LONG;
+            passiveDirection = DT_SHORT;
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 targetVolume = min(targetActiveVolume - expectActiveVolume, ttTargetVolume);
                 if (tempVolume > stra::MIN_FLOAT){
@@ -373,8 +373,8 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
         }
 
         if (targetActiveVolume < expectActiveVolume && tempSpread <= startSpread ) {
-            activeDirection = stra::Direction_SHORT;
-            passiveDirection = stra::Direction_LONG;
+            activeDirection = DT_SHORT;
+            passiveDirection = DT_LONG;
 
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 targetVolume = min(expectActiveVolume - targetActiveVolume, ttTargetVolume);
@@ -424,8 +424,8 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
             }
         }
         if (targetActiveVolume < expectActiveVolume && targetActiveVolume < 0) {
-            activeDirection = stra::Direction_SHORT;
-            passiveDirection = stra::Direction_LONG;
+            activeDirection = DT_SHORT;
+            passiveDirection = DT_LONG;
 
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 targetVolume = min(expectActiveVolume - targetActiveVolume, ttTargetVolume);
@@ -488,8 +488,8 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
             }
         }
         if (targetActiveVolume > expectActiveVolume && tempSpread >= startSpread) {
-            activeDirection = stra::Direction_LONG;
-            passiveDirection = stra::Direction_SHORT;
+            activeDirection = DT_LONG;
+            passiveDirection = DT_SHORT;
 
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 targetVolume = min(targetActiveVolume - expectActiveVolume, ttTargetVolume);
@@ -624,7 +624,7 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
         }
     }
 
-    pairOrder.Init();
+    pairOrder.Init(smc);
     strncpy(pairOrder.pairInstrumentKey, pairInstrumentKey, stra::INST_KEY_LEN);
 
     return pairOrder;

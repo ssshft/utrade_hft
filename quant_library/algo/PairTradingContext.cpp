@@ -37,11 +37,12 @@ std::string PairTradingContext::GenerateAlgoOrderId() {
 
 PairTradingContext::PairTradingContext() = default;
 
-void PairTradingContext::Init(const PairTradingConfig& cfg) {
+void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager* s) {
     m_cfg = cfg;
+    smc = s;
 
     auto& pim = PairInfoManager::Instance();
-    pim.Init(cfg.pairKeys, cfg.activeAccountId, cfg.passiveAccountId);
+    pim.Init(cfg.pairKeys, cfg.activeAccountId, cfg.passiveAccountId, smc);
 
     if (!cfg.csvStatePath.empty()) {
         if (pim.LoadFromCSV(cfg.csvStatePath)) {
@@ -52,7 +53,7 @@ void PairTradingContext::Init(const PairTradingConfig& cfg) {
     LOG_INFO("size: {}", cfg.pairKeys.size());
 }
 
-void PairTradingContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata)) {
+void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
     std::string pairKey(topic->__name);
 
     auto& pim = PairInfoManager::Instance();
@@ -63,10 +64,10 @@ void PairTradingContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdat
 
     pim.UpdateRtSpread(pairKey, pdata);
 
-    ProcessPairSignal(*pi, eventTimeUs);
+    ProcessPairSignal(*pi);
 }
 
-void PairTradingContext::ProcessPairSignal(PairInfo& pi, int64_t nowUs) {
+void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
     if (pi.hasActiveAlgoOrder) {
         return;
     }
@@ -280,11 +281,11 @@ void PairTradingContext::OnPosition(const pubsub::Position& position) {
     PairInfoManager::Instance().UpdateLiquidStatus(position);
 }
 
-void PairTradingContext::OnBalance(const pubsub::Balanc& balance) {
+void PairTradingContext::OnBalance(const pubsub::Balance& balance) {
     PairInfoManager::Instance().UpdateOnBalance(balance, "baseAsset");
 }
 
-void PairTradingContext::OnTotalAccount(const pubsub::TotalAccoun& totalAccount) {
+void PairTradingContext::OnTotalAccount(const pubsub::TotalAccount& totalAccount) {
     PairInfoManager::Instance().UpdateOnTotalAccount(totalAccount);
 }
 

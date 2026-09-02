@@ -184,22 +184,22 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     // 挂单价格会在pairOrder创建订单时赋值
     double targetActiveVolume = 0;
     // order 相关
-    stra::Direction activeDirection;
-    stra::Direction passiveDirection;
+    Direction activeDirection;
+    Direction passiveDirection;
     double targetVolume;
     double ajdPct;
     double activeTargetPrice;
     double passiveTargetPrice;
-    stra::OrderType acOrderType;
-    stra::OrderType paOrderType;
+    OrderType acOrderType;
+    OrderType paOrderType;
     if (tradingTypeOffset == stra::OPEN_SHORT) {
         // algoPairOrder.mtOSStartSpread = 0.0002 + meanShift;
         // algoPairOrder.mtOSEndSpread = 0.00021 + meanShift;
         // algoPairOrder.mtOSStartVolume = 0;
         // algoPairOrder.mtOSEndVolume = 100;
         // algoPairOrder.mtOSSwitch = true;
-        activeDirection = stra::Direction_LONG;
-        passiveDirection = stra::Direction_SHORT;
+        activeDirection = DT_LONG;
+        passiveDirection = DT_SHORT;
         // 买主动腿卖被动腿, 主动腿够便宜才做
         // 价差越高越开
         if (endVolume - pairTotalVolume > stra::MIN_FLOAT)
@@ -241,8 +241,8 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
         // algoPairOrder.mtCSStartVolume = 100;
         // algoPairOrder.mtCSEndVolume = 0;
         // algoPairOrder.mtCSSwitch = true;
-        activeDirection = stra::Direction_SHORT;
-        passiveDirection = stra::Direction_LONG;
+        activeDirection = DT_SHORT;
+        passiveDirection = DT_LONG;
         // 价差越低越平
         if (endVolume - pairTotalVolume < -stra::MIN_FLOAT) {
             // tempSpread 是使用买1卖1价格考虑了滑点和手续费后目标锁定的价差, 如果报钓鱼单则应该向更远的方向报单
@@ -284,8 +284,8 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
         // algoPairOrder.mtOLStartVolume = 0;
         // algoPairOrder.mtOLEndVolume = -100;
         // algoPairOrder.mtOLSwitch = true;
-        activeDirection = stra::Direction_SHORT;
-        passiveDirection = stra::Direction_LONG;
+        activeDirection = DT_SHORT;
+        passiveDirection = DT_LONG;
         if (endVolume - pairTotalVolume < -stra::MIN_FLOAT) {
             // tempSpread 是使用买1卖1价格考虑了滑点和手续费后目标锁定的价差, 如果报钓鱼单则应该向更远的方向报单
             tempTargetSpread = startSpread + (endSpread - startSpread) * max(min((startVolume - pairTotalVolume) / (startVolume - endVolume), 1.0), 0.0);
@@ -326,8 +326,8 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
         // algoPairOrder.mtCLStartVolume = -100;
         // algoPairOrder.mtCLEndVolume = -0;
         // algoPairOrder.mtCLSwitch = true;
-        activeDirection = stra::Direction_LONG;
-        passiveDirection = stra::Direction_SHORT;
+        activeDirection = DT_LONG;
+        passiveDirection = DT_SHORT;
         if (endVolume - pairTotalVolume > stra::MIN_FLOAT) {
             // tempSpread 是使用买1卖1价格考虑了滑点和手续费后目标锁定的价差, 如果报钓鱼单则应该向更远的方向报单
             tempTargetSpread = startSpread + (endSpread - startSpread) * max(min((pairTotalVolume - startVolume) / (endVolume - startVolume), 1.0), 0.0);
@@ -364,8 +364,8 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     }
 
     LOG_INFO("tradingTypeOffset:%s tradingTypeOrder:%s activeDirection:%s passiveDirection:%s endVolume:%f pairTotalVolume:%f tempTargetSpread:%f ajdPct:%f targetVolume:%f activeTargetPrice:%f passiveTargetPrice:%f acOrderType:%s paOrderType:%s", 
-            stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), stra::DirectionEnum2Str[activeDirection].c_str(), stra::DirectionEnum2Str[passiveDirection].c_str(), 
-            endVolume, pairTotalVolume, tempTargetSpread, ajdPct, targetVolume, activeTargetPrice, passiveTargetPrice, stra::OrderTypeEnum2Str[acOrderType].c_str(), stra::OrderTypeEnum2Str[paOrderType].c_str());
+            stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), DirectionEnum2StrMap[activeDirection].c_str(), DirectionEnum2StrMap[passiveDirection].c_str(), 
+            endVolume, pairTotalVolume, tempTargetSpread, ajdPct, targetVolume, activeTargetPrice, passiveTargetPrice, OrderTypeEnum2StrMap[acOrderType].c_str(), OrderTypeEnum2StrMap[paOrderType].c_str());
 
     targetVolume = round(targetVolume / activeInfo.lotSize) * activeInfo.lotSize;
     if (targetVolume < stra::MIN_FLOAT) {
@@ -457,19 +457,19 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
         }
     }
 
-    pairOrder.Init();
+    pairOrder.Init(smc);
     strncpy(pairOrder.pairInstrumentKey, pairInstrumentKey, stra::INST_KEY_LEN);
 
     return pairOrder;
 }
 
-PairOrder AlgoFishingOrder::CreatePairOrder(stra::TradingType tradingType, stra::Direction activeDirection) {
+PairOrder AlgoFishingOrder::CreatePairOrder(stra::TradingType tradingType, Direction activeDirection) {
     // OpenShort CloseLong activeDirection = Long
     // OpenLong CloseShort activeDirection = Short
     PairOrder pairOrder;
     int64_t pairOrderId = GenerateStrategyPairId();
     double expectVolume = GetExpectActiveVolume();
-    if (activeDirection == stra::Direction_LONG){
+    if (activeDirection == DT_LONG){
         if (tradingType == stra::TAKER_TAKER) {
             if (expectVolume >= minVolume - stra::MIN_FLOAT) {
                 if (ttOSSwitch) {

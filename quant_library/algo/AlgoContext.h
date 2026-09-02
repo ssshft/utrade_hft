@@ -7,7 +7,7 @@
 #include "basic/QuantPub.h"
 #include "basic/Utility.h"
 #include "command_helper.h"
-#include "redis_client.h"
+#include "securitymanager.h"
 #include "program_util.h"
 #include "basic/DataStruct.h"
 
@@ -18,19 +18,19 @@ public:
     AlgoContext();
     ~AlgoContext();
     void PreStart();
+    void Init(sm::SecurityManager* s);
     void SetTradeClient(om::TradeClient* client);
     void SetDbp(dbp::DbpReader* dbp);
-    void SetPub(RedisClient* redisClient);
+    //void SetPub(RedisClient* redisClient);
     void QueryAccount();
     void OnCommand(string s);
     void OnMarketDepth();
     void OnMarketTrade();
 
-    void OnTimerTrade(int64_t eventTime);
     void OnKline();
     void OnFundingRate();
 
-    void OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata);
+    void OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata);
     void OnTimer(int64_t eventTime);
     void OnBalance(const pubsub::Balance& balance);
     void OnPosition(const pubsub::Position& position);
@@ -71,6 +71,8 @@ private:
     int64_t tradesDelayThreshold;
 
     int onTimerTrade;
+
+    sm::SecurityManager* smc{nullptr};
     
 };
 

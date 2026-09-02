@@ -10,7 +10,7 @@
 #include "config.h"
 #include "dbp/dbpreader.h"
 #include "concurrent_queue.h"
-#include "redis_client.h"
+#include "securitymanager.h"
 #include <unordered_map>
 
 using namespace pubsub;
@@ -38,6 +38,18 @@ public:
         else {
             cryptothrow("trade_config.json not found DBP configuration!", -1);
         }
+
+        std::string host = "localhost";
+        int port = 9379;
+        std::string password = "";
+        if (tradeConfig.HasMember("SMC")) {
+            host = tradeConfig["SMC"]["host"].GetString();
+            port = std::stoi(tradeConfig["SMC"]["port"].GetString());
+            if (tradeConfig["SMC"].HasMember("password")) {
+                password = tradeConfig["SMC"]["password"].GetString();
+            }
+        }
+        smc = new sm::SecurityManager(host.c_str(), port, password.c_str(), true);
     }
 
     virtual void pre_start(Config *config){
@@ -170,5 +182,6 @@ protected:
     int timerInterval{1}; //ms
     std::unordered_map<std::string, std::string> _strategyIds;
     string tag{""};
+    sm::SecurityManager* smc{nullptr};
 };
 

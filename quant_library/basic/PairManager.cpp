@@ -5,7 +5,7 @@
 
 static PairOrder defaultPairOrder;
 
-void PairOrder::Init() {
+void PairOrder::Init(sm::SecurityManager* s) {
     vector<string> vActive;
     splitString(activeInstrumentKey, vActive, ".");
     if (vActive.size() >= 3) {
@@ -23,14 +23,15 @@ void PairOrder::Init() {
         strncpy(passiveInstrument, vPassive[2].c_str(), stra::INST_ID_LEN);
     }
 
-    activeInfo = BasicInfoMgr::GetInstance().GetBasicInfo(activeInstrumentKey);
-    passiveInfo = BasicInfoMgr::GetInstance().GetBasicInfo(passiveInstrumentKey);
-
+    smc->get_instrument_info(activeExchangeType, activeInstType, activeInstrument, activeInfo);
+    smc->get_instrument_info(passiveExchangeType, passiveInstType, passiveInstrument, passiveInfo);
 
     double minAmount = StrategyConfig::GetInstance().GetMinOrderAmount();
     if (minAmount > 0) {
         minOrderAmount = minAmount;
     }
+
+    smc = s;
 }
 
 stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
@@ -78,11 +79,11 @@ stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
     double orderAmount = 0.0;
 
     double currentOrderAmount = 0.0;
-    if (activeInfo.calculateType == 0) {
-        currentOrderAmount = targetVolume * price * activeInfo.multiple;
+    if (activeInfo.calcType == 0) {
+        currentOrderAmount = targetVolume * price * activeInfo.value;
     }
-    else if (activeInfo.calculateType == 1) {
-        currentOrderAmount = targetVolume * activeInfo.multiple;
+    else if (activeInfo.calcType == 1) {
+        currentOrderAmount = targetVolume * activeInfo.value;
     }
 
     if (activeExchangeType == BINANCE) {
@@ -125,16 +126,6 @@ stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
     order.direction = activeDirection;
     order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
-
-    auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
-    int64_t currentTime = GetCurrentTimeUs();
-    dt.updateTime = currentTime;
-    dt.orderStatus = order.orderStatus;
-    order.orderTimeStatus.size++;
-    if (order.orderTimeStatus.size >= stra::TIME_STATUS_LEN) {
-        order.orderTimeStatus.size = stra::TIME_STATUS_LEN - 1;
-        LOG_INFO("orderTimeStatus size:%d > TIME_STATUS_LEN:%d", order.orderTimeStatus.size, stra::TIME_STATUS_LEN);
-    }
 
     order.price = price;
     order.volume = targetVolume;
@@ -194,11 +185,11 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
     double orderAmount = 0.0;
 
     double currentOrderAmount = 0.0;
-    if (passiveInfo.calculateType == 0) {
-        currentOrderAmount = targetVolume * price * passiveInfo.multiple;
+    if (passiveInfo.calcType == 0) {
+        currentOrderAmount = targetVolume * price * passiveInfo.value;
     }
-    else if (passiveInfo.calculateType == 1) {
-        currentOrderAmount = targetVolume * passiveInfo.multiple;
+    else if (passiveInfo.calcType == 1) {
+        currentOrderAmount = targetVolume * passiveInfo.value;
     }
 
     if (activeExchangeType == BINANCE) {
@@ -241,16 +232,6 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
     order.direction = activeDirection;
     order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
-
-    auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
-    int64_t currentTime = GetCurrentTimeUs();
-    dt.updateTime = currentTime;
-    dt.orderStatus = order.orderStatus;
-    order.orderTimeStatus.size++;
-    if (order.orderTimeStatus.size >= stra::TIME_STATUS_LEN) {
-        order.orderTimeStatus.size = stra::TIME_STATUS_LEN - 1;
-        LOG_INFO("orderTimeStatus size:%d > TIME_STATUS_LEN:%d", order.orderTimeStatus.size, stra::TIME_STATUS_LEN);
-    }
 
     order.price = price;
     order.volume = targetVolume;
@@ -298,11 +279,11 @@ stra::QuantOrder PairOrder::CreateOrginActiveOrder(int64_t strategyOrderId) {
     double orderAmount = 0.0;
 
     double currentOrderAmount = 0.0;
-    if (activeInfo.calculateType == 0) {
-        currentOrderAmount = targetVolume * price * activeInfo.multiple;
+    if (activeInfo.calcType == 0) {
+        currentOrderAmount = targetVolume * price * activeInfo.value;
     }
-    else if (activeInfo.calculateType == 1) {
-        currentOrderAmount = targetVolume * activeInfo.multiple;
+    else if (activeInfo.calcType == 1) {
+        currentOrderAmount = targetVolume * activeInfo.value;
     }
 
 
@@ -350,16 +331,6 @@ stra::QuantOrder PairOrder::CreateOrginActiveOrder(int64_t strategyOrderId) {
     order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
 
-    auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
-    int64_t currentTime = GetCurrentTimeUs();
-    dt.updateTime = currentTime;
-    dt.orderStatus = order.orderStatus;
-    order.orderTimeStatus.size++;
-    if (order.orderTimeStatus.size >= stra::TIME_STATUS_LEN) {
-        order.orderTimeStatus.size = stra::TIME_STATUS_LEN - 1;
-        LOG_INFO("orderTimeStatus size:%d > TIME_STATUS_LEN:%d", order.orderTimeStatus.size, stra::TIME_STATUS_LEN);
-    }
-
     order.price = price;
     order.volume = targetVolume;
     order.targetPrice = activeTargetPrice;
@@ -379,102 +350,102 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
     double activeAmount = 0.0;
     double passiveAmount = 0.0;
 
-    if (strcmp(activeInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(activeInfo.instRight.c_str(), "USDT") == 0 || strcmp(activeInfo.instRight.c_str(), "USD") == 0 || strcmp(activeInfo.instRight.c_str(), "USDC") == 0 || strcmp(activeInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
-        auto& leftAss = posMgr->GetAccount().mAsset[activeInfo.instLeft];
+    if (strcmp(activeInfo.quote, baseAsset) == 0 || ((strcmp(activeInfo.quote, "USDT") == 0 || strcmp(activeInfo.quote, "USD") == 0 || strcmp(activeInfo.quote, "USDC") == 0 || strcmp(activeInfo.quote, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
+        auto& leftAss = posMgr->GetAccount().mAsset[activeInfo.base];
         auto& pos = posMgr->GetAccount().mPosition[activeInstrumentKey];
         activeAmount += leftAss.totalAmount - leftAss.loanAmount;
 	//LOG_INFO("CreatePassiveOrder leftAss:%s activeAmount: %f leftAss.totalAmount: %f loanAmount: %f", activeInfo.instLeft.c_str(), activeAmount, leftAss.totalAmount, leftAss.loanAmount);
-        if (activeInfo.calculateType == 0) {
+        if (activeInfo.calcType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
-                    activeAmount += pos.longPosition * activeInfo.multiple;
+                    activeAmount += pos.longPosition * activeInfo.value;
                 }
             } else {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
-                    activeAmount -= pos.shortPosition * activeInfo.multiple;
+                    activeAmount -= pos.shortPosition * activeInfo.value;
                 }
             }
-        } else if (activeInfo.calculateType == 1) {
+        } else if (activeInfo.calcType == 1) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
-                    activeAmount += pos.longPosition * activeInfo.multiple / pos.longAvgPrice;
+                    activeAmount += pos.longPosition * activeInfo.value / pos.longAvgPrice;
                 }
             } else {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
-                    activeAmount -= pos.shortPosition * activeInfo.multiple / pos.shortAvgPrice;
+                    activeAmount -= pos.shortPosition * activeInfo.value / pos.shortAvgPrice;
                 }
             }
         }
-    } else if (strcmp(activeInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(activeInfo.instLeft.c_str(), "USDT") == 0 || strcmp(activeInfo.instLeft.c_str(), "USD") == 0 || strcmp(activeInfo.instLeft.c_str(), "USDC") == 0 || strcmp(activeInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) { 
-        auto& rightAss = posMgr->GetAccount().mAsset[activeInfo.instRight];
+    } else if (strcmp(activeInfo.base, baseAsset) == 0 || ((strcmp(activeInfo.base, "USDT") == 0 || strcmp(activeInfo.base, "USD") == 0 || strcmp(activeInfo.base, "USDC") == 0 || strcmp(activeInfo.base, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) { 
+        auto& rightAss = posMgr->GetAccount().mAsset[activeInfo.quote];
         auto& pos = posMgr->GetAccount().mPosition[activeInstrumentKey];
         activeAmount += rightAss.totalAmount - rightAss.loanAmount;
-        if (activeInfo.calculateType == 0) {
+        if (activeInfo.calcType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
-                    activeAmount -= pos.longPosition * activeInfo.multiple * pos.longAvgPrice;
+                    activeAmount -= pos.longPosition * activeInfo.value * pos.longAvgPrice;
                 }
             } else {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
-                    activeAmount += pos.shortPosition * activeInfo.multiple * pos.shortAvgPrice;
+                    activeAmount += pos.shortPosition * activeInfo.value * pos.shortAvgPrice;
                 }
             }
-        } else if (activeInfo.calculateType == 1) {
+        } else if (activeInfo.calcType == 1) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
-                    activeAmount -= pos.longPosition * activeInfo.multiple;
+                    activeAmount -= pos.longPosition * activeInfo.value;
                 }
             } else {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
-                    activeAmount += pos.shortPosition * activeInfo.multiple;
+                    activeAmount += pos.shortPosition * activeInfo.value;
                 }
             }
         }
     }
 
-    if (strcmp(passiveInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instRight.c_str(), "USDT") == 0 || strcmp(passiveInfo.instRight.c_str(), "USD") == 0 || strcmp(passiveInfo.instRight.c_str(), "USDC") == 0 || strcmp(passiveInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
+    if (strcmp(passiveInfo.quote, baseAsset) == 0 || ((strcmp(passiveInfo.quote, "USDT") == 0 || strcmp(passiveInfo.quote, "USD") == 0 || strcmp(passiveInfo.quote, "USDC") == 0 || strcmp(passiveInfo.quote, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
         auto& pos = posMgr->GetAccount().mPosition[passiveInstrumentKey];
-        if (passiveInfo.calculateType == 0) {
+        if (passiveInfo.calcType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
-                    passiveAmount += (pos.longPosition + pos.frozenLongPosition - pos.frozenShortPosition) * passiveInfo.multiple;
+                    passiveAmount += (pos.longPosition + pos.frozenLongPosition - pos.frozenShortPosition) * passiveInfo.value;
                 }
             } else {
                 if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
-                    passiveAmount -= (pos.shortPosition + pos.frozenShortPosition - pos.frozenLongPosition) * passiveInfo.multiple;
+                    passiveAmount -= (pos.shortPosition + pos.frozenShortPosition - pos.frozenLongPosition) * passiveInfo.value;
                 }
             }
-        } else if (passiveInfo.calculateType == 1) {
+        } else if (passiveInfo.calcType == 1) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
-                    passiveAmount += (pos.longPosition  / pos.longAvgPrice + pos.frozenLongPosition / pos.frozenLongPrice - pos.frozenShortPosition / pos.frozenShortPrice) * passiveInfo.multiple;
+                    passiveAmount += (pos.longPosition  / pos.longAvgPrice + pos.frozenLongPosition / pos.frozenLongPrice - pos.frozenShortPosition / pos.frozenShortPrice) * passiveInfo.value;
                 }
             } else {
                 if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
-                    passiveAmount -= (pos.shortPosition  / pos.shortAvgPrice + pos.frozenShortPosition / pos.frozenShortPrice - pos.frozenLongPosition / pos.frozenLongPrice) * passiveInfo.multiple;
+                    passiveAmount -= (pos.shortPosition  / pos.shortAvgPrice + pos.frozenShortPosition / pos.frozenShortPrice - pos.frozenLongPosition / pos.frozenLongPrice) * passiveInfo.value;
                 }
             }
         }
-    } else if (strcmp(passiveInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instLeft.c_str(), "USDT") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USD") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USDC") == 0 || strcmp(passiveInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
+    } else if (strcmp(passiveInfo.base, baseAsset) == 0 || ((strcmp(passiveInfo.base, "USDT") == 0 || strcmp(passiveInfo.base, "USD") == 0 || strcmp(passiveInfo.base, "USDC") == 0 || strcmp(passiveInfo.base, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
         auto& pos = posMgr->GetAccount().mPosition[passiveInstrumentKey];
-        if (passiveInfo.calculateType == 0) {
+        if (passiveInfo.calcType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
-                    passiveAmount -= (pos.longPosition  * pos.longAvgPrice + pos.frozenLongPosition * pos.frozenLongPrice - pos.frozenShortPosition * pos.frozenShortPrice) * passiveInfo.multiple;
+                    passiveAmount -= (pos.longPosition  * pos.longAvgPrice + pos.frozenLongPosition * pos.frozenLongPrice - pos.frozenShortPosition * pos.frozenShortPrice) * passiveInfo.value;
                 }
             } else {
                 if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
-                    passiveAmount += (pos.shortPosition * pos.shortAvgPrice + pos.frozenShortPosition * pos.frozenShortPrice - pos.frozenLongPosition * pos.frozenLongPrice) * passiveInfo.multiple;
+                    passiveAmount += (pos.shortPosition * pos.shortAvgPrice + pos.frozenShortPosition * pos.frozenShortPrice - pos.frozenLongPosition * pos.frozenLongPrice) * passiveInfo.value;
                 }
             }
-        } else if (activeInfo.calculateType == 1) {
+        } else if (activeInfo.calcType == 1) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
-                    passiveAmount -= (pos.longPosition + pos.frozenLongPosition - pos.frozenShortPosition) * passiveInfo.multiple;
+                    passiveAmount -= (pos.longPosition + pos.frozenLongPosition - pos.frozenShortPosition) * passiveInfo.value;
                 }
             } else {
                 if (passiveInstType == USDT_SWAP || passiveInstType == USDT_FUTURES || passiveInstType == BUSD_SWAP || passiveInstType == C_SWAP || passiveInstType == C_FUTURES) {
-                    passiveAmount += (pos.shortPosition + pos.frozenShortPosition - pos.frozenLongPosition) * passiveInfo.multiple;
+                    passiveAmount += (pos.shortPosition + pos.frozenShortPosition - pos.frozenLongPosition) * passiveInfo.value;
                 }
             }
         }
@@ -489,10 +460,10 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
     const Bbo& bbo = SpreadManager::Instance().GetBbo(passiveInstrumentKey);
 
     // minVolume 
-    if (strcmp(passiveInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instRight.c_str(), "USDT") == 0 || strcmp(passiveInfo.instRight.c_str(), "USD") == 0 || strcmp(passiveInfo.instRight.c_str(), "USDC") == 0 || strcmp(passiveInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
+    if (strcmp(passiveInfo.quote, baseAsset) == 0 || ((strcmp(passiveInfo.quote, "USDT") == 0 || strcmp(passiveInfo.quote, "USD") == 0 || strcmp(passiveInfo.quote, "USDC") == 0 || strcmp(passiveInfo.quote, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
         if (passiveDirection == DT_LONG) {
             if (passiveTargetAmount <= stra::MIN_FLOAT) {
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
@@ -511,8 +482,8 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     }
                     price = floor((price + stra::MIN_FLOAT)/  passiveInfo.tickSize) * passiveInfo.tickSize;
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
-                } else if (passiveInfo.calculateType == 1) {
+                    volume = fabs(passiveTargetAmount) / passiveInfo.value;
+                } else if (passiveInfo.calcType == 1) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
@@ -531,12 +502,12 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     }
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
+                    volume = fabs(passiveTargetAmount) * price / passiveInfo.value;
                 }
             }
         } else if (passiveDirection == DT_SHORT) {
             if (passiveTargetAmount > stra::MIN_FLOAT) {
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
@@ -555,8 +526,8 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
-                } else if (passiveInfo.calculateType == 1) {
+                    volume = fabs(passiveTargetAmount) / passiveInfo.value;
+                } else if (passiveInfo.calcType == 1) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
@@ -575,14 +546,14 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
+                    volume = fabs(passiveTargetAmount) * price / passiveInfo.value;
                 }
             }
         }
-    } else if (strcmp(passiveInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instLeft.c_str(), "USDT") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USD") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USDC") == 0 || strcmp(passiveInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
+    } else if (strcmp(passiveInfo.base, baseAsset) == 0 || ((strcmp(passiveInfo.base, "USDT") == 0 || strcmp(passiveInfo.base, "USD") == 0 || strcmp(passiveInfo.base, "USDC") == 0 || strcmp(passiveInfo.base, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
         if (passiveDirection == DT_LONG) {
             if (passiveTargetAmount > stra::MIN_FLOAT) {
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
@@ -601,8 +572,8 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
-                } else if (passiveInfo.calculateType == 1) {
+                    volume = fabs(passiveTargetAmount) / passiveInfo.value;
+                } else if (passiveInfo.calcType == 1) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
@@ -621,12 +592,12 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
+                    volume = fabs(passiveTargetAmount) * price / passiveInfo.value;
                 }
             }
         } else if (passiveDirection == DT_SHORT) {
             if (passiveTargetAmount <= stra::MIN_FLOAT) {
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
@@ -645,8 +616,8 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
-                } else if (passiveInfo.calculateType == 1) {
+                    volume = fabs(passiveTargetAmount) / passiveInfo.value;
+                } else if (passiveInfo.calcType == 1) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
@@ -665,7 +636,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
+                    volume = fabs(passiveTargetAmount) * price / passiveInfo.value;
                 }
             }
         }
@@ -697,11 +668,11 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
         }
 
         double currentOrderAmount = 0.0;
-        if (passiveInfo.calculateType == 0) {
-            currentOrderAmount = volume * price * passiveInfo.multiple;
+        if (passiveInfo.calcType == 0) {
+            currentOrderAmount = volume * price * passiveInfo.value;
         }
-        else if (passiveInfo.calculateType == 1) {
-            currentOrderAmount = volume * passiveInfo.multiple;
+        else if (passiveInfo.calcType == 1) {
+            currentOrderAmount = volume * passiveInfo.value;
         }
 
         if (passiveExchangeType == BINANCE) {
@@ -727,23 +698,11 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
     order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
     order.price = price;
-//order.volume = round(volume / passiveInfo.lotSize) * passiveInfo.lotSize;
     order.volume = volume;
     order.targetPrice = passiveTargetPrice;
     order.pairId = pairId;
     order.algoPairId = algoPairId;
     order.isActiveOrder = false;
-
-
-    auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
-    int64_t currentTime = GetCurrentTimeUs();
-    dt.updateTime = currentTime;
-    dt.orderStatus = order.orderStatus;
-    order.orderTimeStatus.size++;
-    if (order.orderTimeStatus.size >= stra::TIME_STATUS_LEN) {
-        order.orderTimeStatus.size = stra::TIME_STATUS_LEN - 1;
-        LOG_INFO("orderTimeStatus size:%d > TIME_STATUS_LEN:%d", order.orderTimeStatus.size, stra::TIME_STATUS_LEN);
-    }
 
     strncpy(order.strategyName, strategyName, stra::NAME_LEN);
     order.rebalance = rebalanceFlag;
@@ -760,64 +719,64 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     double activeAmount = 0.0;
     double passiveAmount = 0.0;
 
-    if (strcmp(activeInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(activeInfo.instRight.c_str(), "USDT") == 0 || strcmp(activeInfo.instRight.c_str(), "USD") == 0 || strcmp(activeInfo.instRight.c_str(), "USDC") == 0 || strcmp(activeInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
-        if (activeInfo.calculateType == 0) {
+    if (strcmp(activeInfo.quote, baseAsset) == 0 || ((strcmp(activeInfo.quote, "USDT") == 0 || strcmp(activeInfo.quote, "USD") == 0 || strcmp(activeInfo.quote, "USDC") == 0 || strcmp(activeInfo.quote, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
+        if (activeInfo.calcType == 0) {
             if (activeDirection == DT_LONG){
-                activeAmount += activeTotalVolumeOnOrder * activeInfo.multiple;
+                activeAmount += activeTotalVolumeOnOrder * activeInfo.value;
             } else {
-                activeAmount -= activeTotalVolumeOnOrder * activeInfo.multiple;
+                activeAmount -= activeTotalVolumeOnOrder * activeInfo.value;
             }
-        } else if (activeInfo.calculateType == 1) {
+        } else if (activeInfo.calcType == 1) {
             if (activeDirection == DT_LONG){
-                activeAmount += activeTotalVolumeOnOrder * activeInfo.multiple / activeTotalPriceOnOrder;
+                activeAmount += activeTotalVolumeOnOrder * activeInfo.value / activeTotalPriceOnOrder;
             } else {
-                activeAmount -= activeTotalVolumeOnOrder * activeInfo.multiple / activeTotalPriceOnOrder;
+                activeAmount -= activeTotalVolumeOnOrder * activeInfo.value / activeTotalPriceOnOrder;
             }
         }
-    } else if (strcmp(activeInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(activeInfo.instLeft.c_str(), "USDT") == 0 || strcmp(activeInfo.instLeft.c_str(), "USD") == 0 || strcmp(activeInfo.instLeft.c_str(), "USDC") == 0 || strcmp(activeInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) { 
-        if (activeInfo.calculateType == 0) {
+    } else if (strcmp(activeInfo.base, baseAsset) == 0 || ((strcmp(activeInfo.base, "USDT") == 0 || strcmp(activeInfo.base, "USD") == 0 || strcmp(activeInfo.base, "USDC") == 0 || strcmp(activeInfo.base, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) { 
+        if (activeInfo.calcType == 0) {
             if (activeDirection == DT_LONG){
-                activeAmount -= activeTotalVolumeOnOrder * activeInfo.multiple * activeTotalPriceOnOrder;
+                activeAmount -= activeTotalVolumeOnOrder * activeInfo.value * activeTotalPriceOnOrder;
             } else {
-                activeAmount += activeTotalVolumeOnOrder * activeInfo.multiple * activeTotalPriceOnOrder;
+                activeAmount += activeTotalVolumeOnOrder * activeInfo.value * activeTotalPriceOnOrder;
             }
-        } else if (activeInfo.calculateType == 1) {
+        } else if (activeInfo.calcType == 1) {
             if (activeDirection == DT_LONG){
-                activeAmount -= activeTotalVolumeOnOrder * activeInfo.multiple;
+                activeAmount -= activeTotalVolumeOnOrder * activeInfo.value;
             } else {
-                activeAmount += activeTotalVolumeOnOrder * activeInfo.multiple;
+                activeAmount += activeTotalVolumeOnOrder * activeInfo.value;
             }
         }
     }
 
-    if (strcmp(passiveInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instRight.c_str(), "USDT") == 0 || strcmp(passiveInfo.instRight.c_str(), "USD") == 0 || strcmp(passiveInfo.instRight.c_str(), "USDC") == 0 || strcmp(passiveInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
+    if (strcmp(passiveInfo.quote, baseAsset) == 0 || ((strcmp(passiveInfo.quote, "USDT") == 0 || strcmp(passiveInfo.quote, "USD") == 0 || strcmp(passiveInfo.quote, "USDC") == 0 || strcmp(passiveInfo.quote, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
         // auto& pos = posMgr->GetAccount().mPosition[passiveInstrumentKey];
-        if (passiveInfo.calculateType == 0) {
+        if (passiveInfo.calcType == 0) {
             if (passiveDirection == DT_LONG){
-                passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.multiple + passiveFrozenVolume * passiveInfo.multiple;
+                passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.value + passiveFrozenVolume * passiveInfo.value;
             } else {
-                passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.multiple + passiveFrozenVolume * passiveInfo.multiple;
+                passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.value + passiveFrozenVolume * passiveInfo.value;
             }
-        } else if (passiveInfo.calculateType == 1) {
+        } else if (passiveInfo.calcType == 1) {
             if (passiveDirection == DT_LONG){
-                passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.multiple / passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.multiple / passiveFrozenPrice;
+                passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.value / passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.value / passiveFrozenPrice;
             } else {
-                passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.multiple / passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.multiple / passiveFrozenPrice;
+                passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.value / passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.value / passiveFrozenPrice;
             }
         }
-    } else if (strcmp(passiveInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instLeft.c_str(), "USDT") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USD") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USDC") == 0 || strcmp(passiveInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
+    } else if (strcmp(passiveInfo.base, baseAsset) == 0 || ((strcmp(passiveInfo.base, "USDT") == 0 || strcmp(passiveInfo.base, "USD") == 0 || strcmp(passiveInfo.base, "USDC") == 0 || strcmp(passiveInfo.base, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
         // auto& pos = posMgr->GetAccount().mPosition[passiveInstrumentKey];
-        if (passiveInfo.calculateType == 0) {
+        if (passiveInfo.calcType == 0) {
             if (passiveDirection == DT_LONG){
-                passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.multiple * passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.multiple * passiveFrozenPrice;
+                passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.value * passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.value * passiveFrozenPrice;
             } else {
-                passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.multiple * passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.multiple * passiveFrozenPrice;
+                passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.value * passiveTotalPriceOnOrder + passiveFrozenVolume * passiveInfo.value * passiveFrozenPrice;
             }
-        } else if (activeInfo.calculateType == 1) {
+        } else if (activeInfo.calcType == 1) {
             if (passiveDirection == DT_LONG){
-                passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.multiple + passiveFrozenVolume * passiveInfo.multiple;
+                passiveAmount -= passiveTotalVolumeOnOrder * passiveInfo.value + passiveFrozenVolume * passiveInfo.value;
             } else {
-                passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.multiple + passiveFrozenVolume * passiveInfo.multiple;
+                passiveAmount += passiveTotalVolumeOnOrder * passiveInfo.value + passiveFrozenVolume * passiveInfo.value;
             }
         }
     }
@@ -829,10 +788,10 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
    
     const Bbo& bbo = SpreadManager::Instance().GetBbo(passiveInstrumentKey);
     // minVolume 
-    if (strcmp(passiveInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instRight.c_str(), "USDT") == 0 || strcmp(passiveInfo.instRight.c_str(), "USD") == 0 || strcmp(passiveInfo.instRight.c_str(), "USDC") == 0 || strcmp(passiveInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
+    if (strcmp(passiveInfo.quote, baseAsset) == 0 || ((strcmp(passiveInfo.quote, "USDT") == 0 || strcmp(passiveInfo.quote, "USD") == 0 || strcmp(passiveInfo.quote, "USDC") == 0 || strcmp(passiveInfo.quote, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {
         if (passiveDirection == DT_LONG) {
             if (passiveTargetAmount <= stra::MIN_FLOAT) {
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
@@ -851,8 +810,8 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     }
                     price = floor((price + stra::MIN_FLOAT)/  passiveInfo.tickSize) * passiveInfo.tickSize;
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
-                } else if (passiveInfo.calculateType == 1) {
+                    volume = fabs(passiveTargetAmount) / passiveInfo.value;
+                } else if (passiveInfo.calcType == 1) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
@@ -871,12 +830,12 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     }
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
+                    volume = fabs(passiveTargetAmount) * price / passiveInfo.value;
                 }
             }
         } else if (passiveDirection == DT_SHORT) {
             if (passiveTargetAmount > stra::MIN_FLOAT) {
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
@@ -895,8 +854,8 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
-                } else if (passiveInfo.calculateType == 1) {
+                    volume = fabs(passiveTargetAmount) / passiveInfo.value;
+                } else if (passiveInfo.calcType == 1) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
@@ -915,14 +874,14 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
+                    volume = fabs(passiveTargetAmount) * price / passiveInfo.value;
                 }
             }
         }
-    } else if (strcmp(passiveInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instLeft.c_str(), "USDT") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USD") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USDC") == 0 || strcmp(passiveInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
+    } else if (strcmp(passiveInfo.base, baseAsset) == 0 || ((strcmp(passiveInfo.base, "USDT") == 0 || strcmp(passiveInfo.base, "USD") == 0 || strcmp(passiveInfo.base, "USDC") == 0 || strcmp(passiveInfo.base, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") == 0 || strcmp(baseAsset, "BUSD") == 0))) {  
         if (passiveDirection == DT_LONG) {
             if (passiveTargetAmount > stra::MIN_FLOAT) {
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
@@ -941,8 +900,8 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
-                } else if (passiveInfo.calculateType == 1) {
+                    volume = fabs(passiveTargetAmount) / passiveInfo.value;
+                } else if (passiveInfo.calcType == 1) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice + passivePriceTickNum * passiveInfo.tickSize;
@@ -961,12 +920,12 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = floor((price + stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
+                    volume = fabs(passiveTargetAmount) * price / passiveInfo.value;
                 }
             }
         } else if (passiveDirection == DT_SHORT) {
             if (passiveTargetAmount <= stra::MIN_FLOAT) {
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
@@ -985,8 +944,8 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) / passiveInfo.multiple;
-                } else if (passiveInfo.calculateType == 1) {
+                    volume = fabs(passiveTargetAmount) / passiveInfo.value;
+                } else if (passiveInfo.calcType == 1) {
                     if (passiveOrderType == OT_POST_ONLY) {
                         if (passivePriceTickFlag) {
                             price = passiveTargetPrice - passivePriceTickNum * passiveInfo.tickSize;
@@ -1005,7 +964,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
                     }
                     // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
                     price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
-                    volume = fabs(passiveTargetAmount) * price / passiveInfo.multiple;
+                    volume = fabs(passiveTargetAmount) * price / passiveInfo.value;
                 }
             }
         }
@@ -1033,11 +992,11 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
 
         if (passiveExchangeType == BINANCE) {
             double totalOrderAmount = 0.0;
-            if (passiveInfo.calculateType == 0) {
-                totalOrderAmount = volume * price * passiveInfo.multiple;
+            if (passiveInfo.calcType == 0) {
+                totalOrderAmount = volume * price * passiveInfo.value;
             }
-            else if (passiveInfo.calculateType == 1) {
-                totalOrderAmount = volume * passiveInfo.multiple;
+            else if (passiveInfo.calcType == 1) {
+                totalOrderAmount = volume * passiveInfo.value;
             }
 
             if (totalOrderAmount < passiveInfo.minAmount) {
@@ -1069,16 +1028,6 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     order.algoPairId = algoPairId;
     order.isActiveOrder = false;
 
-    auto& dt = order.orderTimeStatus.detail[order.orderTimeStatus.size];
-    int64_t currentTime = GetCurrentTimeUs();
-    dt.updateTime = currentTime;
-    dt.orderStatus = order.orderStatus;
-    order.orderTimeStatus.size++;
-    if (order.orderTimeStatus.size >= stra::TIME_STATUS_LEN) {
-        order.orderTimeStatus.size = stra::TIME_STATUS_LEN - 1;
-        LOG_INFO("orderTimeStatus size:%d > TIME_STATUS_LEN:%d", order.orderTimeStatus.size, stra::TIME_STATUS_LEN);
-    }
-
     strncpy(order.strategyName, strategyName, stra::NAME_LEN);
     order.rebalance = rebalanceFlag;
     order.reduceOnly = reduceOnly;
@@ -1108,9 +1057,9 @@ void PairOrder::UpdatePairOrderByInsertOrder(const stra::QuantOrder& order) {
         activeFrozenVolume += order.volume;
         sActiveOrder.insert(order.strategyOrderId);
     } else {
-        if (passiveInfo.calculateType == 0) {
+        if (passiveInfo.calcType == 0) {
             passiveFrozenPrice = (passiveFrozenVolume * passiveFrozenPrice + order.price * order.volume) / (passiveFrozenVolume + order.volume);
-        } else if (passiveInfo.calculateType == 1) {
+        } else if (passiveInfo.calcType == 1) {
             passiveFrozenPrice = 1 / ((1 / passiveFrozenPrice * passiveFrozenVolume + 1 / order.price * order.volume) / (passiveFrozenVolume + order.volume));
         }
         passiveFrozenVolume += order.volume;
@@ -1122,9 +1071,9 @@ void PairOrder::UpdatePairOrderByDeleteOrder(const stra::QuantOrder& order) {
     if (order.isActiveOrder) {
         double leftVolume = order.volume - order.totalVolumeOnOrder;
         if (fabs(activeFrozenVolume - leftVolume) > stra::MIN_FLOAT) {
-            if (activeInfo.calculateType == 0) {
+            if (activeInfo.calcType == 0) {
                 activeFrozenPrice = (activeFrozenPrice * activeFrozenVolume - order.price * leftVolume) / (activeFrozenVolume - leftVolume);
-            } else if (activeInfo.calculateType == 1) {
+            } else if (activeInfo.calcType == 1) {
                 activeFrozenPrice = 1 / ((1 / activeFrozenPrice * activeFrozenVolume - 1 / order.price * leftVolume) / (activeFrozenVolume - leftVolume));
             }
             activeFrozenVolume -= leftVolume;
@@ -1136,9 +1085,9 @@ void PairOrder::UpdatePairOrderByDeleteOrder(const stra::QuantOrder& order) {
     } else {
         double leftVolume = order.volume - order.totalVolumeOnOrder;
         if (fabs(passiveFrozenVolume - leftVolume) > stra::MIN_FLOAT) {
-            if (passiveInfo.calculateType == 0) {
+            if (passiveInfo.calcType == 0) {
                 passiveFrozenPrice = (passiveFrozenPrice * passiveFrozenVolume - order.price * leftVolume) / (passiveFrozenVolume - leftVolume);
-            } else if (passiveInfo.calculateType == 1) {
+            } else if (passiveInfo.calcType == 1) {
                 passiveFrozenPrice = 1 / ((1 / passiveFrozenPrice * passiveFrozenVolume - 1 / order.price * leftVolume) / (passiveFrozenVolume - leftVolume));
             }
             passiveFrozenVolume -= leftVolume;
@@ -1156,7 +1105,7 @@ void PairOrder::UpdatePairOrderByOrder(const stra::QuantOrder& order) {
         activeLastVolumeOnOrder = order.tradeVolume;
         activeTotalPriceOnOrder = order.totalPriceOnOrder;
         activeTotalVolumeOnOrder = order.totalVolumeOnOrder;
-        if (activeInfo.calculateType == 0) {
+        if (activeInfo.calcType == 0) {
             if (fabs(activeFrozenVolume - order.tradeVolume) > stra::MIN_FLOAT) {
                 activeFrozenPrice = (activeFrozenPrice * activeFrozenVolume - order.price * order.tradeVolume) / (activeFrozenVolume - order.tradeVolume);
                 activeFrozenVolume -= order.tradeVolume;
@@ -1164,7 +1113,7 @@ void PairOrder::UpdatePairOrderByOrder(const stra::QuantOrder& order) {
                 activeFrozenPrice = -1;
                 activeFrozenVolume = 0;
             }
-        } else if (activeInfo.calculateType == 1) {
+        } else if (activeInfo.calcType == 1) {
             if (fabs(activeFrozenVolume - order.tradeVolume) > stra::MIN_FLOAT) {
                 activeFrozenPrice = 1 / ((1 / activeFrozenPrice * activeFrozenVolume - 1 / order.price * order.tradeVolume) / (activeFrozenVolume - order.tradeVolume));
                 activeFrozenVolume -= order.tradeVolume;
@@ -1176,7 +1125,7 @@ void PairOrder::UpdatePairOrderByOrder(const stra::QuantOrder& order) {
     }  else {
         passiveLastPriceOnOrder = order.tradePrice;
         passiveLastVolumeOnOrder = order.tradeVolume;
-        if (passiveInfo.calculateType == 0) {
+        if (passiveInfo.calcType == 0) {
             if (order.tradeVolume > 0) {
                 passiveTotalPriceOnOrder = (passiveTotalPriceOnOrder * passiveTotalVolumeOnOrder + order.tradePrice * order.tradeVolume) / (passiveTotalVolumeOnOrder + order.tradeVolume);
             }
@@ -1187,7 +1136,7 @@ void PairOrder::UpdatePairOrderByOrder(const stra::QuantOrder& order) {
                 passiveFrozenPrice = -1;
                 passiveFrozenVolume = 0;
             }
-        } else if (passiveInfo.calculateType == 1) {
+        } else if (passiveInfo.calcType == 1) {
             if (order.tradeVolume > 0) {
                 passiveTotalPriceOnOrder = 1 / ((1 / passiveTotalPriceOnOrder * passiveTotalVolumeOnOrder + 1 / order.tradePrice * order.tradeVolume) / (passiveTotalVolumeOnOrder + order.tradeVolume));
             }

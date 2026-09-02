@@ -41,15 +41,7 @@ private:
     void SubmitAlgoCommand(const std::string& json); // 策略层构建的json指令转发给AlgoContext
 
     void ScanFinishedAlgoOrders(int64_t nowUs);
-
-    static stra::TdPosition ConvertPosition(const om::Position& pos);
-
-    static stra::TdBalance ConvertBalance(const om::Balance& bal);
-
-    static stra::TdTotalAccount ConvertTotalAccount(const om::TotalAccount& ta);
-
-    static stra::TdOrder ConvertOrderTrade(const om::OrderTrade& ot);
-
+    
     pt::PairTradingConfig m_ptCfg;
 
     int64_t m_lastScanUs{0};

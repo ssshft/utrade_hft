@@ -1,2 +1,3 @@
 #pragma once
-#include "strategy/PairTradingStrategy.h
+
+#include "strategy/PairTradingStrategy.h"

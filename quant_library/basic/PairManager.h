@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
+#include "securitymanager.h"
 
 using namespace std;
 
@@ -37,7 +38,7 @@ struct PairOrder {
     double activeTotalPriceOnOrder{-1.0};
     double activeTotalVolumeOnOrder{0.0};
     unordered_set<int64_t> sActiveOrder;  // 只保存未完成订单的orderId
-    stra::InstrumentInfo activeInfo;
+    md::InstrumentInfo activeInfo;
     bool activePriceTickFlag{false};
     int activePriceTickNum{0};
 
@@ -58,7 +59,7 @@ struct PairOrder {
     double passiveTotalPriceOnOrder{-1.0};
     double passiveTotalVolumeOnOrder{0.0};
     unordered_set<int64_t> sPassiveOrder;
-    stra::InstrumentInfo passiveInfo;
+    md::InstrumentInfo passiveInfo;
     bool passivePriceTickFlag{false};
     int passivePriceTickNum{-1};
     bool rebalanceFlag;
@@ -89,7 +90,9 @@ struct PairOrder {
 
     char pairInstrumentKey[stra::INST_KEY_LEN]{""};
 
-    void Init();
+    sm::SecurityManager* smc{nullptr};
+
+    void Init(sm::SecurityManager* s);
     stra::QuantOrder CreateActiveOrder(int64_t strategyOrderId);
     stra::QuantOrder CreateVolumePassiveOrder(int64_t strategyOrderId);
     stra::QuantOrder CreateOrginActiveOrder(int64_t strategyOrderId);

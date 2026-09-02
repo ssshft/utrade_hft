@@ -55,7 +55,6 @@ link_libraries(
         z 
         rt  
         dl 
-        cpp_redis 
         tacopie 
         tbb 
         stdc++fs 

@@ -13,6 +13,8 @@
 
  #include "PairInfo.h"
  #include "DataStruct.h"
+ #include "dbp/include.h"
+ #include "securitymanager.h"
 
  namespace pt {
     class PairInfoManager {
@@ -22,7 +24,7 @@
             return inst;
         }
 
-        void Init(const std::vector<std::string>& pairKeys, int activeAccountId, int passiveAccountId);
+        void Init(const std::vector<std::string>& pairKeys, int activeAccountId, int passiveAccountId, sm::SecurityManager* s);
 
         bool LoadFromCSV(const std::string& csvPath);
 
@@ -47,9 +49,9 @@
 
         void UpdateOnPosition(const pubsub::Position& pos);
 
-        void UpdateOnBalance(const pubsub::Balanc& balance, const std::string& baseAsset);
+        void UpdateOnBalance(const pubsub::Balance& balance, const std::string& baseAsset);
 
-        void UpdateOnTotalAccount(const pubsub::TotalAccoun& totalAccount);
+        void UpdateOnTotalAccount(const pubsub::TotalAccount& totalAccount);
 
         void UpdateOnAlgoOrderFinished(const std::string& pairKey, double activePriceFilled, double volumeFilled, double passivePriceFilled); // volumeFilled 买主动腿
 
@@ -67,7 +69,7 @@
         // 流动性检查 --- 强平价格监控
         void UpdateLiquidStatus(const pubsub::Position& pos);
 
-        void UpdateLiquidStatus(PairInfo& pi, bool isActive, const stra::TdPosition& pos);
+        void UpdateLiquidStatus(PairInfo& pi, bool isActive, const pubsub::Position& pos);
 
         void ResetAbnormalCloseState(const std::string& pairKey, AbnormalCloseType type);
 
@@ -93,6 +95,8 @@
         static void ParseInstrumentKey(const char* key, char* exchange, size_t exchLen, char* instType, size_t instTypeLen, char* symbol, size_t symLen);
 
         static constexpr double MIN_ORDER_USDT = 25;
+
+        sm::SecurityManager* smc{nullptr};
 
     };
  }

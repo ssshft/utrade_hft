@@ -13,8 +13,8 @@ SpreadManager::SpreadManager() {
 }
 
 SpreadManager::~SpreadManager() {
-    mSpreadPara.clear();
-    mQuantSpread.clear();
+    mSpread.clear();
+    mInstEntry.clear();
 }
 
 void SpreadManager::AddSpreadPara(const std::string& pairInstrumentKey) {
@@ -52,7 +52,7 @@ void SpreadManager::DeleteSpread(const std::string& pairInstrumentKey) {
         auto itActive = mInstEntry.find(v[0]);
         if (itActive != mInstEntry.end()) {
             auto& ref = itActive->second;
-            ref.erase(std::remove_if(ref.begin(), ref.end(), [p](const SpreadEntry& entry) { return entry.pdata == p}));
+            ref.erase(std::remove_if(ref.begin(), ref.end(), [p](const SpreadEntry& entry) { return entry.pdata == p; }));
 
             if (ref.empty()) {
                 mInstEntry.erase(itActive);
@@ -62,7 +62,7 @@ void SpreadManager::DeleteSpread(const std::string& pairInstrumentKey) {
         auto itPassive = mInstEntry.find(v[1]);
         if (itPassive != mInstEntry.end()) {
             auto& ref = itPassive->second;
-            ref.erase(std::remove_if(ref.begin(), ref.end(), [p](const SpreadEntry& entry) { return entry.pdata == p}));
+            ref.erase(std::remove_if(ref.begin(), ref.end(), [p](const SpreadEntry& entry) { return entry.pdata == p; }));
 
             if (ref.empty()) {
                 mInstEntry.erase(itPassive);
@@ -73,7 +73,7 @@ void SpreadManager::DeleteSpread(const std::string& pairInstrumentKey) {
     mSpread.erase(iter);
 }
 
-void SpreadManager::OnMarketSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
+void SpreadManager::OnMarketSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
     auto iter = mSpread.find(topic->__name);
     if (iter != mSpread.end()) {
         dbp::DbpData* p = iter->second.get();

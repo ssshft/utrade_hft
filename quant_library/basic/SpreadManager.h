@@ -10,6 +10,11 @@
 
 using namespace std;
 
+enum class LegType : uint8_t {
+    ACTIVE,
+    PASSIVE
+};
+
 struct Bbo {
     double bidPrice{0.0};
     double bidVol{0.0};
@@ -17,23 +22,18 @@ struct Bbo {
     double askVol{0.0};
 };
 
+struct SpreadEntry {
+    dbp::DbpData* pdata;
+    LegType legType = LegType::ACTIVE;
+};
+
 class SpreadManager {
     public:
         static SpreadManager& Instance();
         ~SpreadManager();
 
-        enum class LegType : uint8_t {
-            ACTIVE,
-            PASSIVE
-        };
-
-        struct SpreadEntry {
-            dbp::DbpData* pdata;
-            LegType legType = LegType::ACTIVE;
-        };
-
         void AddSpreadPara(const std::string& pairInstrumentKey);
-        void OnMarketSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata);
+        void OnMarketSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata);
         void DeleteSpread(const std::string& pairInstrumentKey);
         dbp::DbpData* GetSpread(const std::string& pairInstrumentKey);
         bool IsPairInstrumentKeyExist(const std::string& pairInstrumentKey);

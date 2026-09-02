@@ -53,13 +53,15 @@ void PairTradingStrategy::pre_start(Config* config) {
         m_ptCfg.csvStatePath = op["csvStatePath"].GetString();
     }
 
+    algoContext.Init(smc);
     algoContext.SetDbp(dbpreader);
     algoContext.PreStart();
 
     ptContext.SetAlgoCommandCallback([this](const std::string& json) {
         SubmitAlgoCommand(json);
     });
-    ptContext.Init(m_ptCfg);
+    
+    ptContext.Init(m_ptCfg, smc);
 }
 
 void PairTradingStrategy::pre_stop() {
@@ -81,9 +83,9 @@ void PairTradingStrategy::on_timer(const int64_t& utcTime) {
     algoContext.OnTimer(utcTime);
     ptContext.OnTimer(utcTime);
 
-    if (nowUs - m_lastScanUs >= SCAN_INTERVAL_US) {
-        ScanFinishedAlgoOrders(nowUs);
-        m_lastScanUs = nowUs;
+    if (utcTime - m_lastScanUs >= SCAN_INTERVAL_US) {
+        ScanFinishedAlgoOrders(utcTime);
+        m_lastScanUs = utcTime;
     }
 }
 
@@ -308,7 +310,7 @@ void PairTradingStrategy::on_ordertrade(pubsub::OrderResponse& orderResponse) {
     // order.apiSource = stra::ApiSource(orderTrade.apiSourceEnum);
     // order.isMaker = orderTrade.isMaker;
 
-    algoContext.OnOrder(orderResponse, currentTime);
+    algoContext.OnOrder(orderResponse);
 }
 
 void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {
@@ -329,7 +331,7 @@ void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {
             ptContext.OnAlgoOrderUpdate(pi->pairInstrumentKey, pi->currentAlgoOrderId, volFilled, 0.0, 0.0, true, fullyFlat);
         }
         else {
-            if (order->algoOrderStatus == stra::OrderStatus_FILLED || order->algoOrderStatus == stra::OrderStatus_CANCELED || order->algoOrderStatus == stra::OrderStatus_ERRORCANCELED) {
+            if (order->algoOrderStatus == OS_FILLED || order->algoOrderStatus == OS_CANCELED/* || order->algoOrderStatus == stra::OrderStatus_ERRORCANCELED */) {
                 double volFilled = order->pairTotalVolume - pi->pairTotalVolume;
                 bool fullyFlat = !pi->HasPosition();
 

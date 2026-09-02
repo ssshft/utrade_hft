@@ -3,7 +3,6 @@
 
 #include "DataStruct.h"
 #include "command_helper.h"
-#include "redis_client.h"
 
 
 class QuantPub {
@@ -15,9 +14,9 @@ public:
 
     ~QuantPub() {}
 
-    void SetPub(RedisClient* redisClient) {
-        client = redisClient;
-    }
+    // void SetPub(RedisClient* redisClient) {
+    //     client = redisClient;
+    // }
 
     void SetPubChannel(string channel) {
         pubChannel = channel;
@@ -28,6 +27,7 @@ public:
     }
 
    void Run() {
+    /*
         while (running) {
             try {
 			    string s;
@@ -38,16 +38,17 @@ public:
             }
             usleep(1);
         }
+        */
     }
 
 private:
     QuantPub() {
-        client = nullptr;
+        //client = nullptr;
         running = true;
         runningThread = new thread(&QuantPub::Run, this);
     }
 
-    RedisClient* client;
+    //RedisClient* client;
     bool running;
     thread* runningThread;
     RQUEUE msgQueue;

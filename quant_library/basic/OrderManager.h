@@ -16,7 +16,6 @@ class OrderManager {
         ~OrderManager();
         // void Init(ShmManager* shm);
         // void Recovery();
-        void RecoveryFromFile(string filePath);
         void InsertOrderByOrder(const stra::QuantOrder& order);
         void UpdateOrderOnCancel(const stra::QuantOrder& order);
         void DeleteOrderByOrder(const stra::QuantOrder& order);

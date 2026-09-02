@@ -26,15 +26,25 @@ AlgoContext::AlgoContext() {
     infoReportCount = 0;
     algoOrderReportCount = 0;
     queryAccountCount = 0;
-    fundVerifyCount = 0;
+    fundVerifyCount = 0;    
+}
+
+AlgoContext::~AlgoContext() {
+}
+
+void AlgoContext::PreStart() {
+    QueryAccount();
+}
+
+void AlgoContext::Init(sm::SecurityManager* s) {
+    smc = s;
 
     StrategyConfig::GetInstance().LoadConfig();
-    BasicInfoMgr::GetInstance();
+    
     LarkRebot::GetInstance();
     WriteFileContent::GetInstance();
-    AccountManager::Instance().Init();
+    AccountManager::Instance().Init(smc);
     LimitManager::Instance().Init();
-
 
     curSpreadDelay = static_cast<int64_t>(StrategyConfig::GetInstance().GetCurSpreadDelay()) * 1000;
     curSpreadDepthDelay = static_cast<int64_t>(StrategyConfig::GetInstance().GetCurSpreadDepthDelay()) * 1000;
@@ -49,13 +59,7 @@ AlgoContext::AlgoContext() {
     rapidjson::Value &tradeConfig = d1.Parse<rapidjson::kParseNumbersAsStringsFlag>(tradeConfigStr.c_str());
     utrade2SccChannel = tradeConfig["utrade"]["Utrade2SCCChannel"].GetString();
     QuantPub::Instance().SetPubChannel(utrade2SccChannel);
-}
 
-AlgoContext::~AlgoContext() {
-}
-
-void AlgoContext::PreStart() {
-    QueryAccount();
 }
 
 void AlgoContext::QueryAccount() {
@@ -79,9 +83,9 @@ void AlgoContext::SetDbp(dbp::DbpReader* dbp) {
     QuantDbp::Instance().SetDbp(dbp);  
 }
 
-void AlgoContext::SetPub(RedisClient* redisClient) {
-    QuantPub::Instance().SetPub(redisClient);
-}
+// void AlgoContext::SetPub(RedisClient* redisClient) {
+//     //QuantPub::Instance().SetPub(redisClient);
+// }
 
 void AlgoContext::OnCommand(string s) {
     // rLarkMsg.Push(s);
@@ -168,7 +172,7 @@ void AlgoContext::OnCommand(string s) {
                             pub["insertTime"] = insertTime;
                             pub["errMsg"] = "utrade already has same clientOrderId algoOrder!";
                             std::string pubMsg = pub.dump();
-                            QuantPub::Instance().Publish(pubMsg);
+                            //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
                             return;
                         }
@@ -183,7 +187,7 @@ void AlgoContext::OnCommand(string s) {
                                 pub["insertTime"] = insertTime;
                                 pub["errMsg"] = "utrade already has same pairInstrumentKey algoOrder!";
                                 std::string pubMsg = pub.dump();
-                                QuantPub::Instance().Publish(pubMsg);
+                                //QuantPub::Instance().Publish(pubMsg);
                                 rLarkMsg.Push(pubMsg);
                                 return;
                             }
@@ -207,7 +211,7 @@ void AlgoContext::OnCommand(string s) {
                             pub["insertTime"] = insertTime;
                             pub["errMsg"] = "rebalance algoOrder has no exposure!";
                             std::string pubMsg = pub.dump();
-                            QuantPub::Instance().Publish(pubMsg);
+                            //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
                             return;       
                         }
@@ -235,7 +239,7 @@ void AlgoContext::OnCommand(string s) {
                     pub["insertTime"] = insertTime;
                     pub["errMsg"] = "can not find algoOrder!";
                     string pubMsg = pub.dump();
-                    QuantPub::Instance().Publish(pubMsg);
+                    //QuantPub::Instance().Publish(pubMsg);
                     rLarkMsg.Push(pubMsg);
                     return;
                 }
@@ -243,17 +247,17 @@ void AlgoContext::OnCommand(string s) {
                 if (commandType == stra::CommandType_QUERY) {
                     pAlgoOrder->commandType = stra::CommandType_QUERIED;
                     string pubMsg = pAlgoOrder->GeneratePubStr();
-                    QuantPub::Instance().Publish(pubMsg);
+                    //QuantPub::Instance().Publish(pubMsg);
                     rLarkMsg.Push(pubMsg);
                     return;
                 }
 
                 if (commandType == stra::CommandType_CANCEL) {
                     pAlgoOrder->commandType = stra::CommandType_UCANCELLING;
-                    pAlgoOrder->algoOrderStatus = stra::OrderStatus_CANCELLING;
+                    pAlgoOrder->algoOrderStatus = OS_CANCELLING;
                     pAlgoOrder->cancelOrderTime = GetCurrentTimeUs();
                     string pubMsg = pAlgoOrder->GeneratePubStr();
-                    QuantPub::Instance().Publish(pubMsg);
+                    //QuantPub::Instance().Publish(pubMsg);
                     rLarkMsg.Push(pubMsg);
                     return;
                 }
@@ -710,17 +714,17 @@ void AlgoContext::OnCommand(string s) {
                         pPairOrder->algoOrderStatus = OS_NEW;
                         pPairOrder->algoType = algoType;
                         pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
-                        pPairOrder->Init();
+                        pPairOrder->Init(smc);
                         alogOrderManager.InsertAlgoOrderByAlgoOrder(pPairOrder);
                         string pubMsg = pPairOrder->GeneratePubStr();
-                        QuantPub::Instance().Publish(pubMsg);
+                        //QuantPub::Instance().Publish(pubMsg);
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoPairOrder(pPairOrder);
 
                         bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pPairOrder->pairInstrumentKey);
                         if (!exist) {
                             LOG_INFO("Subscribe pairInstrumentKey:{}", pPairOrder->pairInstrumentKey);
-                            SpreadManager::Instance().AddSpreadPara(pPairOrder->pairInstrumentKey, 10);
+                            SpreadManager::Instance().AddSpreadPara(pPairOrder->pairInstrumentKey);
                             QuantDbp::Instance().Subscribe(pPairOrder->pairInstrumentKey);
                         } else {
                             LOG_INFO("Not Subscribe pairInstrumentKey:{} already exist!", pPairOrder->pairInstrumentKey);
@@ -732,17 +736,17 @@ void AlgoContext::OnCommand(string s) {
                         pFishingOrder->algoOrderStatus = OS_NEW;
                         pFishingOrder->algoType = algoType;
                         pFishingOrder->algoOrderId = GenerateStrategyAlgoPairId();
-                        pFishingOrder->Init();
+                        pFishingOrder->Init(smc);
                         alogOrderManager.InsertAlgoOrderByAlgoOrder(pFishingOrder);
                         string pubMsg = pFishingOrder->GeneratePubStr();
-                        QuantPub::Instance().Publish(pubMsg);
+                        //QuantPub::Instance().Publish(pubMsg);
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoFishingOrder(pFishingOrder);
 
                         bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pFishingOrder->pairInstrumentKey);
                         if (!exist) {
                             LOG_INFO("Subscribe pairInstrumentKey:{}", pFishingOrder->pairInstrumentKey);
-                            SpreadManager::Instance().AddSpreadPara(pFishingOrder->pairInstrumentKey, 10);
+                            SpreadManager::Instance().AddSpreadPara(pFishingOrder->pairInstrumentKey);
                             QuantDbp::Instance().Subscribe(pFishingOrder->pairInstrumentKey);
                         } else {
                             LOG_INFO("Not Subscribe pairInstrumentKey:{} already exist!", pPairOrder->pairInstrumentKey);
@@ -754,17 +758,17 @@ void AlgoContext::OnCommand(string s) {
                         pRebalanceOrder->algoOrderStatus = OS_NEW;
                         pRebalanceOrder->algoType = algoType;
                         pRebalanceOrder->algoOrderId = GenerateStrategyAlgoPairId();
-                        pRebalanceOrder->Init();
+                        pRebalanceOrder->Init(smc);
                         alogOrderManager.InsertAlgoOrderByAlgoOrder(pRebalanceOrder);
                         string pubMsg = pRebalanceOrder->GeneratePubStr();
-                        QuantPub::Instance().Publish(pubMsg);
+                        //QuantPub::Instance().Publish(pubMsg);
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoRebalanceOrder(pRebalanceOrder);
 
                         bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pRebalanceOrder->pairInstrumentKey);
                         if (!exist) {
                             LOG_INFO("Subscribe pairInstrumentKey:{}", pRebalanceOrder->pairInstrumentKey);
-                            SpreadManager::Instance().AddSpreadPara(pRebalanceOrder->pairInstrumentKey, 10);
+                            SpreadManager::Instance().AddSpreadPara(pRebalanceOrder->pairInstrumentKey);
                             QuantDbp::Instance().Subscribe(pRebalanceOrder->pairInstrumentKey);
                         } else {
                             LOG_INFO("Not Subscribe pairInstrumentKey:{} already exist!", pPairOrder->pairInstrumentKey);
@@ -777,7 +781,7 @@ void AlgoContext::OnCommand(string s) {
                         if (pAlgoOrder->algoType == stra::AlgoType_PairTrading) {
                             AlgoPairOrder* pPairOrder = (AlgoPairOrder*)pAlgoOrder;
                             string pubMsg = pPairOrder->GeneratePubStr();
-                            QuantPub::Instance().Publish(pubMsg);
+                            //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoPairOrder(pPairOrder);
                         } else if (pAlgoOrder->algoType == stra::AlgoType_FishingTrading) {
@@ -786,7 +790,7 @@ void AlgoContext::OnCommand(string s) {
                                 pFishingOrder->fishingSlippagePct = stod(body["fishingSlippagePct"].GetString());
                             }
                             string pubMsg = pFishingOrder->GeneratePubStr();
-                            QuantPub::Instance().Publish(pubMsg);
+                            //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoFishingOrder(pFishingOrder);
                         } else if (pAlgoOrder->algoType == stra::AlgoType_Rebalance) {
@@ -796,7 +800,7 @@ void AlgoContext::OnCommand(string s) {
                             }
 
                             string pubMsg = pRebalanceOrder->GeneratePubStr();
-                            QuantPub::Instance().Publish(pubMsg);
+                            //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoRebalanceOrder(pRebalanceOrder);
                         }
@@ -831,10 +835,10 @@ void AlgoContext::OnMarketTrade() {
 
 }
 
-void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
+void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
     try {
         SpreadManager::Instance().OnMarketSpread(topic, pdata);
-        const Bbo& activeBbo = SpreadManager::Instance().GetBbo(topic->activeInstumentKey);
+        const Bbo& activeBbo = SpreadManager::Instance().GetBbo(topic->activeInstrumentKey);
         const Bbo& passiveBbo = SpreadManager::Instance().GetBbo(topic->passiveInstrumentKey);
 
         int64_t nowTime = crypto::getCurrentTime();
@@ -850,14 +854,14 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
             LOG_INFO("OnSpread delay > {} ---  nowTime:{}  generateTs:{}  now - genetateTs: {} pairInstrumentKey:{}", curSpreadDelay, nowTime, pdata->generateTs, timeVal, topic->__name);
         }
 
-        int64_t timeDepthVal = nowTime - min(pdata->activeDepthTs, pdata-passiveDepthTs);
+        int64_t timeDepthVal = nowTime - min(pdata->activeDepthTs, pdata->passiveDepthTs);
         if (timeDepthVal < curSpreadDepthDelay) {
             curDepthDelay = true;
         } else {
             LOG_INFO("OnSpread depth delay > {} ---  nowTime:{}  ativeDepthTs:{}  passiveDepthTs:{} timeDepthVal:{} pairInstrumentKey:{}", curSpreadDepthDelay, nowTime, pdata->activeDepthTs, pdata->passiveDepthTs, timeDepthVal, topic->__name);
         }
 
-        if (pdata-exchActiveTradeDelay < tradesDelayThreshold && pdata-exchPassiveTradeDelay < tradesDelayThreshold) {
+        if (pdata->exchActiveTradeDelay < tradesDelayThreshold && pdata->exchPassiveTradeDelay < tradesDelayThreshold) {
             curTradeDelay = true;
         }
         else if (timeDepthVal > curSpreadDepthDelay) {
@@ -907,9 +911,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
                                             stra::QuantOrder quant_order = pairOrder.CreateActiveOrder(strategyOrderId);
                                             if (quant_order.strategyOrderId > 0) {  
-                                                double assetTick;
-                                                stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                md::InstrumentInfo info;
+                                                smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                 if (verify) {
                                                     // 通过验资正常报单
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -956,9 +960,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateActiveOrder(strategyOrderId);
                                                 if (quant_order.strategyOrderId > 0) {
-                                                    double assetTick;
-                                                    stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                    md::InstrumentInfo info;
+                                                    smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -993,9 +997,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
                                             stra::QuantOrder quant_order = pairOrder.CreateActiveOrder(strategyOrderId);
                                             if (quant_order.strategyOrderId > 0) {
-                                                double assetTick;
-                                                stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                md::InstrumentInfo info;
+                                                smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                 if (verify) {
                                                     // 通过验资正常报单
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1042,9 +1046,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateActiveOrder(strategyOrderId);
                                                 if (quant_order.strategyOrderId > 0) {
-                                                    double assetTick;
-                                                    stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                    md::InstrumentInfo info;
+                                                    smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1087,9 +1091,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
                                                 if (quant_order.strategyOrderId > 0) {  
-                                                    double assetTick;
-                                                    stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                    md::InstrumentInfo info;
+                                                    smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1113,9 +1117,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
                                                 if (quant_order.strategyOrderId > 0) {  
-                                                    double assetTick;
-                                                    stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                    md::InstrumentInfo info;
+                                                    smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1147,9 +1151,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
                                             stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
                                             if (quant_order.strategyOrderId > 0) {
-                                                double assetTick;
-                                                stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                md::InstrumentInfo info;
+                                                smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);                                               
+                                                bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                 if (verify) {
                                                     // 通过验资正常报单
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1175,9 +1179,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                             int64_t strategyOrderId = GenerateStrategyOrderId();
                                             stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
                                             if (quant_order.strategyOrderId > 0) {
-                                                double assetTick;
-                                                stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                md::InstrumentInfo info;
+                                                smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                 if (verify) {
                                                     // 通过验资正常报单
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1213,9 +1217,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
                                                 if (quant_order.strategyOrderId > 0) {
-                                                    double assetTick;
-                                                    stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                    md::InstrumentInfo info;
+                                                    smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1239,9 +1243,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
                                                 if (quant_order.strategyOrderId > 0) {
-                                                    double assetTick;
-                                                    stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                    md::InstrumentInfo info;
+                                                    smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1273,9 +1277,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
                                                 if (quant_order.strategyOrderId > 0) {
-                                                    double assetTick;
-                                                    stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                    md::InstrumentInfo info;
+                                                    smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1300,9 +1304,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                                 int64_t strategyOrderId = GenerateStrategyOrderId();
                                                 stra::QuantOrder quant_order = pairOrder.CreateOrginActiveOrder(strategyOrderId);
                                                 if (quant_order.strategyOrderId > 0) {
-                                                    double assetTick;
-                                                    stra::InstrumentInfo info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                    md::InstrumentInfo info;
+                                                    smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                    bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                     if (verify) {
                                                         // 通过验资正常报单
                                                         bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
@@ -1350,9 +1354,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                             }
 
                                             if (quant_order.strategyOrderId > 0) {
-                                                double assetTick;
-                                                stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                md::InstrumentInfo info;
+                                                smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);   
+                                                bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                 if (verify) {
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
                                                     WriteQuantOrder(quant_order, pdata);
@@ -1397,9 +1401,9 @@ void AlgoContext::OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
                                             }
 
                                             if (quant_order.strategyOrderId > 0) {
-                                                double assetTick;
-                                                stra::InstrumentInfo& info = BasicInfoMgr::GetInstance().GetBasicInfo(quant_order.instrumentKey);
-                                                bool verify = AccountManager::Instance().FundVerify(quant_order, assetTick, info);
+                                                md::InstrumentInfo info;
+                                                smc->get_instrument_info(quant_order.exchangeType, quant_order.instType, quant_order.instrument, info);
+                                                bool verify = AccountManager::Instance().FundVerify(quant_order, info);
                                                 if (verify) {
                                                     bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
                                                     WriteQuantOrder(quant_order, pdata);
@@ -1446,11 +1450,11 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
         std::vector<std::string> v;
         splitString(orderResponse.strategyRef, v, "_");
         if (v.size() >= 2) {
-            order.algoId = stoll(v[0]);
-            order.pairId = stoll(v[1]);
+            algoId = stoll(v[0]);
+            pairId = stoll(v[1]);
         }
         else {
-            LOG_ERROR("wrong orderResponse: {}", orderResponse.getString());
+            //LOG_ERROR("wrong orderResponse: {}", orderResponse.getString());
             return;
         }
 
@@ -1681,7 +1685,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 rLarkMsg.Push(msg);
                 LOG_INFO("Spread {}", msg);
                 it->second->commandType = stra::CommandType_ERROR;
-                it->second->algoOrderStatus = stra::OrderStatus_ERRORCANCELLING;
+                //it->second->algoOrderStatus = stra::OrderStatus_ERRORCANCELLING; // 需要注意
                 it->second->updateTime = eventTime;
             }
 
@@ -1694,7 +1698,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         // 异步lark报警
                         if (stuckOrderReportCount > 60){
                             char msg[stra::MSG_LEN];
-                            sprintf(msg, "check stuck order !!! strategyName:%s algoOrderId:%ld strategyOrderId:%ld  instrumentKey:%s orderStatus:%s posDirection:%s direction:%s", it->second->algoStrategyName, it->second->algoOrderId, order.strategyOrderId, order.instrumentKey, stra::OrderStatusEnum2Str[order.orderStatus].c_str(), stra::PosDirectionEnum2Str[order.posDirection].c_str(), stra::DirectionEnum2Str[order.direction].c_str());
+                            sprintf(msg, "check stuck order !!! strategyName:%s algoOrderId:%ld strategyOrderId:%ld  instrumentKey:%s orderStatus:%s posDirection:%s direction:%s", it->second->algoStrategyName, it->second->algoOrderId, order.strategyOrderId, order.instrumentKey, OrderStatusEnum2StrMap[order.orderStatus].c_str(), OffsetFlagEnum2StrMap[order.offsetFlag].c_str(), DirectionEnum2StrMap[order.direction].c_str());
                             rLarkMsg.Push(msg);
                             stuckOrderFlag = true;
                         }
@@ -1711,7 +1715,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             it->second->updateTime = eventTime;
                             // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                             string pubMsg = it->second->GeneratePubStr();
-                            QuantPub::Instance().Publish(pubMsg);
+                            //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
@@ -1727,7 +1731,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         // 异步lark报警
                         if (errorOrderReportCount > 60){
                             char msg[stra::MSG_LEN];
-                            sprintf(msg, "check unknown order !!! strategyName:%s algoOrderId:%ld strategyOrderId:%ld  orderStatus:%s", it->second->algoStrategyName, it->second->algoOrderId, order.strategyOrderId, stra::OrderStatusEnum2Str[order.orderStatus].c_str());
+                            sprintf(msg, "check unknown order !!! strategyName:%s algoOrderId:%ld strategyOrderId:%ld  orderStatus:%s", it->second->algoStrategyName, it->second->algoOrderId, order.strategyOrderId, OrderStatusEnum2StrMap[order.orderStatus].c_str());
                             rLarkMsg.Push(msg);
                             errorOrderFlag = true;
                         }
@@ -1743,7 +1747,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             it->second->updateTime = eventTime;
                             // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                             string pubMsg = it->second->GeneratePubStr();
-                            QuantPub::Instance().Publish(pubMsg);
+                            //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
@@ -1773,7 +1777,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         it->second->updateTime = eventTime;
                         // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                         string pubMsg = it->second->GeneratePubStr();
-                        QuantPub::Instance().Publish(pubMsg);
+                        //QuantPub::Instance().Publish(pubMsg);
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
@@ -1790,7 +1794,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         it->second->updateTime = eventTime;
                         // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                         string pubMsg = it->second->GeneratePubStr();
-                        QuantPub::Instance().Publish(pubMsg);
+                        //QuantPub::Instance().Publish(pubMsg);
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
@@ -1851,15 +1855,15 @@ void AlgoContext::OnTimer(int64_t eventTime) {
 
             if (allPairOrders.size() == 0 && it->second->algoOrderStatus == OS_CANCELLING) {
                 it->second->commandType = stra::CommandType_CANCELED;
-                it->second->algoOrderStatus = stra::OrderStatus_CANCELED;
+                it->second->algoOrderStatus = OS_CANCELED;
                 string pubMsg = it->second->GeneratePubStr();
-                QuantPub::Instance().Publish(pubMsg);
+                //QuantPub::Instance().Publish(pubMsg);
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
-            } else if (allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::OrderStatus_ERRORCANCELLING) {
-                it->second->algoOrderStatus = stra::OrderStatus_ERRORCANCELED;
+            } else if (allPairOrders.size() == 0/* && it->second->algoOrderStatus == stra::OrderStatus_ERRORCANCELLING */) {  //需要考虑下这个状态的定义
+                //it->second->algoOrderStatus = stra::OrderStatus_ERRORCANCELED; 
                 string pubMsg = it->second->GeneratePubStr();
-                QuantPub::Instance().Publish(pubMsg);
+                //QuantPub::Instance().Publish(pubMsg);
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
             }
@@ -1901,7 +1905,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             }
 
             if (!exist) {
-                SpreadManager::Instance().DeleteQuantSpread(vUnSubscribePairInstId[i]);
+                SpreadManager::Instance().DeleteSpread(vUnSubscribePairInstId[i]);
                 QuantDbp::Instance().UnSubscribe(vUnSubscribePairInstId[i]);   
             }
         }

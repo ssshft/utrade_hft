@@ -17,7 +17,7 @@ struct AlgoFishingOrder : public BaseAlgoOrder {
     AlgoFishingOrder();
 
     PairOrder GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId);
-    PairOrder CreatePairOrder(stra::TradingType tradingType, stra::Direction activeDirection);
+    PairOrder CreatePairOrder(stra::TradingType tradingType, Direction activeDirection);
 };
 
 

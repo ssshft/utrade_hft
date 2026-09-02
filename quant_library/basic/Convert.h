@@ -110,9 +110,10 @@ inline stra::QuantSpread ConvertTdSpreadToStraSpread(const stra::MdSpread& tdSpr
 inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* pdata) {
     LOG_INFO("WriteQuantOrder start format!");
 	char s[stra::STR_LEN * 2];
+    /*
     sprintf(s, "%s,%ld,%ld,%s,%s,%s,%s,%s,%s,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%s,%s,%ld,%ld,%ld,%d,%s,%d,%ld,%ld,%d,%d", 
 					order.strategyName, order.strategyOrderId, order.systemOrderId, order.exchangeOrderId, order.instrumentKey,
-		            stra::OrderTypeEnum2Str[order.orderType].c_str(), stra::DirectionEnum2Str[order.direction].c_str(), stra::OrderStatusEnum2Str[order.orderStatus].c_str(), order.orderTimeStatus.GetStr().c_str(),
+		            OrderTypeEnum2StrMap[order.orderType].c_str(), DirectionEnum2StrMap[order.direction].c_str(), OrderStatusEnum2StrMap[order.orderStatus].c_str(), order.orderTimeStatus.GetStr().c_str(),
                     order.targetPrice, order.price, order.volume, order.totalPriceOnOrder, order.totalVolumeOnOrder, order.tradeVolume,
                     pdata->activeBidPrice[0], pdata->activeBidVolume[0], pdata->activeAskPrice[0], pdata->activeAskVolume[0],
                     pdata->passiveBidPrice[0], pdata->passiveBidVolume[0], pdata->passiveAskPrice[0], pdata->passiveAskVolume[0],
@@ -121,6 +122,7 @@ inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* p
                     order.errorId, order.originErrorMsg, order.reduceOnly,
                     order.pairId, order.algoPairId, order.isActiveOrder, order.rebalance);  
     LOG_INFO("WriteQuantOrder start push queue!");
+    */
     content c;
     c.type = 1;
     c.msg = s;
@@ -130,16 +132,18 @@ inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* p
 
 inline void WritePairOrder(const PairOrder& order, const dbp::DbpData* pdata) {
     char s[stra::STR_LEN];
+    /*
     sprintf(s, "%ld,%ld,%s,%s,%s,%s,%f,%s,%s,%f,%f,%f,%f,%f,%s,%s,%f,%f,%f,%f,%f,%f,%f,%f,%f,%ld,%ld,%ld,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d,%ld,%ld,%.13f", 
                     order.pairId, order.algoPairId, order.strategyName, order.baseAsset, stra::TradingTypeEnum2Str[order.tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[order.tradingTypeOffset].c_str(), order.targetVolume,
-                    order.activeInstrumentKey, stra::DirectionEnum2Str[order.activeDirection].c_str(), order.activeTargetPrice, pdata->activeBidPrice[0], pdata->activeBidVolume[0], pdata->activeAskPrice[0], pdata->activeAskVolume[0],
-                    order.passiveInstrumentKey, stra::DirectionEnum2Str[order.passiveDirection].c_str(), order.passiveTargetPrice, pdata->passiveBidPrice[0], pdata->passiveBidVolume[0], pdata->passiveAskPrice[0], pdata->passiveAskVolume[0],
+                    order.activeInstrumentKey, DirectionEnum2StrMap[order.activeDirection].c_str(), order.activeTargetPrice, pdata->activeBidPrice[0], pdata->activeBidVolume[0], pdata->activeAskPrice[0], pdata->activeAskVolume[0],
+                    order.passiveInstrumentKey, DirectionEnum2StrMap[order.passiveDirection].c_str(), order.passiveTargetPrice, pdata->passiveBidPrice[0], pdata->passiveBidVolume[0], pdata->passiveAskPrice[0], pdata->passiveAskVolume[0],
                     pdata->spreadBidAsk, pdata->spreadBidBid, pdata->spreadAskBid, pdata->spreadAskAsk, pdata->generateTs, pdata->activeDepthTs, pdata->passiveDepthTs,
                     order.activeTotalPriceOnOrder, order.activeTotalVolumeOnOrder, order.passiveTotalPriceOnOrder, order.passiveTotalVolumeOnOrder,
                     order.pairTotalVolume, order.pairActiveTotalPrice, order.pairPassiveTotalPrice,
                     order.activeFrozenPrice, order.activeFrozenVolume, order.passiveFrozenPrice, order.passiveFrozenVolume,
                     order.activeAccountId, order.passiveAccountId, order.status, order.rebalanceFlag, order.updateTime, order.createTime, order.pairTargetSpread);
 
+    */
     content c;
     c.type = 2;
     c.msg = s;
@@ -150,6 +154,7 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
     if (ord->algoType == stra::AlgoType_PairTrading) {
         AlgoPairOrder* order = (AlgoPairOrder*)ord;
         char s[stra::STR_LEN];
+        /*
         sprintf(s, "%s,%s,%ld,%s,%s,%s,"
                     "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
                     "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
@@ -158,15 +163,16 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
                     "%f,%f,%f,"
                     "%f,%f,%f,%f,"
                     "%s,%s,%f,%f", 
-                    stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, stra::OrderStatusEnum2Str[order->algoOrderStatus].c_str(), 
-                    order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->activeOrderType].c_str(), 
-                    order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->passiveOrderType].c_str(), 
+                    stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, OrderStatusEnum2StrMap[order->algoOrderStatus].c_str(), 
+                    order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->activeOrderType].c_str(), 
+                    order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->passiveOrderType].c_str(), 
                     order->passiveVolumePct, order->activeMakerCancelOrderTime, order->activeTakerCancelOrderTime, order->passiveMakerCancelOrderTime, order->passiveTakerCancelOrderTime, order->activePassiveCancelOrderPct, order->activeMakerCancelOrderPct, order->activeTakerCancelOrderPct, order->passiveMakerCancelOrderPct, order->passiveTakerCancelOrderPct,
                     order->activeMakerFeeRate, order->activeTakerFeeRate, order->passiveMakerFeeRate, order->passiveTakerFeeRate, order->activeTakerSlippage, order->activeMakerSlippage, order->passiveTakerSlippage, order->passiveMakerSlippage,
                     order->pairActiveTotalPrice, order->pairTotalVolume, order->pairPassiveTotalPrice,
                     order->makerTakerFs, order->takerTakerFs, order->maxMTOrderSize, order->maxTTOrderSize,
                     stra::TargetSpredPriceEnum2Str[order->targetSpreadType].c_str(), stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType].c_str(), order->ttTargetVolume, order->mtTargetVolume
                     );
+                    */
 
         content c;
         c.type = 3;
@@ -175,6 +181,7 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
     } else if (ord->algoType == stra::AlgoType_FishingTrading) {
         AlgoFishingOrder* order = (AlgoFishingOrder*)ord;
         char s[stra::STR_LEN];
+        /*
         sprintf(s, "%s,%s,%ld,%s,%s,%s,"
                     "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
                     "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
@@ -183,7 +190,7 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
                     "%f,%f,%f,"
                     "%f,%f,%f,%f,"
                     "%s,%s,%f,%f,%f", 
-                    stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, stra::OrderStatusEnum2Str[order->algoOrderStatus].c_str(), 
+                    stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, OrderStatusEnum2StrMap[order->algoOrderStatus].c_str(), 
                     order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->activeOrderType].c_str(), 
                     order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->passiveOrderType].c_str(), 
                     order->passiveVolumePct, order->activeMakerCancelOrderTime, order->activeTakerCancelOrderTime, order->passiveMakerCancelOrderTime, order->passiveTakerCancelOrderTime, order->activePassiveCancelOrderPct, order->activeMakerCancelOrderPct, order->activeTakerCancelOrderPct, order->passiveMakerCancelOrderPct, order->passiveTakerCancelOrderPct,
@@ -192,6 +199,7 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
                     order->makerTakerFs, order->takerTakerFs, order->maxMTOrderSize, order->maxTTOrderSize,
                     stra::TargetSpredPriceEnum2Str[order->targetSpreadType].c_str(), stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType].c_str(), order->ttTargetVolume, order->mtTargetVolume, order->fishingSlippagePct
                     );
+                    */
 
         content c;
         c.type = 4;
@@ -202,6 +210,7 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
 
 inline void WriteAlgoPairOrder(AlgoPairOrder* order) {
     char s[stra::STR_LEN];
+    /*
     sprintf(s, "%s,%s,%ld,%s,%s,%s,"
                 "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
                 "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
@@ -210,15 +219,16 @@ inline void WriteAlgoPairOrder(AlgoPairOrder* order) {
                 "%f,%f,%f,"
                 "%f,%f,%f,%f,"
                 "%s,%s,%f,%f", 
-                stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, stra::OrderStatusEnum2Str[order->algoOrderStatus].c_str(), 
-                order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->activeOrderType].c_str(), 
-                order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->passiveOrderType].c_str(), 
+                stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, OrderStatusEnum2StrMap[order->algoOrderStatus].c_str(), 
+                order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->activeOrderType].c_str(), 
+                order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->passiveOrderType].c_str(), 
                 order->passiveVolumePct, order->activeMakerCancelOrderTime, order->activeTakerCancelOrderTime, order->passiveMakerCancelOrderTime, order->passiveTakerCancelOrderTime, order->activePassiveCancelOrderPct, order->activeMakerCancelOrderPct, order->activeTakerCancelOrderPct, order->passiveMakerCancelOrderPct, order->passiveTakerCancelOrderPct,
                 order->activeMakerFeeRate, order->activeTakerFeeRate, order->passiveMakerFeeRate, order->passiveTakerFeeRate, order->activeTakerSlippage, order->activeMakerSlippage, order->passiveTakerSlippage, order->passiveMakerSlippage,
                 order->pairActiveTotalPrice, order->pairTotalVolume, order->pairPassiveTotalPrice,
                 order->makerTakerFs, order->takerTakerFs, order->maxMTOrderSize, order->maxTTOrderSize,
                 stra::TargetSpredPriceEnum2Str[order->targetSpreadType].c_str(), stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType].c_str(), order->ttTargetVolume, order->mtTargetVolume
                 );
+    */
 
     content c;
     c.type = 3;
@@ -228,6 +238,7 @@ inline void WriteAlgoPairOrder(AlgoPairOrder* order) {
 
 inline void WriteAlgoFishingOrder(AlgoFishingOrder* order) {
     char s[stra::STR_LEN];
+    /*
     sprintf(s, "%s,%s,%ld,%s,%s,%s,"
                 "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
                 "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
@@ -236,15 +247,16 @@ inline void WriteAlgoFishingOrder(AlgoFishingOrder* order) {
                 "%f,%f,%f,"
                 "%f,%f,%f,%f,"
                 "%s,%s,%f,%f,%f", 
-                stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, stra::OrderStatusEnum2Str[order->algoOrderStatus].c_str(), 
-                order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->activeOrderType].c_str(), 
-                order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->passiveOrderType].c_str(), 
+                stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, OrderStatusEnum2StrMap[order->algoOrderStatus].c_str(), 
+                order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->activeOrderType].c_str(), 
+                order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->passiveOrderType].c_str(), 
                 order->passiveVolumePct, order->activeMakerCancelOrderTime, order->activeTakerCancelOrderTime, order->passiveMakerCancelOrderTime, order->passiveTakerCancelOrderTime, order->activePassiveCancelOrderPct, order->activeMakerCancelOrderPct, order->activeTakerCancelOrderPct, order->passiveMakerCancelOrderPct, order->passiveTakerCancelOrderPct,
                 order->activeMakerFeeRate, order->activeTakerFeeRate, order->passiveMakerFeeRate, order->passiveTakerFeeRate, order->activeTakerSlippage, order->activeMakerSlippage, order->passiveTakerSlippage, order->passiveMakerSlippage,
                 order->pairActiveTotalPrice, order->pairTotalVolume, order->pairPassiveTotalPrice,
                 order->makerTakerFs, order->takerTakerFs, order->maxMTOrderSize, order->maxTTOrderSize,
                 stra::TargetSpredPriceEnum2Str[order->targetSpreadType].c_str(), stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType].c_str(), order->ttTargetVolume, order->mtTargetVolume, order->fishingSlippagePct
                 );
+                */
 
     content c;
     c.type = 4;

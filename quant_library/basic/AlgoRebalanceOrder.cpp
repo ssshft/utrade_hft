@@ -114,20 +114,20 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
 
     double targetActiveVolume = 0;
     // order 相关
-    stra::Direction activeDirection;
-    stra::Direction passiveDirection;
+    Direction activeDirection;
+    Direction passiveDirection;
     double targetVolume;
     double activeTargetPrice;
     double passiveTargetPrice;
-    stra::OrderType acOrderType;
-    stra::OrderType paOrderType;
+    OrderType acOrderType;
+    OrderType paOrderType;
 
     if (tradingTypeOffset == stra::CLOSE_SHORT) {
         targetActiveVolume = endVolume;
  
         if ((activeTrade == 1 && targetActiveVolume < expectActiveVolume) || (activeTrade == 0 && targetActiveVolume > expectActiveVolume)) {
-            activeDirection = stra::Direction_SHORT;
-            passiveDirection = stra::Direction_LONG;
+            activeDirection = DT_SHORT;
+            passiveDirection = DT_LONG;
 
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 targetVolume = min(expectActiveVolume - targetActiveVolume, ttTargetVolume);
@@ -153,8 +153,8 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
         targetActiveVolume = endVolume;
    
         if ((activeTrade == 1 && targetActiveVolume > expectActiveVolume) || (activeTrade == 0 && targetActiveVolume < expectActiveVolume)) {
-            activeDirection = stra::Direction_LONG;
-            passiveDirection = stra::Direction_SHORT;
+            activeDirection = DT_LONG;
+            passiveDirection = DT_SHORT;
 
             if (tradingTypeOrder == stra::TAKER_TAKER) {
                 targetVolume = min(fabs(targetActiveVolume - expectActiveVolume), ttTargetVolume);
@@ -327,7 +327,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
         }
     }
 
-    pairOrder.Init();
+    pairOrder.Init(smc);
     strncpy(pairOrder.pairInstrumentKey, pairInstrumentKey, stra::INST_KEY_LEN);
 
     return pairOrder;
@@ -415,7 +415,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
         double totalActivePrice = pairActiveTotalPrice;
 
         if (totalActiveVolume > stra::MIN_FLOAT) {
-            if (pairOrder.activeDirection == stra::Direction_LONG) {
+            if (pairOrder.activeDirection == DT_LONG) {
                 pairTotalVolume += activeVolume;
                 if (activeInfo.calculateType == 0) {
                     pairActiveTotalPrice = (totalActivePrice * totalActiveVolume + activePrice * activeVolume) / (totalActiveVolume + activeVolume);
@@ -424,7 +424,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
                     pairActiveTotalPrice = 1 / ((1 / totalActivePrice * totalActiveVolume + 1 / activePrice * activeVolume) / (totalActiveVolume + activeVolume));
                 }
             }
-            else if (pairOrder.activeDirection == stra::Direction_SHORT) {
+            else if (pairOrder.activeDirection == DT_SHORT) {
                 pairTotalVolume -= activeVolume;
                 if (pairTotalVolume <= stra::MIN_FLOAT) {
                     pairActiveTotalPrice = activePrice;
@@ -432,7 +432,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
             }
         }
         else if (totalActiveVolume < -stra::MIN_FLOAT) {
-            if (pairOrder.activeDirection == stra::Direction_SHORT) {
+            if (pairOrder.activeDirection == DT_SHORT) {
                 pairTotalVolume -= activeVolume;
                 if (activeInfo.calculateType == 0) {
                     pairActiveTotalPrice = (totalActivePrice * totalActiveVolume - activePrice * activeVolume) / (totalActiveVolume - activeVolume);
@@ -441,7 +441,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
                     pairActiveTotalPrice = 1 / ((1 / totalActivePrice * totalActiveVolume - 1 / activePrice * activeVolume) / (totalActiveVolume - activeVolume));
                 }
             }
-            else if (pairOrder.activeDirection == stra::Direction_LONG) {
+            else if (pairOrder.activeDirection == DT_LONG) {
                 pairTotalVolume += activeVolume;
                 if (pairTotalVolume > stra::MIN_FLOAT) {
                     pairActiveTotalPrice = activePrice;
@@ -449,14 +449,14 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
             }     
         }
         else {
-            if (pairOrder.activeDirection == stra::Direction_LONG) {
+            if (pairOrder.activeDirection == DT_LONG) {
                 pairTotalVolume = activeVolume;
                 pairActiveTotalPrice = activePrice;
 
                 pairOrder.pairTotalVolume = activeVolume;
                 pairOrder.pairActiveTotalPrice = activePrice;
             }
-            else if (pairOrder.activeDirection == stra::Direction_SHORT) {
+            else if (pairOrder.activeDirection == DT_SHORT) {
                 pairTotalVolume = -activeVolume;
                 pairActiveTotalPrice = -activePrice;
 
@@ -473,7 +473,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
         double totalPassivePrice = pairPassiveTotalPrice;
 
         if (totalPassiveVolume > stra::MIN_FLOAT) {
-            if (pairOrder.passiveDirection == stra::Direction_LONG) {
+            if (pairOrder.passiveDirection == DT_LONG) {
                 pairPassiveTotalVolume += passiveVolume;
                 if (passiveInfo.calculateType == 0) {
                     pairPassiveTotalPrice = (totalPassivePrice * totalPassiveVolume + passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume);
@@ -482,7 +482,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
                     pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume + 1 / passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume));
                 }
             }
-            else if (pairOrder.passiveDirection == stra::Direction_SHORT) {
+            else if (pairOrder.passiveDirection == DT_SHORT) {
                 pairPassiveTotalVolume -= passiveVolume;
                 if (pairPassiveTotalVolume <= stra::MIN_FLOAT) {
                     pairPassiveTotalPrice = passivePrice;
@@ -490,7 +490,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
             }
         }
         else if (totalPassiveVolume < -stra::MIN_FLOAT) {
-            if (pairOrder.passiveDirection == stra::Direction_SHORT) {
+            if (pairOrder.passiveDirection == DT_SHORT) {
                 pairPassiveTotalVolume -= passiveVolume;
                 if (passiveInfo.calculateType == 0) {
                     pairPassiveTotalPrice = (totalPassivePrice * totalPassiveVolume - passivePrice * passiveVolume) / (totalPassiveVolume - passiveVolume);
@@ -499,7 +499,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
                     pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume - 1 / passivePrice * passiveVolume) / (totalPassiveVolume - passiveVolume));
                 }
             }
-            else if (pairOrder.passiveDirection == stra::Direction_LONG) {
+            else if (pairOrder.passiveDirection == DT_LONG) {
                 pairPassiveTotalVolume += passiveVolume;
                 if (pairPassiveTotalVolume > stra::MIN_FLOAT) {
                     pairPassiveTotalPrice = passivePrice;
@@ -507,14 +507,14 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
             }     
         }
         else {
-            if (pairOrder.passiveDirection == stra::Direction_LONG) {
+            if (pairOrder.passiveDirection == DT_LONG) {
                 pairPassiveTotalVolume = passiveVolume;
                 pairPassiveTotalPrice = passivePrice;
 
                 pairOrder.pairPassiveTotalVolume = passiveVolume;
                 pairOrder.pairPassiveTotalPrice = passivePrice;
             }
-            else if (pairOrder.passiveDirection == stra::Direction_SHORT) {
+            else if (pairOrder.passiveDirection == DT_SHORT) {
                 pairPassiveTotalVolume = -passiveVolume;
                 pairPassiveTotalPrice = -passivePrice;
 

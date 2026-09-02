@@ -50,19 +50,19 @@ public:
     PairTradingContext();
     ~PairTradingContext() = default;
 
-    void Init(const PairTradingConfig& cfg);
+    void Init(const PairTradingConfig& cfg, sm::SecurityManager* s);
 
     void SetAlgoCommandCallback(AlgoCommandCallback cb) {
         m_algoCommandCb = std::move(cb);
     }
 
-    void OnSpread(dbp::DbpTopic* topic, const dbp::DbpData* pdata);
+    void OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata);
 
     void OnPosition(const pubsub::Position& position);
 
-    void OnBalance(const pubsub::Balanc& balance);
+    void OnBalance(const pubsub::Balance& balance);
 
-    void OnTotalAccount(const pubsub::TotalAccoun& totalAccount);
+    void OnTotalAccount(const pubsub::TotalAccount& totalAccount);
 
     // volumeFilled 实际成交量
     // isFullyFlat 平仓后是否完全归零
@@ -87,7 +87,7 @@ private:
     int64_t m_lastCsvSaveUs{0};
     int64_t m_lastSignalRecalcUs{0};
 
-    void ProcessPairSignal(PairInfo& pi, int64_t nowUs);
+    void ProcessPairSignal(PairInfo& pi);
 
     void ProcessRisk(PairInfo& pi, int64_t nowUs);
 
@@ -101,6 +101,8 @@ private:
     static std::string GenerateAlgoOrderId();
 
     std::string baseAsset{"USDT"};
+
+    sm::SecurityManager* smc{nullptr};
 };
 
 }
