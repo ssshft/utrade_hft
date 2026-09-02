@@ -1,5 +1,4 @@
 #include "PositionManager.h"
-#include "BasicInfoMgr.h"
 #include "Utility.h"
 #include "SpreadManager.h"
 
@@ -520,8 +519,8 @@ void PositionManager::CalcualtePnl(string activeInstrumentKey) { // profit = tot
             // string instrumentKey = "BINANCE.SPOT." + string(it->second.asset) + "-" + string(baseAsset);
             const Bbo& bbo = SpreadManager::Instance().GetBbo(activeInstrumentKey);
             double price = (bbo.askPrice + bbo.bidPrice) / 2;
-            stra::InstrumentInfo info; //= BasicInfoMgr::GetInstance().GetBasicInfo(activeInstrumentKey);
-            if (strcmp(ass.c_str(), info.instLeft.c_str()) == 0) {
+            md::InstrumentInfo info; //= BasicInfoMgr::GetInstance().GetBasicInfo(activeInstrumentKey);
+            if (strcmp(ass.c_str(), info.base) == 0) {
                 totalPnl += assetPnl * price;
             } else {
                 totalPnl += assetPnl / price;

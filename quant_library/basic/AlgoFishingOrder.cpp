@@ -1,7 +1,6 @@
 #include "SpreadManager.h"
 #include "AccountManager.h"
 #include "QuantTrade.h"
-#include "BasicInfoMgr.h"
 #include "Convert.h"
 #include "AlgoFishingOrder.h"
 

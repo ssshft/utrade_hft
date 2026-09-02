@@ -3,7 +3,6 @@
 #include "AccountManager.h"
 #include "QuantTrade.h"
 #include "QuantPub.h"
-#include "BasicInfoMgr.h"
 #include "Convert.h"
 #include "StrategyConfig.h"
 
@@ -129,6 +128,12 @@ void BaseAlgoOrder::InitPositionMgr() {
 }
 
 void BaseAlgoOrder::Update() {
+    vector<string> vActive;
+    splitString(activeInstrumentKey, vActive, ".");
+
+    vector<string> vPassive;
+    splitString(passiveInstrumentKey, vPassive, ".");
+
     smc->get_instrument_info(ExchangeTypeStr2EnumMap[vActive[0]], InstTypeStr2EnumMap[vActive[1]], vActive[2].c_str(), activeInfo);
     smc->get_instrument_info(ExchangeTypeStr2EnumMap[vPassive[0]], InstTypeStr2EnumMap[vPassive[1]], vPassive[2].c_str(), passiveInfo);
 }
@@ -234,15 +239,15 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder) {
         if (totalActiveVolume > stra::MIN_FLOAT) {
             if (pairOrder.activeDirection == DT_LONG) {
                 pairTotalVolume += activeVolume;
-                if (activeInfo.calculateType == 0) {
+                if (activeInfo.calcType == 0) {
                     pairActiveTotalPrice = (totalActivePrice * totalActiveVolume + activePrice * activeVolume) / (totalActiveVolume + activeVolume);
-                } else if (activeInfo.calculateType == 1) {
+                } else if (activeInfo.calcType == 1) {
                     pairActiveTotalPrice = 1 / ((1 / totalActivePrice * totalActiveVolume + 1 / activePrice * activeVolume) / (totalActiveVolume + activeVolume));
                 }
 
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     pairPassiveTotalPrice = (totalPassivePrice * totalPassiveVolume + passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume);
-                } else if (passiveInfo.calculateType == 1) {
+                } else if (passiveInfo.calcType == 1) {
                     pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume + 1 / passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume));
                 }
             } else if (pairOrder.activeDirection == DT_SHORT) {
@@ -255,15 +260,15 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder) {
         } else if (totalActiveVolume < -stra::MIN_FLOAT) {
             if (pairOrder.activeDirection == DT_SHORT) {
                 pairTotalVolume -= activeVolume;
-                if (activeInfo.calculateType == 0) {
+                if (activeInfo.calcType == 0) {
                     pairActiveTotalPrice = (totalActivePrice * totalActiveVolume - activePrice * activeVolume) / (totalActiveVolume - activeVolume);
-                } else if (activeInfo.calculateType == 1) {
+                } else if (activeInfo.calcType == 1) {
                     pairActiveTotalPrice = 1 / ((1 / totalActivePrice * totalActiveVolume - 1 / activePrice * activeVolume) / (totalActiveVolume - activeVolume));
                 }
 
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     pairPassiveTotalPrice = (totalPassivePrice * totalPassiveVolume + passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume);
-                } else if (passiveInfo.calculateType == 1) {
+                } else if (passiveInfo.calcType == 1) {
                     pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume + 1 / passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume));
                 }
             } else if (pairOrder.activeDirection == DT_LONG) {
@@ -323,30 +328,30 @@ double BaseAlgoOrder::GetActiveVolumeByPassiveVolume(double volume, double price
     // 先计算被动腿盘口量对应的非基币的量
     double activeVolume = 0.0;
     double inbaseAssetAmount = 0.0;
-    if (strcmp(passiveInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instRight.c_str(), "USDT") == 0 || strcmp(passiveInfo.instRight.c_str(), "USD") == 0 || strcmp(passiveInfo.instRight.c_str(), "USDC") == 0 || strcmp(passiveInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") || strcmp(baseAsset, "BUSD") == 0))) {
-        if (passiveInfo.calculateType == 0) {
-            inbaseAssetAmount =  volume * passiveInfo.multiple;
-        } else if (passiveInfo.calculateType == 1) {
-            inbaseAssetAmount = volume / price * passiveInfo.multiple;
+    if (strcmp(passiveInfo.quote, baseAsset) == 0 || ((strcmp(passiveInfo.quote, "USDT") == 0 || strcmp(passiveInfo.quote, "USD") == 0 || strcmp(passiveInfo.quote, "USDC") == 0 || strcmp(passiveInfo.quote, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") || strcmp(baseAsset, "BUSD") == 0))) {
+        if (passiveInfo.calcType == 0) {
+            inbaseAssetAmount =  volume * passiveInfo.value;
+        } else if (passiveInfo.calcType == 1) {
+            inbaseAssetAmount = volume / price * passiveInfo.value;
         }
-    } else if (strcmp(passiveInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(passiveInfo.instLeft.c_str(), "USDT") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USD") == 0 || strcmp(passiveInfo.instLeft.c_str(), "USDC") == 0 || strcmp(passiveInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") || strcmp(baseAsset, "BUSD") == 0))) { 
-        if (passiveInfo.calculateType == 0) {
-            inbaseAssetAmount = volume * price * passiveInfo.multiple;
-        } else if (passiveInfo.calculateType == 1) {
-            inbaseAssetAmount = volume * passiveInfo.multiple;
+    } else if (strcmp(passiveInfo.base, baseAsset) == 0 || ((strcmp(passiveInfo.base, "USDT") == 0 || strcmp(passiveInfo.base, "USD") == 0 || strcmp(passiveInfo.base, "USDC") == 0 || strcmp(passiveInfo.base, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") || strcmp(baseAsset, "BUSD") == 0))) { 
+        if (passiveInfo.calcType == 0) {
+            inbaseAssetAmount = volume * price * passiveInfo.value;
+        } else if (passiveInfo.calcType == 1) {
+            inbaseAssetAmount = volume * passiveInfo.value;
         }
     }
-    if (strcmp(activeInfo.instRight.c_str(), baseAsset) == 0 || ((strcmp(activeInfo.instRight.c_str(), "USDT") == 0 || strcmp(activeInfo.instRight.c_str(), "USD") == 0 || strcmp(activeInfo.instRight.c_str(), "USDC") == 0 || strcmp(activeInfo.instRight.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") || strcmp(baseAsset, "BUSD") == 0))) {
-        if (activeInfo.calculateType == 0) {
-            activeVolume =  inbaseAssetAmount / activeInfo.multiple;
-        } else if (activeInfo.calculateType == 1) {
-            activeVolume = inbaseAssetAmount * price / activeInfo.multiple;
+    if (strcmp(activeInfo.quote, baseAsset) == 0 || ((strcmp(activeInfo.quote, "USDT") == 0 || strcmp(activeInfo.quote, "USD") == 0 || strcmp(activeInfo.quote, "USDC") == 0 || strcmp(activeInfo.quote, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") || strcmp(baseAsset, "BUSD") == 0))) {
+        if (activeInfo.calcType == 0) {
+            activeVolume =  inbaseAssetAmount / activeInfo.value;
+        } else if (activeInfo.calcType == 1) {
+            activeVolume = inbaseAssetAmount * price / activeInfo.value;
         }
-    } else if (strcmp(activeInfo.instLeft.c_str(), baseAsset) == 0 || ((strcmp(activeInfo.instLeft.c_str(), "USDT") == 0 || strcmp(activeInfo.instLeft.c_str(), "USD") == 0 || strcmp(activeInfo.instLeft.c_str(), "USDC") == 0 || strcmp(activeInfo.instLeft.c_str(), "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") || strcmp(baseAsset, "BUSD") == 0))) { 
-        if (activeInfo.calculateType == 0) {
-            activeVolume = inbaseAssetAmount / price / activeInfo.multiple;
-        } else if (activeInfo.calculateType == 1) {
-            activeVolume = inbaseAssetAmount / activeInfo.multiple;
+    } else if (strcmp(activeInfo.base, baseAsset) == 0 || ((strcmp(activeInfo.base, "USDT") == 0 || strcmp(activeInfo.base, "USD") == 0 || strcmp(activeInfo.base, "USDC") == 0 || strcmp(activeInfo.base, "BUSD") == 0) && (strcmp(baseAsset, "USDT") == 0 || strcmp(baseAsset, "USD") == 0 || strcmp(baseAsset, "USDC") || strcmp(baseAsset, "BUSD") == 0))) { 
+        if (activeInfo.calcType == 0) {
+            activeVolume = inbaseAssetAmount / price / activeInfo.value;
+        } else if (activeInfo.calcType == 1) {
+            activeVolume = inbaseAssetAmount / activeInfo.value;
         }
     }
     return activeVolume;
@@ -633,19 +638,19 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
 
     if (quant_order.strategyOrderId <= stra::MIN_FLOAT) {
         double activeFrozenValue = 0.0;
-        if (activeInfo.calculateType == 0) {
-            activeFrozenValue = pairOrder.activeFrozenVolume * pairOrder.activeFrozenPrice * activeInfo.multiple;
+        if (activeInfo.calcType == 0) {
+            activeFrozenValue = pairOrder.activeFrozenVolume * pairOrder.activeFrozenPrice * activeInfo.value;
         }
         else {
-            activeFrozenValue = pairOrder.activeFrozenVolume * activeInfo.multiple;
+            activeFrozenValue = pairOrder.activeFrozenVolume * activeInfo.value;
         }
 
         double passiveFrozenValue = 0.0;
-        if (passiveInfo.calculateType == 0) {
-            passiveFrozenValue = pairOrder.passiveFrozenVolume * pairOrder.passiveFrozenPrice * passiveInfo.multiple;
+        if (passiveInfo.calcType == 0) {
+            passiveFrozenValue = pairOrder.passiveFrozenVolume * pairOrder.passiveFrozenPrice * passiveInfo.value;
         }
         else {
-            passiveFrozenValue = pairOrder.passiveFrozenVolume * passiveInfo.multiple;
+            passiveFrozenValue = pairOrder.passiveFrozenVolume * passiveInfo.value;
         }
 
 

@@ -1,5 +1,4 @@
 #include "PairInfoManager.h"
-#include "BasicInfoMgr.h"
 #include "StrategyConfig.h"
 #include "Utility.h"
 
@@ -40,17 +39,17 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
         md::InstrumentInfo passiveInfo;
 
         if (smc->get_instrument_info(ExchangeTypeStr2EnumMap[vActive[0]], InstTypeStr2EnumMap[vActive[1]], vActive[2].c_str(), activeInfo)) {
-            pi.activeParam.multiple = activeInfo.multiple;
+            pi.activeParam.multiple = activeInfo.value;
             pi.activeParam.minMove = activeInfo.tickSize;
             pi.activeParam.minVolume = activeInfo.minSize;
-            pi.activeParam.calcType = activeInfo.calculateType;
+            pi.activeParam.calcType = activeInfo.calcType;
         }
 
         if (smc->get_instrument_info(ExchangeTypeStr2EnumMap[vPassive[0]], InstTypeStr2EnumMap[vPassive[1]], vPassive[2].c_str(), passiveInfo)) {
-            pi.passiveParam.multiple = passiveInfo.multiple;
+            pi.passiveParam.multiple = passiveInfo.value;
             pi.passiveParam.minMove = passiveInfo.tickSize;
             pi.passiveParam.minVolume = passiveInfo.minSize;
-            pi.passiveParam.calcType = passiveInfo.calculateType;
+            pi.passiveParam.calcType = passiveInfo.calcType;
         }
 
         m_pairInfoMap[pk] = pi;

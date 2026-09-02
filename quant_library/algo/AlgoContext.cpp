@@ -195,12 +195,22 @@ void AlgoContext::OnCommand(string s) {
                     }
 
                     if (algoType == stra::AlgoType_Rebalance && operateTag != "TinyCloseOnly") {
-                        stra::InstrumentInfo& activeInfo = BasicInfoMgr::GetInstance().GetBasicInfo(activeInstrumentKey);
-                        stra::InstrumentInfo& passiveInfo = BasicInfoMgr::GetInstance().GetBasicInfo(passiveInstrumentKey);
-                        double activeVolume = fabs(pairTotalVolume) * activeInfo.multiple;
-                        double passiveVolume = fabs(pairPassiveTotalVolume) * passiveInfo.multiple;
+                        md::InstrumentInfo activeInfo;
+                        md::InstrumentInfo passiveInfo;
+
+                        vector<string> vActive;
+                        splitString(activeInstrumentKey, vActive, ".");
+
+                        vector<string> vPassive;
+                        splitString(passiveInstrumentKey, vPassive, ".");
+
+                        smc->get_instrument_info(ExchangeTypeStr2EnumMap[vActive[0]], InstTypeStr2EnumMap[vActive[1]], vActive[2].c_str(), activeInfo);
+                        smc->get_instrument_info(ExchangeTypeStr2EnumMap[vPassive[0]], InstTypeStr2EnumMap[vPassive[1]], vPassive[2].c_str(), passiveInfo);
+
+                        double activeVolume = fabs(pairTotalVolume) * activeInfo.value;
+                        double passiveVolume = fabs(pairPassiveTotalVolume) * passiveInfo.value;
                         double exposureVolume = fabs(activeVolume - passiveVolume);
-                        double minVolume = max(activeInfo.minSize * activeInfo.multiple, passiveInfo.minSize * passiveInfo.multiple); // usdt本位
+                        double minVolume = max(activeInfo.minSize * activeInfo.value, passiveInfo.minSize * passiveInfo.value); // usdt本位
 
                         if (fabs(activeVolume - passiveVolume) < minVolume && (fabs(pairTotalVolume) > activeInfo.minSize || fabs(pairPassiveTotalVolume) > passiveInfo.minSize)) {
                             json pub;

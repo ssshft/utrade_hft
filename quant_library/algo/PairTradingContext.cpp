@@ -174,6 +174,8 @@ void PairTradingContext::SubmitAlgoOrder(const PairInfo& pi, const std::string& 
     pim.SetActiveAlgoOrder(pi.pairInstrumentKey, algoId.c_str());
 
     m_algoCommandCb(json);
+
+    // 可以在这里把算法单BaseAlgoOrder创建好，并插入到algoOrderManager中，在AlgoContext.cpp中就可以直接on_spread执行了。
 }
 
 std::string PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {

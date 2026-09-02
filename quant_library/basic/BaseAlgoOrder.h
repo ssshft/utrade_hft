@@ -5,7 +5,6 @@
 #include "PositionManager.h"
 #include "OrderManager.h"
 #include "PairManager.h"
-#include "BasicInfoMgr.h"
 #include "dbp/include.h"
 #include "time_util.h"
 #include <string>

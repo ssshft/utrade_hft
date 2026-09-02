@@ -544,7 +544,7 @@ bool AccountManager::FundVerifyClassic(const stra::QuantOrder& order, const md::
                 stra::AssetUnit& ass = it->second.mAsset[info.quote];
                 double availableAssetAmount = ass.totalAmount + ass.floatAmount - ass.frozenAmount - ass.marginAmount - ass.openMarginAmount;
                 double requireAmount = 1.1 * order.price * order.volume - availableAssetAmount;
-                LOG_INFO("FundVerify strategyAccountId:%d instrumentKey:%s instRight:%s totalAmount:%f floatAmount:%f frozenAmount:%f availableAssetAmount:%f  requireAmount:%f", order.strategyAccountId, order.instrumentKey, info.instRight.c_str(), ass.totalAmount, ass.floatAmount, ass.frozenAmount, availableAssetAmount, requireAmount);
+                LOG_INFO("FundVerify strategyAccountId:%d instrumentKey:%s instRight:%s totalAmount:%f floatAmount:%f frozenAmount:%f availableAssetAmount:%f  requireAmount:%f", order.strategyAccountId, order.instrumentKey, info.quote, ass.totalAmount, ass.floatAmount, ass.frozenAmount, availableAssetAmount, requireAmount);
                 if (requireAmount < stra::MIN_FLOAT) {
                     return true;
                 } else {
@@ -554,7 +554,7 @@ bool AccountManager::FundVerifyClassic(const stra::QuantOrder& order, const md::
                 stra::AssetUnit& ass = it->second.mAsset[info.base];
                 double availableAssetAmount = ass.totalAmount + ass.floatAmount - ass.frozenAmount - ass.marginAmount - ass.openMarginAmount;
                 double requireAmount = 1.1 * order.price * order.volume - availableAssetAmount;
-                LOG_INFO("FundVerify strategyAccountId:%d instrumentKey:%s instRight:%s totalAmount:%f floatAmount:%f frozenAmount:%f availableAssetAmount:%f  requireAmount:%f", order.strategyAccountId, order.instrumentKey, info.instRight.c_str(), ass.totalAmount, ass.floatAmount, ass.frozenAmount, availableAssetAmount, requireAmount);
+                LOG_INFO("FundVerify strategyAccountId:%d instrumentKey:%s instRight:%s totalAmount:%f floatAmount:%f frozenAmount:%f availableAssetAmount:%f  requireAmount:%f", order.strategyAccountId, order.instrumentKey, info.quote, ass.totalAmount, ass.floatAmount, ass.frozenAmount, availableAssetAmount, requireAmount);
                 if (requireAmount < stra::MIN_FLOAT) {
                     return true;
                 } else {
@@ -586,7 +586,7 @@ bool AccountManager::FundVerifyClassic(const stra::QuantOrder& order, const md::
                     // 如果订单主要是在平仓，则无论可用是多少都允许平仓
                     requireAmount = 0;
                 }
-                LOG_INFO("FundVerify strategyAccountId:%d margin:%s instrumentKey:%s order.volume:%f pos.shortPosition:%f totalAmount:%f floatAmount:%f frozenAmount:%f positionValue:%f availableAssetAmount:%f requireMargin:%f requireAmount:%f", order.strategyAccountId, info.margin.c_str(), order.instrumentKey, order.volume, pos.shortPosition, ass.totalAmount, ass.floatAmount, ass.frozenAmount, ass.positionValue, availableAssetAmount, requireMargin, requireAmount);
+                LOG_INFO("FundVerify strategyAccountId:%d margin:%s instrumentKey:%s order.volume:%f pos.shortPosition:%f totalAmount:%f floatAmount:%f frozenAmount:%f positionValue:%f availableAssetAmount:%f requireMargin:%f requireAmount:%f", order.strategyAccountId, info.margin, order.instrumentKey, order.volume, pos.shortPosition, ass.totalAmount, ass.floatAmount, ass.frozenAmount, ass.positionValue, availableAssetAmount, requireMargin, requireAmount);
                 if (requireAmount < stra::MIN_FLOAT) {
                     return true;
                 } else {
@@ -616,7 +616,7 @@ bool AccountManager::FundVerifyClassic(const stra::QuantOrder& order, const md::
                     // 如果订单主要是在平仓，则无论可用是多少都允许平仓
                     requireAmount = 0;
                 }
-                LOG_INFO("FundVerify strategyAccountId:%d margin:%s instrumentKey:%s order.volume:%f pos.longPosition:%f pos.shortPosition:%f totalAmount:%f floatAmount:%f frozenAmount:%f positionValue:%f availableAssetAmount:%f  requireMargin:%f requireAmount:%f", order.strategyAccountId, info.margin.c_str(), order.instrumentKey, order.volume, pos.longPosition, pos.shortPosition, ass.totalAmount, ass.floatAmount, ass.frozenAmount, ass.positionValue, availableAssetAmount, requireMargin, requireAmount);
+                LOG_INFO("FundVerify strategyAccountId:%d margin:%s instrumentKey:%s order.volume:%f pos.longPosition:%f pos.shortPosition:%f totalAmount:%f floatAmount:%f frozenAmount:%f positionValue:%f availableAssetAmount:%f  requireMargin:%f requireAmount:%f", order.strategyAccountId, info.margin, order.instrumentKey, order.volume, pos.longPosition, pos.shortPosition, ass.totalAmount, ass.floatAmount, ass.frozenAmount, ass.positionValue, availableAssetAmount, requireMargin, requireAmount);
                 if (requireAmount < stra::MIN_FLOAT) {
                     return true;
                 } else {

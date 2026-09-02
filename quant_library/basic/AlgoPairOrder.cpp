@@ -2,7 +2,6 @@
 #include "SpreadManager.h"
 #include "AccountManager.h"
 #include "QuantTrade.h"
-#include "BasicInfoMgr.h"
 #include "Convert.h"
 
 
@@ -69,19 +68,19 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
     if (tradingTypeOrder == stra::MAKER_TAKER) {
         if (tradingTypeOffset == stra::OPEN_SHORT) {
             double activeBidAmount1 = 0.0;
-            if (activeInfo.calculateType == 0) {
-                activeBidAmount1 = pdata->activeBidVolume[0] * pdata->activeBidPrice[0] * activeInfo.multiple;
+            if (activeInfo.calcType == 0) {
+                activeBidAmount1 = pdata->activeBidVolume[0] * pdata->activeBidPrice[0] * activeInfo.value;
             }
-            else if (activeInfo.calculateType == 1) {
-                activeBidAmount1 = pdata->activeBidVolume[0] * activeInfo.multiple;
+            else if (activeInfo.calcType == 1) {
+                activeBidAmount1 = pdata->activeBidVolume[0] * activeInfo.value;
             }
 
             double passiveBidAmount1 = 0.0;
-            if (passiveInfo.calculateType == 0) {
-                passiveBidAmount1 = pdata->passiveBidVolume[0] * pdata->passiveBidPrice[0] * passiveInfo.multiple;
+            if (passiveInfo.calcType == 0) {
+                passiveBidAmount1 = pdata->passiveBidVolume[0] * pdata->passiveBidPrice[0] * passiveInfo.value;
             }
-            else if (passiveInfo.calculateType == 1) {
-                passiveBidAmount1 = pdata->passiveBidVolume[0] * passiveInfo.multiple;
+            else if (passiveInfo.calcType == 1) {
+                passiveBidAmount1 = pdata->passiveBidVolume[0] * passiveInfo.value;
             }
 
             if (activeBidAmount1 >= passiveBidAmount1) {
@@ -91,19 +90,19 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
         }
         else if (tradingTypeOffset == stra::OPEN_LONG) {
             double activeAskAmount1 = 0.0;
-            if (activeInfo.calculateType == 0) {
-                activeAskAmount1 = pdata->activeAskVolume[0] * pdata->activeAskPrice[0] * activeInfo.multiple;
+            if (activeInfo.calcType == 0) {
+                activeAskAmount1 = pdata->activeAskVolume[0] * pdata->activeAskPrice[0] * activeInfo.value;
             }
-            else if (activeInfo.calculateType == 1) {
-                activeAskAmount1 = pdata->activeAskVolume[0] * activeInfo.multiple;
+            else if (activeInfo.calcType == 1) {
+                activeAskAmount1 = pdata->activeAskVolume[0] * activeInfo.value;
             }
 
             double passiveAskAmount1 = 0.0;
-            if (passiveInfo.calculateType == 0) {
-                passiveAskAmount1 = pdata->passiveAskVolume[0] * pdata->passiveAskPrice[0] * passiveInfo.multiple;
+            if (passiveInfo.calcType == 0) {
+                passiveAskAmount1 = pdata->passiveAskVolume[0] * pdata->passiveAskPrice[0] * passiveInfo.value;
             }
-            else if (passiveInfo.calculateType == 1) {
-                passiveAskAmount1 = pdata->passiveAskVolume[0] * passiveInfo.multiple;
+            else if (passiveInfo.calcType == 1) {
+                passiveAskAmount1 = pdata->passiveAskVolume[0] * passiveInfo.value;
             }
             
             if (activeAskAmount1 >= passiveAskAmount1) {
@@ -259,17 +258,17 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
         }
     }
 
-        if (activeInfo.calculateType == 0) {
+        if (activeInfo.calcType == 0) {
             double midPrice = (pdata->activeBidPrice[0] + pdata->activeAskPrice[0]) / 2;
-            if (midPrice > 0 && activeInfo.multiple > 0) {
-                // double volume = 100 / midPrice / activeInfo.multiple;
-                double volume = minOrderAmount / midPrice / activeInfo.multiple;
+            if (midPrice > 0 && activeInfo.value > 0) {
+                // double volume = 100 / midPrice / activeInfo.value;
+                double volume = minOrderAmount / midPrice / activeInfo.value;
                 tempVolume = max(tempVolume, volume);
             }
-        } else if (activeInfo.calculateType == 1) {
-            if (activeInfo.multiple > 0) {
-                // double volume = 100 / activeInfo.multiple;
-                double volume = minOrderAmount / activeInfo.multiple;
+        } else if (activeInfo.calcType == 1) {
+            if (activeInfo.value > 0) {
+                // double volume = 100 / activeInfo.value;
+                double volume = minOrderAmount / activeInfo.value;
                 tempVolume = max(tempVolume, volume);
             }
         }

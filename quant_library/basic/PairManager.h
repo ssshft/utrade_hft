@@ -3,7 +3,6 @@
 
 #include "DataStruct.h"
 #include "PositionManager.h"
-#include "BasicInfoMgr.h"
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>

@@ -1,6 +1,5 @@
 #include "OrderManager.h"
 #include "Utility.h"
-#include "BasicInfoMgr.h"
 
 OrderManager::OrderManager() {
 }
@@ -106,7 +105,7 @@ void OrderManager::CalculateTotalPriceVolume() {
     for (auto it = mOrder.begin(); it != mOrder.end(); ++it) {
         auto& order = it->second;
         md::InstrumentInfo info;
-        smc->get_instrument_info(order.exchangeType, order.instType, order.instrument, info);
+        //smc->get_instrument_info(order.exchangeType, order.instType, order.instrument, info);
         if (order.instType == USDT_SWAP || order.instType == USDT_FUTURES) {
             if (info.calcType == 0) {
                 totalPrice = (totalPrice * totalVolume + order.price * order.volume) / (totalVolume + order.volume);

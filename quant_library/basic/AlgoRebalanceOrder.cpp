@@ -2,7 +2,6 @@
 #include "SpreadManager.h"
 #include "AccountManager.h"
 #include "QuantTrade.h"
-#include "BasicInfoMgr.h"
 #include "Convert.h"
 
 
@@ -183,18 +182,18 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
     }
 
     if (activeTrade == 1) {
-        if (activeInfo.calculateType == 0) {
+        if (activeInfo.calcType == 0) {
             double midPrice = (pdata->activeBidPrice[0] + pdata->activeAskPrice[0]) / 2;
-            if (midPrice > 0 && activeInfo.multiple > 0) {
-                double volume = minOrderAmount / midPrice / activeInfo.multiple;
+            if (midPrice > 0 && activeInfo.value > 0) {
+                double volume = minOrderAmount / midPrice / activeInfo.value;
                 if (fabs(targetActiveVolume) > stra::MIN_FLOAT) {
                     targetVolume = max(targetVolume, volume);
                 }
             }
         }
-        else if (activeInfo.calculateType == 1) {
-           if (activeInfo.multiple > 0) {
-                double volume = minOrderAmount / activeInfo.multiple;
+        else if (activeInfo.calcType == 1) {
+           if (activeInfo.value > 0) {
+                double volume = minOrderAmount / activeInfo.value;
                 if (fabs(targetActiveVolume) > stra::MIN_FLOAT) {
                     targetVolume = max(targetVolume, volume);
                 }
@@ -202,18 +201,18 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
         }
     }
     else if (activeTrade == 0) {
-        if (passiveInfo.calculateType == 0) {
+        if (passiveInfo.calcType == 0) {
             double midPrice = (pdata->passiveBidPrice[0] + pdata->passiveAskPrice[0]) / 2;
-            if (midPrice > 0 && passiveInfo.multiple > 0) {
-                double volume = minOrderAmount / midPrice / passiveInfo.multiple;
+            if (midPrice > 0 && passiveInfo.value > 0) {
+                double volume = minOrderAmount / midPrice / passiveInfo.value;
                 if (fabs(targetActiveVolume) > stra::MIN_FLOAT) {
                     targetVolume = max(targetVolume, volume);
                 }
             }
         }
-        else if (passiveInfo.calculateType == 1) {
-           if (passiveInfo.multiple > 0) {
-                double volume = minOrderAmount / passiveInfo.multiple;
+        else if (passiveInfo.calcType == 1) {
+           if (passiveInfo.value > 0) {
+                double volume = minOrderAmount / passiveInfo.value;
                 if (fabs(targetActiveVolume) > stra::MIN_FLOAT) {
                     targetVolume = max(targetVolume, volume);
                 }
@@ -417,10 +416,10 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
         if (totalActiveVolume > stra::MIN_FLOAT) {
             if (pairOrder.activeDirection == DT_LONG) {
                 pairTotalVolume += activeVolume;
-                if (activeInfo.calculateType == 0) {
+                if (activeInfo.calcType == 0) {
                     pairActiveTotalPrice = (totalActivePrice * totalActiveVolume + activePrice * activeVolume) / (totalActiveVolume + activeVolume);
                 }
-                else if (activeInfo.calculateType == 1) {
+                else if (activeInfo.calcType == 1) {
                     pairActiveTotalPrice = 1 / ((1 / totalActivePrice * totalActiveVolume + 1 / activePrice * activeVolume) / (totalActiveVolume + activeVolume));
                 }
             }
@@ -434,10 +433,10 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
         else if (totalActiveVolume < -stra::MIN_FLOAT) {
             if (pairOrder.activeDirection == DT_SHORT) {
                 pairTotalVolume -= activeVolume;
-                if (activeInfo.calculateType == 0) {
+                if (activeInfo.calcType == 0) {
                     pairActiveTotalPrice = (totalActivePrice * totalActiveVolume - activePrice * activeVolume) / (totalActiveVolume - activeVolume);
                 }
-                else if (activeInfo.calculateType == 1) {
+                else if (activeInfo.calcType == 1) {
                     pairActiveTotalPrice = 1 / ((1 / totalActivePrice * totalActiveVolume - 1 / activePrice * activeVolume) / (totalActiveVolume - activeVolume));
                 }
             }
@@ -475,10 +474,10 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
         if (totalPassiveVolume > stra::MIN_FLOAT) {
             if (pairOrder.passiveDirection == DT_LONG) {
                 pairPassiveTotalVolume += passiveVolume;
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     pairPassiveTotalPrice = (totalPassivePrice * totalPassiveVolume + passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume);
                 }
-                else if (passiveInfo.calculateType == 1) {
+                else if (passiveInfo.calcType == 1) {
                     pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume + 1 / passivePrice * passiveVolume) / (totalPassiveVolume + passiveVolume));
                 }
             }
@@ -492,10 +491,10 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
         else if (totalPassiveVolume < -stra::MIN_FLOAT) {
             if (pairOrder.passiveDirection == DT_SHORT) {
                 pairPassiveTotalVolume -= passiveVolume;
-                if (passiveInfo.calculateType == 0) {
+                if (passiveInfo.calcType == 0) {
                     pairPassiveTotalPrice = (totalPassivePrice * totalPassiveVolume - passivePrice * passiveVolume) / (totalPassiveVolume - passiveVolume);
                 }
-                else if (passiveInfo.calculateType == 1) {
+                else if (passiveInfo.calcType == 1) {
                     pairPassiveTotalPrice = 1 / ((1 / totalPassivePrice * totalPassiveVolume - 1 / passivePrice * passiveVolume) / (totalPassiveVolume - passiveVolume));
                 }
             }
@@ -527,19 +526,19 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
 
 void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime) {
     double activeFrozenValue = 0.0;
-    if (activeInfo.calculateType == 0) {
-        activeFrozenValue = pairOrder.activeFrozenVolume * pairOrder.activeFrozenPrice * activeInfo.multiple;
+    if (activeInfo.calcType == 0) {
+        activeFrozenValue = pairOrder.activeFrozenVolume * pairOrder.activeFrozenPrice * activeInfo.value;
     }
     else {
-        activeFrozenValue = pairOrder.activeFrozenVolume * activeInfo.multiple;
+        activeFrozenValue = pairOrder.activeFrozenVolume * activeInfo.value;
     }
 
     double passiveFrozenValue = 0.0;
-    if (passiveInfo.calculateType == 0) {
-        passiveFrozenValue = pairOrder.passiveFrozenVolume * pairOrder.passiveFrozenPrice * passiveInfo.multiple;
+    if (passiveInfo.calcType == 0) {
+        passiveFrozenValue = pairOrder.passiveFrozenVolume * pairOrder.passiveFrozenPrice * passiveInfo.value;
     }
     else {
-        passiveFrozenValue = pairOrder.passiveFrozenVolume * passiveInfo.multiple;
+        passiveFrozenValue = pairOrder.passiveFrozenVolume * passiveInfo.value;
     }
 
 

@@ -7,7 +7,6 @@
 #include <vector>
 #include <unordered_map>
 #include <cstring>
-#include "BasicInfoMgr.h"
 #include "Utility.h"
 #include "StraException.h"
 #include "crypto_errors.h"
@@ -1112,6 +1111,43 @@ struct AccountInfo {
     int maxCancelPersec;
     int orderNum;
 };
+
+
+inline double GetAmountByVolumePrice(const md::InstrumentInfo& info, string baseAsset, double volume, double price) {
+    double amount = 0.0;
+    if (info.quote == baseAsset || ((info.quote == "USDT" || info.quote == "USD" || info.quote == "USDC" || info.quote == "BUSD") && (baseAsset == "USDT" || baseAsset == "USD" || baseAsset == "USDC" || baseAsset == "BUSD"))) {
+        if (info.calcType == 0) {
+            amount = volume * info.value;
+        } else if (info.calcType == 1) {
+            amount = volume * info.value / price;
+        }
+    } else if (info.base == baseAsset || ((info.base == "USDT" || info.base == "USD" || info.base == "USDC" || info.base == "BUSD") && (baseAsset == "USDT" || baseAsset == "USD" || baseAsset == "USDC" || baseAsset == "BUSD"))) {
+        if (info.calcType == 0) {
+            amount = volume * info.value * price;
+        } else if (info.calcType == 1) {
+            amount = volume * info.value;
+        }
+    }
+    return amount;
+}
+
+inline double GetVolumeByAmountPrice(const md::InstrumentInfo& info, string baseAsset, double amount, double price) {
+    double volume = 0.0;
+    if (info.quote == baseAsset || ((info.quote == "USDT" || info.quote == "USD" || info.quote == "USDC" || info.quote == "BUSD") && (baseAsset == "USDT" || baseAsset == "USD" || baseAsset == "USDC" || baseAsset == "BUSD"))) {
+        if (info.calcType == 0) {
+            volume = amount / info.value;
+        } else if (info.calcType == 1) {
+            volume = amount * price / info.value;
+        }
+    } else if (info.base == baseAsset || ((info.base == "USDT" || info.base == "USD" || info.base == "USDC" || info.base == "BUSD") && (baseAsset == "USDT" || baseAsset == "USD" || baseAsset == "USDC" || baseAsset == "BUSD"))) {
+        if (info.calcType == 0) {
+            volume = amount / price / info.value;
+        } else if (info.calcType == 1) {
+            volume = amount / info.value;
+        }
+    }
+    return volume;
+}
 
 
 extern std::unordered_map<std::string, int> mAccountNameAccountId;
