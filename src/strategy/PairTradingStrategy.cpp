@@ -35,7 +35,9 @@ void PairTradingStrategy::pre_start(Config* config) {
 
     if (op.HasMember("pairKeys")) {
         for (auto& pk: op["pairKeys"].GetArray()) {
-            m_ptCfg.pairKeys.emplace_back(pk.GetString());
+            std::string pairKey = pk.GetString();
+            m_ptCfg.pairKeys.emplace_back(pairKey);
+            dbpreader->Subscribe(pairKey);
         }
     }
 
@@ -60,7 +62,7 @@ void PairTradingStrategy::pre_start(Config* config) {
     ptContext.SetAlgoCommandCallback([this](const std::string& json) {
         SubmitAlgoCommand(json);
     });
-    
+
     ptContext.Init(m_ptCfg, smc);
 }
 
@@ -96,8 +98,8 @@ void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpD
     static uint64_t count = 0;
     auto& data = *pdata;
 
-    //std::cout << topic->__name << "spreadBidAsk(openLong):" << data.spreadBidAsk << "  spreadAskBid(openShort):" << data.spreadAskBid << "passiveAskPrice1:" << data.passiveAskPrice[0] << " passiveBidPrice1:" << data.passiveBidPrice[0] << " activeAskPrice1:" << data.activeAskPrice[0] << " activeBidPrice1:" << data.activeBidPrice[0] << std::endl;
-    //return;
+    std::cout << topic->__name << "spreadAskAsk(openLong):" << data.spreadBidAsk << "  spreadBidBid(openShort):" << data.spreadAskBid << "passiveAskPrice1:" << data.passiveAskPrice[0] << " passiveBidPrice1:" << data.passiveBidPrice[0] << " activeAskPrice1:" << data.activeAskPrice[0] << " activeBidPrice1:" << data.activeBidPrice[0] << std::endl;
+    return;
 
     stra::MdSpread mdSpread;
     mdSpread.spreadDrive = stra::SpreadDrive(topic->spreadDrive);  // 价差驱动
