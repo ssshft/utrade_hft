@@ -889,7 +889,7 @@ void AlgoContext::OnCommand(string s) {
     pAlgoOrder->ttTargetVolume = 100;
     pAlgoOrder->mtTargetVolume = 100;
     pAlgoOrder->minVolume = 40;
-    pAlgoOrder->profitSwitch = false
+    pAlgoOrder->profitSwitch = false;
     pAlgoOrder->profitPct = 0.1;
 
     pAlgoOrder->ttOLStartSpread = -0.0001;
