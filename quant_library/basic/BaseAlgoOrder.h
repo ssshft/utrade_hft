@@ -11,9 +11,11 @@
 #include "securitymanager.h"
 
 struct BaseAlgoOrder {
-    char sccId[stra::INST_ID_LEN]{""};
-    char toAec[stra::NAME_LEN]{""};
-    char clientOrderId[stra::ID_LEN]{""};
+    // char sccId[stra::INST_ID_LEN]{""};
+    // char toAec[stra::NAME_LEN]{""};
+    // char clientOrderId[stra::ID_LEN]{""};
+
+
     stra::CommandType commandType{stra::CommandType_MIN};
     int64_t insertTime{0};
     int64_t updateTime{0};

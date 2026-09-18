@@ -52,14 +52,6 @@ void AlgoContext::Init(sm::SecurityManager* s) {
     lastAlgoUpdateTime = GetCurrentTimeUs();
     tradesDelayThreshold = static_cast<int64_t>(StrategyConfig::GetInstance().GetTradesThreshold()) * 1000;
     onTimerTrade = StrategyConfig::GetInstance().GetOnTimerTrade();
-
-
-    string tradeConfigStr = crypto::read_file("/inc/trade_config.json");
-    rapidjson::Document d1;
-    rapidjson::Value &tradeConfig = d1.Parse<rapidjson::kParseNumbersAsStringsFlag>(tradeConfigStr.c_str());
-    utrade2SccChannel = tradeConfig["utrade"]["Utrade2SCCChannel"].GetString();
-    QuantPub::Instance().SetPubChannel(utrade2SccChannel);
-
 }
 
 void AlgoContext::QueryAccount() {
@@ -83,12 +75,10 @@ void AlgoContext::SetDbp(dbp::DbpReader* dbp) {
     QuantDbp::Instance().SetDbp(dbp);  
 }
 
-// void AlgoContext::SetPub(RedisClient* redisClient) {
-//     //QuantPub::Instance().SetPub(redisClient);
-// }
 
 void AlgoContext::OnCommand(string s) {
     // rLarkMsg.Push(s);
+    /*
     LOG_INFO("OnCommand: {}", s);
     try {
         rapidjson::Document d;
@@ -834,7 +824,158 @@ void AlgoContext::OnCommand(string s) {
         sprintf(msg, "some errors has happened in AlgoContext::OnCommand, errormsg:{}", e.what());
         rLarkMsg.Push(msg);
     }
+
+    */
+
+
+
+    BaseAlgoOrder* pAlgoOrder = new AlgoPairOrder();
+    pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
+    pAlgoOrder->commandType = stra::CommandType_NEW;
+    pAlgoOrder->insertTime = crypto::getCurrentTime();
+    strncpy(pAlgoOrder->algoStrategyName, "cc_test1", stra::NAME_LEN);
+    strncpy(pAlgoOrder->pairInstrumentKey, "BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT", stra::INST_KEY_LEN);
+    strncpy(pAlgoOrder->baseAsset, "USDT", stra::ASSET_LEN);
+
+    strncpy(pAlgoOrder->activeInstrumentKey, "BINANCE.USDT_SWAP.DOGE-USDT", stra::INST_KEY_LEN);
+    pAlgoOrder->activePriceTakerPct = 0.0;
+    pAlgoOrder->activePriceMakerPct = 0.0;
+    pAlgoOrder->activeAccountId = 10000;
+    pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
+    pAlgoOrder->activeDepthMakerCheck = false;
+    pAlgoOrder->activeDepthTakerCheck = false;
+    pAlgoOrder->activeOrderType = OT_LIMIT;
     
+    strncpy(pAlgoOrder->passiveInstrumentKey, "GATEIO.USDT_SWAP.DOGE-USDT", stra::INST_KEY_LEN);
+    pAlgoOrder->passivePriceTakerPct = 0.0;
+    pAlgoOrder->passivePriceMakerPct = 0.0;
+    pAlgoOrder->passiveAccountId = 10001;
+    pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
+    pAlgoOrder->passiveDepthMakerCheck = false;
+    pAlgoOrder->passiveDepthTakerCheck = false;
+    pAlgoOrder->passiveOrderType = OT_LIMIT;
+    
+    pAlgoOrder->passiveVolumePct = 0.5;
+    pAlgoOrder->activeMakerCancelOrderTime = 5000000LL;
+    pAlgoOrder->activeTakerCancelOrderTime = 5000000LL;
+    pAlgoOrder->passiveMakerCancelOrderTime = 5000000LL;
+    pAlgoOrder->passiveTakerCancelOrderTime = 5000000LL;
+    
+    pAlgoOrder->activePassiveCancelOrderPct = 0.001;
+    pAlgoOrder->activeMakerCancelOrderPct = 0.001;
+    pAlgoOrder->activeTakerCancelOrderPct = 0.001;
+    pAlgoOrder->passiveMakerCancelOrderPct = 0.001;
+    pAlgoOrder->passiveTakerCancelOrderPct = 0.001;
+    
+    pAlgoOrder->activeMakerFeeRate = 0.0;
+    pAlgoOrder->activeTakerFeeRate = 0.0;
+    pAlgoOrder->passiveMakerFeeRate = 0.0;
+    pAlgoOrder->passiveTakerFeeRate = 0.0;
+    pAlgoOrder->activeTakerSlippage = 0.0;
+    pAlgoOrder->activeMakerSlippage = 0.0;
+    pAlgoOrder->passiveTakerSlippage = 0.0;
+    pAlgoOrder->passiveMakerSlippage = 0.0;
+    
+    pAlgoOrder->pairActiveTotalPrice = -1.0;
+    pAlgoOrder->pairTotalVolume = 0.0;
+    pAlgoOrder->pairPassiveTotalVolume = 0.0;
+    pAlgoOrder->pairPassiveTotalPrice = -1.0;
+    
+    pAlgoOrder->maxMTOrderSize = 120;
+    pAlgoOrder->maxTTOrderSize = 120;
+    pAlgoOrder->targetSpreadType = stra::TargetSpredPrice_NOW;
+    pAlgoOrder->activeVolumeCalcualteType = stra::ActiveVolumeCalcualteType_PassiveVolumePct;
+    
+    pAlgoOrder->ttTargetVolume = 100;
+    pAlgoOrder->mtTargetVolume = 100;
+    pAlgoOrder->minVolume = 40;
+    pAlgoOrder->profitSwitch = false
+    pAlgoOrder->profitPct = 0.1;
+
+    pAlgoOrder->ttOLStartSpread = -0.0001;
+    pAlgoOrder->ttOLEndSpread = -0.0005;
+    pAlgoOrder->ttOLStartVolume = 0.0;
+    pAlgoOrder->ttOLEndVolume = -1000;
+    pAlgoOrder->ttOLSwitch = false;
+      
+    pAlgoOrder->ttCLStartSpread = 0;
+    pAlgoOrder->ttCLEndSpread = 0.001;
+    pAlgoOrder->ttCLStartVolume = -1000;
+    pAlgoOrder->ttCLEndVolume = 0;
+    pAlgoOrder->ttCLSwitch = false;
+    
+    pAlgoOrder->ttOSStartSpread = 0;
+    pAlgoOrder->ttOSEndSpread = 0.001;
+    pAlgoOrder->ttOSStartVolume = 0;
+    pAlgoOrder->ttOSEndVolume = 1000;
+    pAlgoOrder->ttOSSwitch = true;
+    
+    pAlgoOrder->ttCSStartSpread = -0.0001;
+    pAlgoOrder->ttCSEndSpread = -0.0005;
+    pAlgoOrder->ttCSStartVolume = 1000;
+    pAlgoOrder->ttCSEndVolume = 0;
+    pAlgoOrder->ttCSSwitch = false;
+      
+    pAlgoOrder->mtOLStartSpread = -0.0001;
+    pAlgoOrder->mtOLEndSpread = -0.0005;
+    pAlgoOrder->mtOLStartVolume = 0.0;
+    pAlgoOrder->mtOLEndVolume = -1000;
+    pAlgoOrder->mtOLSwitch = false;
+     
+    pAlgoOrder->mtCLStartSpread = 0;
+    pAlgoOrder->mtCLEndSpread = 0.001;
+    pAlgoOrder->mtCLStartVolume = -1000;
+    pAlgoOrder->mtCLEndVolume = 0;
+    pAlgoOrder->mtCLSwitch = false;
+      
+    pAlgoOrder->mtOSStartSpread = 0;
+    pAlgoOrder->mtOSEndSpread = 0.001;
+    pAlgoOrder->mtOSStartVolume = 0;
+    pAlgoOrder->mtOSEndVolume = 1000;
+    pAlgoOrder->mtOSSwitch = false;
+     
+    pAlgoOrder->mtCSStartSpread = -0.0001;
+    pAlgoOrder->mtCSEndSpread = -0.0005;
+    pAlgoOrder->mtCSStartVolume = 1000;
+    pAlgoOrder->mtCSEndVolume = 0;
+    pAlgoOrder->mtCSSwitch = false;
+
+    pAlgoOrder->mtRebalanceSwitch = false;
+    pAlgoOrder->ttRebalanceSwitch = false;
+    pAlgoOrder->mtRebalanceFlag = false;
+    pAlgoOrder->ttRebalanceFlag = false;
+    pAlgoOrder->mtPriceTrendProtectFlag = false;
+    pAlgoOrder->ttPriceTrendProtectFlag = false;
+    pAlgoOrder->activePriceTickFlag = false;
+    pAlgoOrder->activePriceTickNum = 0;
+    pAlgoOrder->passivePriceTickFlag = false;
+    pAlgoOrder->passivePriceTickNum = 0;
+    pAlgoOrder->isManual = false;
+    pAlgoOrder->takerTakerFs = pAlgoOrder->activeTakerFeeRate + pAlgoOrder->passiveTakerFeeRate + pAlgoOrder->activeTakerSlippage + pAlgoOrder->passiveTakerSlippage;
+    pAlgoOrder->makerTakerFs = pAlgoOrder->activeMakerFeeRate + pAlgoOrder->passiveTakerFeeRate + pAlgoOrder->activeMakerSlippage + pAlgoOrder->passiveTakerSlippage;
+    
+
+    AlgoPairOrder* pPairOrder = (AlgoPairOrder*)pAlgoOrder;
+    pPairOrder->commandType = stra::CommandType_TRADING;
+    pPairOrder->algoOrderStatus = OS_NEW;
+    pPairOrder->algoType = stra::AlgoType_PairTrading;
+    pPairOrder->Init(smc);
+    alogOrderManager.InsertAlgoOrderByAlgoOrder(pPairOrder);
+
+    // string pubMsg = pPairOrder->GeneratePubStr();
+    // rLarkMsg.Push(pubMsg);
+
+
+    //WriteAlgoPairOrder(pPairOrder);
+
+    bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pPairOrder->pairInstrumentKey);
+    if (!exist) {
+        LOG_INFO("Subscribe pairInstrumentKey:{}", pPairOrder->pairInstrumentKey);
+        SpreadManager::Instance().AddSpreadPara(pPairOrder->pairInstrumentKey);
+        QuantDbp::Instance().Subscribe(pPairOrder->pairInstrumentKey);
+    } else {
+        LOG_INFO("Not Subscribe pairInstrumentKey:{} already exist!", pPairOrder->pairInstrumentKey);
+    }   
 }
 
 void AlgoContext::OnMarketDepth() {
