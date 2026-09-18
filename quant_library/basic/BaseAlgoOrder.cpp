@@ -96,6 +96,8 @@ BaseAlgoOrder::BaseAlgoOrder() {
 }
 
 void BaseAlgoOrder::Init(sm::SecurityManager* s) {
+     smc = s;
+
     vector<string> vActive;
     splitString(activeInstrumentKey, vActive, ".");
 
@@ -113,8 +115,6 @@ void BaseAlgoOrder::Init(sm::SecurityManager* s) {
     }
 
     tradesDelayThreshold = StrategyConfig::GetInstance().GetTradesThreshold() * 1000;
-
-    smc = s;
 }
 
 void BaseAlgoOrder::InitPositionMgr() {
