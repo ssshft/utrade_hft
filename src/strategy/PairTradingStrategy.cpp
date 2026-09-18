@@ -93,6 +93,7 @@ void PairTradingStrategy::on_timer(const int64_t& utcTime) {
 }
 
 void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum) {
+    std::cout << topic->__name << " " << pdata->activeAskPrice[0] << " " << pdata->activeBidPrice[0] << " " << pdata->passiveAskPrice[0] << " " << pdata->passiveBidPrice[0] << std::endl;
     algoContext.OnSpread(topic, pdata);
     //ptContext.OnSpread(topic, pdata);
 }
