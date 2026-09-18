@@ -6,6 +6,8 @@
 static PairOrder defaultPairOrder;
 
 void PairOrder::Init(sm::SecurityManager* s) {
+    smc = s;
+
     vector<string> vActive;
     splitString(activeInstrumentKey, vActive, ".");
     if (vActive.size() >= 3) {
@@ -30,8 +32,6 @@ void PairOrder::Init(sm::SecurityManager* s) {
     if (minAmount > 0) {
         minOrderAmount = minAmount;
     }
-
-    smc = s;
 }
 
 stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
