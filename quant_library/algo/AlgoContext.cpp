@@ -1870,6 +1870,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
+                            std::cout << "---stuck order----query error-----" << std::endl;
                         }
 
                         if (pass) {
@@ -1902,6 +1903,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
+                            std::cout << "---unknown order----query error-----" << std::endl;
                         }
                     }
                 }
@@ -1932,6 +1934,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
+                        std::cout << "orderAmount < minSize && allPairOrders.size() == 0" << std::endl;
                     }
 
                 }
@@ -1949,6 +1952,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
+                        std::cout << "orderAmount < it->second->activeInfo.minSize && allPairOrders.size() == 0" << std::endl;
                     }    
                 }        
             }
@@ -2011,12 +2015,14 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 //QuantPub::Instance().Publish(pubMsg);
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
+                std::cout << "allPairOrders.size() == 0 && it->second->algoOrderStatus == OS_CANCELLING" << std::endl;
             } else if (allPairOrders.size() == 0/* && it->second->algoOrderStatus == stra::OrderStatus_ERRORCANCELLING */) {  //需要考虑下这个状态的定义
                 //it->second->algoOrderStatus = stra::OrderStatus_ERRORCANCELED; 
                 string pubMsg = it->second->GeneratePubStr();
                 //QuantPub::Instance().Publish(pubMsg);
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
+                std::cout << "allPairOrders.size() == 0" << std::endl;
             }
 
             if (deleteAlgoOrderFlag) {
