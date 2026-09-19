@@ -966,7 +966,7 @@ void AlgoContext::OnCommand(string s) {
     // rLarkMsg.Push(pubMsg);
 
 
-    WriteAlgoPairOrder(pPairOrder);
+    WriteAlgoOrder(pPairOrder);
 
     bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pPairOrder->pairInstrumentKey);
     if (!exist) {

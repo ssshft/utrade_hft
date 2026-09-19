@@ -15,7 +15,7 @@ inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* p
         "{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},"  // targetPrice ~ totalVolumeOnOrder
         "{:.13f},{:.13f},{:.13f},{:.13f},"                  // spread.activeBidPrice1 ~ spread.activeAskVolume1
         "{:.13f},{:.13f},{:.13f},{:.13f},"                  // spread.passiveBidPrice1 ~ spread.passiveAskVolume1
-        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", // remaining fields
+        "{},{},{},{},{},{},{},{},{},{},{},{}", // remaining fields
         order.strategyName,
         order.strategyOrderId,
         order.systemOrderId,
@@ -42,13 +42,7 @@ inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* p
         pdata->passiveAskPrice[0],
         pdata->passiveAskVolume[0],
         
-        order.totalShortFee.GetStr(),
-        order.totalLongFee.GetStr(),
-    
-        order.orderTime,
-        order.updateTime,
-        order.killTime,
-    
+        order.updateTime,    
         order.errorId,
         order.originErrorMsg,
         order.reduceOnly,
