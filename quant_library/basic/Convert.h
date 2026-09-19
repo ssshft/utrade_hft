@@ -11,7 +11,7 @@
 
 inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* pdata) {
     std::string s = fmt::format(
-        "{},{},{},{},{},{},{},{},{},"      // strings + enums
+        "{},{},{},{},{},{},{},{},"      // strings + enums
         "{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},"  // targetPrice ~ totalVolumeOnOrder
         "{:.13f},{:.13f},{:.13f},{:.13f},"                  // spread.activeBidPrice1 ~ spread.activeAskVolume1
         "{:.13f},{:.13f},{:.13f},{:.13f},"                  // spread.passiveBidPrice1 ~ spread.passiveAskVolume1
@@ -24,7 +24,6 @@ inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* p
         OrderTypeEnum2StrMap[order.orderType],
         DirectionEnum2StrMap[order.direction],
         OrderStatusEnum2StrMap[order.orderStatus],
-        order.orderTimeStatus.GetStr(),
     
         order.targetPrice,
         order.price,
@@ -33,16 +32,16 @@ inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* p
         order.totalVolumeOnOrder,
         order.tradeVolume,
     
-        spread.activeBidPrice1,
-        spread.activeBidVolume1,
-        spread.activeAskPrice1,
-        spread.activeAskVolume1,
-    
-        spread.passiveBidPrice1,
-        spread.passiveBidVolume1,
-        spread.passiveAskPrice1,
-        spread.passiveAskVolume1,
-    
+        pdata->activeBidPrice[0],
+        pdata->activeBidVolume[0],
+        pdata->activeAskPrice[0],
+        pdata->activeAskVolume[0],
+
+        pdata->passiveBidPrice[0],
+        pdata->passiveBidVolume[0],
+        pdata->passiveAskPrice[0],
+        pdata->passiveAskVolume[0],
+        
         order.totalShortFee.GetStr(),
         order.totalLongFee.GetStr(),
     
@@ -59,10 +58,10 @@ inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* p
         order.isActiveOrder,
         order.rebalance,
     
-        spread.activeDepthTs,
-        spread.passiveDepthTs,
-        spread.activeDepthDelay,
-        spread.passiveDepthDelay
+        pdata->activeDepthTs,
+        pdata->passiveDepthTs,
+        pdata->activeDepthDelay,
+        pdata->passiveDepthDelay
     );
 
     content c;
@@ -99,29 +98,30 @@ inline void WritePairOrder(const PairOrder& order, const dbp::DbpData* pdata) {
         order.activeInstrumentKey,            // 8  %s
         DirectionEnum2StrMap[order.activeDirection],     // 9  %s
         order.activeTargetPrice,              //10  %.13f
-        spread.activeBidPrice1,               //11  %.13f
-        spread.activeBidVolume1,              //12  %.13f
-        spread.activeAskPrice1,               //13  %.13f
-        spread.activeAskVolume1,              //14  %.13f
+
+        pdata->activeBidPrice[0],               //11  %.13f
+        pdata->activeBidVolume[0],              //12  %.13f
+        pdata->activeAskPrice[0],               //13  %.13f
+        pdata->activeAskVolume[0],              //14  %.13f
     
         order.passiveInstrumentKey,           //15  %s
         DirectionEnum2StrMap[order.passiveDirection],    //16  %s
         order.passiveTargetPrice,             //17  %.13f
-        spread.passiveBidPrice1,              //18  %.13f
-        spread.passiveBidVolume1,             //19  %.13f
-        spread.passiveAskPrice1,              //20  %.13f
-        spread.passiveAskVolume1,             //21  %.13f
+        pdata->passiveBidPrice[0],              //18  %.13f
+        pdata->passiveBidVolume[0],             //19  %.13f
+        pdata->passiveAskPrice[0],              //20  %.13f
+        pdata->passiveAskVolume[0],             //21  %.13f
     
-        spread.spreadBidAsk,                  //22  %.13f
-        spread.spreadBidBid,                  //23  %.13f
-        spread.spreadAskBid,                  //24  %.13f
-        spread.spreadAskAsk,                  //25  %.13f
+        pdata->spreadBidAsk,                  //22  %.13f
+        pdata->spreadBidBid,                  //23  %.13f
+        pdata->spreadAskBid,                  //24  %.13f
+        pdata->spreadAskAsk,                  //25  %.13f
     
-        spread.generateTs,                    //26  %ld (or suitable integer)
-        spread.activeDepthTs,                 //27  %ld
-        spread.passiveDepthTs,                //28  %ld
-        spread.activeDepthDelay,              //29  %ld
-        spread.passiveDepthDelay,             //30  %ld
+        pdata->generateTs,                    //26  %ld (or suitable integer)
+        pdata->activeDepthTs,                 //27  %ld
+        pdata->passiveDepthTs,                //28  %ld
+        pdata->activeDepthDelay,              //29  %ld
+        pdata->passiveDepthDelay,             //30  %ld
     
         order.activeTotalPriceOnOrder,        //31  %.13f
         order.activeTotalVolumeOnOrder,       //32  %.13f
