@@ -9,141 +9,142 @@
 #include "dbp/include.h"
 #include <string>
 
-inline stra::QuantSpread ConvertTdSpreadToStraSpread(const stra::MdSpread& tdSpread) {
-    stra::QuantSpread spread;
-    spread.spreadDrive = tdSpread.spreadDrive;
-    spread.spreadType = tdSpread.spreadType;
-    spread.spreadEffective = tdSpread.spreadEffective;
-    spread.statEffective = tdSpread.statEffective;
-    strncpy(spread.pairInstrumentKey, tdSpread.pairInstrumentKey, stra::INST_KEY_LEN);
-    strncpy(spread.activeInstumentKey, tdSpread.activeInstumentKey, stra::INST_KEY_LEN);
-    strncpy(spread.passiveInstrumentKey, tdSpread.passiveInstrumentKey, stra::INST_KEY_LEN);
-
-    spread.spreadBidAsk = -tdSpread.spreadBidAsk;
-    spread.spreadBidBid = -tdSpread.spreadBidBid;
-    spread.spreadAskBid = -tdSpread.spreadAskBid;
-    spread.spreadAskAsk = -tdSpread.spreadAskAsk;
-
-    spread.spreadBidAskTema = -tdSpread.spreadBidAskTema;
-    spread.spreadBidBidTema = -tdSpread.spreadBidBidTema;
-    spread.spreadAskBidTema = -tdSpread.spreadAskBidTema;
-    spread.spreadAskAskTema = -tdSpread.spreadAskAskTema;
-
-    spread.spreadBidAskMax = -tdSpread.spreadBidAskMax;
-    spread.spreadBidBidMax = -tdSpread.spreadBidBidMax;
-    spread.spreadAskBidMax = -tdSpread.spreadAskBidMax;
-    spread.spreadAskAskMax = -tdSpread.spreadAskAskMax;
-
-    spread.spreadBidAskMin = -tdSpread.spreadBidAskMin;
-    spread.spreadBidBidMin = -tdSpread.spreadBidBidMin;
-    spread.spreadAskBidMin = -tdSpread.spreadAskBidMin;
-    spread.spreadAskAskMin = -tdSpread.spreadAskAskMin;
-
-    spread.activePriceTema = tdSpread.activePriceTema;
-    spread.passivePriceTema = tdSpread.passivePriceTema;
-
-    spread.activeFundingRate = tdSpread.activeFundingRate;
-    spread.passiveFundingRate = tdSpread.passiveFundingRate;
-    spread.activeMultiply = tdSpread.activeMultiply;
-    spread.passiveMultiply = tdSpread.passiveMultiply;
-
-    spread.passiveAskPrice1 = tdSpread.passiveAskPrice1;
-    spread.passiveAskVolume1 = tdSpread.passiveAskVolume1;
-    spread.passiveAskPrice2 = tdSpread.passiveAskPrice2;
-    spread.passiveAskVolume2 = tdSpread.passiveAskVolume2;
-    spread.passiveAskPrice3 = tdSpread.passiveAskPrice3;
-    spread.passiveAskVolume3 = tdSpread.passiveAskVolume3;
-    spread.passiveAskPrice4 = tdSpread.passiveAskPrice4;
-    spread.passiveAskVolume4 = tdSpread.passiveAskVolume4;
-    spread.passiveAskPrice5 = tdSpread.passiveAskPrice5;
-    spread.passiveAskVolume5 = tdSpread.passiveAskVolume5;
-
-    spread.passiveBidPrice1 = tdSpread.passiveBidPrice1;
-    spread.passiveBidVolume1 = tdSpread.passiveBidVolume1;
-    spread.passiveBidPrice2 = tdSpread.passiveBidPrice2;
-    spread.passiveBidVolume2 = tdSpread.passiveBidVolume2;
-    spread.passiveBidPrice3 = tdSpread.passiveBidPrice3;
-    spread.passiveBidVolume3 = tdSpread.passiveBidVolume3;
-    spread.passiveBidPrice4 = tdSpread.passiveBidPrice4;
-    spread.passiveBidVolume4 = tdSpread.passiveBidVolume4;
-    spread.passiveBidPrice5 = tdSpread.passiveBidPrice5;
-    spread.passiveBidVolume5 = tdSpread.passiveBidVolume5;
-
-    spread.activeAskPrice1 = tdSpread.activeAskPrice1;
-    spread.activeAskVolume1 = tdSpread.activeAskVolume1;
-    spread.activeAskPrice2 = tdSpread.activeAskPrice2;
-    spread.activeAskVolume2 = tdSpread.activeAskVolume2;
-    spread.activeAskPrice3 = tdSpread.activeAskPrice3;
-    spread.activeAskVolume3 = tdSpread.activeAskVolume3;
-    spread.activeAskPrice4 = tdSpread.activeAskPrice4;
-    spread.activeAskVolume4 = tdSpread.activeAskVolume4;
-    spread.activeAskPrice5 = tdSpread.activeAskPrice5;
-    spread.activeAskVolume5 = tdSpread.activeAskVolume5;
-
-    spread.activeBidPrice1 = tdSpread.activeBidPrice1;
-    spread.activeBidVolume1 = tdSpread.activeBidVolume1;
-    spread.activeBidPrice2 = tdSpread.activeBidPrice2;
-    spread.activeBidVolume2 = tdSpread.activeBidVolume2;
-    spread.activeBidPrice3 = tdSpread.activeBidPrice3;
-    spread.activeBidVolume3 = tdSpread.activeBidVolume3;
-    spread.activeBidPrice4 = tdSpread.activeBidPrice4;
-    spread.activeBidVolume4 = tdSpread.activeBidVolume4;
-    spread.activeBidPrice5 = tdSpread.activeBidPrice5;
-    spread.activeBidVolume5 = tdSpread.activeBidVolume5;
-
-    spread.activeFundingTs = tdSpread.activeFundingTs;
-    spread.passiveFundingTs = tdSpread.passiveFundingTs;
-    spread.activeDepthTs = tdSpread.activeDepthTs;
-    spread.passiveDepthTs = tdSpread.passiveDepthTs;
-    spread.generateTs = tdSpread.generateTs;
-    spread.diffTs = tdSpread.diffTs;
-
-    spread.activeDepthDelay = tdSpread.activeDepthDelay;
-    spread.passiveDepthDelay = tdSpread.passiveDepthDelay;
-
-    spread.exchActiveTradeDelay = tdSpread.exchActiveTradeDelay;
-    spread.exchPassiveTradeDelay = tdSpread.exchPassiveTradeDelay;
-
-    return spread;
-}
-
 inline void WriteQuantOrder(const stra::QuantOrder& order, const dbp::DbpData* pdata) {
-    LOG_INFO("WriteQuantOrder start format!");
-	char s[stra::STR_LEN * 2];
-    /*
-    sprintf(s, "%s,%ld,%ld,%s,%s,%s,%s,%s,%s,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%s,%s,%ld,%ld,%ld,%d,%s,%d,%ld,%ld,%d,%d", 
-					order.strategyName, order.strategyOrderId, order.systemOrderId, order.exchangeOrderId, order.instrumentKey,
-		            OrderTypeEnum2StrMap[order.orderType].c_str(), DirectionEnum2StrMap[order.direction].c_str(), OrderStatusEnum2StrMap[order.orderStatus].c_str(), order.orderTimeStatus.GetStr().c_str(),
-                    order.targetPrice, order.price, order.volume, order.totalPriceOnOrder, order.totalVolumeOnOrder, order.tradeVolume,
-                    pdata->activeBidPrice[0], pdata->activeBidVolume[0], pdata->activeAskPrice[0], pdata->activeAskVolume[0],
-                    pdata->passiveBidPrice[0], pdata->passiveBidVolume[0], pdata->passiveAskPrice[0], pdata->passiveAskVolume[0],
-		            order.totalShortFee.GetStr().c_str(), order.totalLongFee.GetStr().c_str(),
-		            order.orderTime, order.updateTime, order.killTime,
-                    order.errorId, order.originErrorMsg, order.reduceOnly,
-                    order.pairId, order.algoPairId, order.isActiveOrder, order.rebalance);  
-    LOG_INFO("WriteQuantOrder start push queue!");
-    */
+    std::string s = fmt::format(
+        "{},{},{},{},{},{},{},{},{},"      // strings + enums
+        "{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},"  // targetPrice ~ totalVolumeOnOrder
+        "{:.13f},{:.13f},{:.13f},{:.13f},"                  // spread.activeBidPrice1 ~ spread.activeAskVolume1
+        "{:.13f},{:.13f},{:.13f},{:.13f},"                  // spread.passiveBidPrice1 ~ spread.passiveAskVolume1
+        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", // remaining fields
+        order.strategyName,
+        order.strategyOrderId,
+        order.systemOrderId,
+        order.exchangeOrderId,
+        order.instrumentKey,
+        OrderTypeEnum2StrMap[order.orderType],
+        DirectionEnum2StrMap[order.direction],
+        OrderStatusEnum2StrMap[order.orderStatus],
+        order.orderTimeStatus.GetStr(),
+    
+        order.targetPrice,
+        order.price,
+        order.volume,
+        order.totalPriceOnOrder,
+        order.totalVolumeOnOrder,
+        order.tradeVolume,
+    
+        spread.activeBidPrice1,
+        spread.activeBidVolume1,
+        spread.activeAskPrice1,
+        spread.activeAskVolume1,
+    
+        spread.passiveBidPrice1,
+        spread.passiveBidVolume1,
+        spread.passiveAskPrice1,
+        spread.passiveAskVolume1,
+    
+        order.totalShortFee.GetStr(),
+        order.totalLongFee.GetStr(),
+    
+        order.orderTime,
+        order.updateTime,
+        order.killTime,
+    
+        order.errorId,
+        order.originErrorMsg,
+        order.reduceOnly,
+    
+        order.pairId,
+        order.algoPairId,
+        order.isActiveOrder,
+        order.rebalance,
+    
+        spread.activeDepthTs,
+        spread.passiveDepthTs,
+        spread.activeDepthDelay,
+        spread.passiveDepthDelay
+    );
+
     content c;
     c.type = 1;
     c.msg = s;
-    LOG_INFO("WriteQuantOrder push queue!");
     contentQueue.Push(c);
 }
 
 inline void WritePairOrder(const PairOrder& order, const dbp::DbpData* pdata) {
-    char s[stra::STR_LEN];
-    /*
-    sprintf(s, "%ld,%ld,%s,%s,%s,%s,%f,%s,%s,%f,%f,%f,%f,%f,%s,%s,%f,%f,%f,%f,%f,%f,%f,%f,%f,%ld,%ld,%ld,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d,%ld,%ld,%.13f", 
-                    order.pairId, order.algoPairId, order.strategyName, order.baseAsset, stra::TradingTypeEnum2Str[order.tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[order.tradingTypeOffset].c_str(), order.targetVolume,
-                    order.activeInstrumentKey, DirectionEnum2StrMap[order.activeDirection].c_str(), order.activeTargetPrice, pdata->activeBidPrice[0], pdata->activeBidVolume[0], pdata->activeAskPrice[0], pdata->activeAskVolume[0],
-                    order.passiveInstrumentKey, DirectionEnum2StrMap[order.passiveDirection].c_str(), order.passiveTargetPrice, pdata->passiveBidPrice[0], pdata->passiveBidVolume[0], pdata->passiveAskPrice[0], pdata->passiveAskVolume[0],
-                    pdata->spreadBidAsk, pdata->spreadBidBid, pdata->spreadAskBid, pdata->spreadAskAsk, pdata->generateTs, pdata->activeDepthTs, pdata->passiveDepthTs,
-                    order.activeTotalPriceOnOrder, order.activeTotalVolumeOnOrder, order.passiveTotalPriceOnOrder, order.passiveTotalVolumeOnOrder,
-                    order.pairTotalVolume, order.pairActiveTotalPrice, order.pairPassiveTotalPrice,
-                    order.activeFrozenPrice, order.activeFrozenVolume, order.passiveFrozenPrice, order.passiveFrozenVolume,
-                    order.activeAccountId, order.passiveAccountId, order.status, order.rebalanceFlag, order.updateTime, order.createTime, order.pairTargetSpread);
+    std::string s = fmt::format(
+        // 1-7
+        "{},{},{},{},{},{},{:.13f}," 
+        // 8-14
+        "{},{},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f}," 
+        // 15-21
+        "{},{},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f}," 
+        // 22-25
+        "{:.13f},{:.13f},{:.13f},{:.13f}," 
+        // 26-30
+        "{},{},{},{},{},"
+        // 31-41 (11 doubles)
+        "{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},"
+        // 42-48 (6 integers/long + 1 double)
+        "{},{},{},{},{},{},{:.13f}",
+        // ---- 参数 1 ~ 48 ----
+        order.pairId,                         // 1  %ld
+        order.algoPairId,                     // 2  %ld
+        order.strategyName,                   // 3  %s
+        order.baseAsset,                      // 4  %s
+        stra::TradingTypeEnum2Str[order.tradingTypeOrder],   // 5  %s
+        stra::TradingTypeEnum2Str[order.tradingTypeOffset],  // 6  %s
+        order.targetVolume,                   // 7  %.13f
+    
+        order.activeInstrumentKey,            // 8  %s
+        DirectionEnum2StrMap[order.activeDirection],     // 9  %s
+        order.activeTargetPrice,              //10  %.13f
+        spread.activeBidPrice1,               //11  %.13f
+        spread.activeBidVolume1,              //12  %.13f
+        spread.activeAskPrice1,               //13  %.13f
+        spread.activeAskVolume1,              //14  %.13f
+    
+        order.passiveInstrumentKey,           //15  %s
+        DirectionEnum2StrMap[order.passiveDirection],    //16  %s
+        order.passiveTargetPrice,             //17  %.13f
+        spread.passiveBidPrice1,              //18  %.13f
+        spread.passiveBidVolume1,             //19  %.13f
+        spread.passiveAskPrice1,              //20  %.13f
+        spread.passiveAskVolume1,             //21  %.13f
+    
+        spread.spreadBidAsk,                  //22  %.13f
+        spread.spreadBidBid,                  //23  %.13f
+        spread.spreadAskBid,                  //24  %.13f
+        spread.spreadAskAsk,                  //25  %.13f
+    
+        spread.generateTs,                    //26  %ld (or suitable integer)
+        spread.activeDepthTs,                 //27  %ld
+        spread.passiveDepthTs,                //28  %ld
+        spread.activeDepthDelay,              //29  %ld
+        spread.passiveDepthDelay,             //30  %ld
+    
+        order.activeTotalPriceOnOrder,        //31  %.13f
+        order.activeTotalVolumeOnOrder,       //32  %.13f
+        order.passiveTotalPriceOnOrder,       //33  %.13f
+        order.passiveTotalVolumeOnOrder,      //34  %.13f
+        order.pairTotalVolume,                //35  %.13f
+        order.pairActiveTotalPrice,           //36  %.13f
+        order.pairPassiveTotalPrice,          //37  %.13f
+        order.activeFrozenPrice,              //38  %.13f
+        order.activeFrozenVolume,             //39  %.13f
+        order.passiveFrozenPrice,             //40  %.13f
+        order.passiveFrozenVolume,            //41  %.13f
+    
+        order.activeAccountId,                //42  %ld (or %d as appropriate)
+        order.passiveAccountId,               //43  %ld
+        order.status,                         //44  %d
+        order.rebalanceFlag,                  //45  %d
+        order.updateTime,                     //46  %ld
+        order.createTime,                     //47  %ld
+    
+        order.pairTargetSpread                //48  %.13f
+    );
 
-    */
     content c;
     c.type = 2;
     c.msg = s;
@@ -153,26 +154,96 @@ inline void WritePairOrder(const PairOrder& order, const dbp::DbpData* pdata) {
 inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
     if (ord->algoType == stra::AlgoType_PairTrading) {
         AlgoPairOrder* order = (AlgoPairOrder*)ord;
-        char s[stra::STR_LEN];
-        /*
-        sprintf(s, "%s,%s,%ld,%s,%s,%s,"
-                    "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
-                    "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
-                    "%f,%ld,%ld,%ld,%ld,%f,%f,%f,%f,%f,"
-                    "%f,%f,%f,%f,%f,%f,%f,%f,"
-                    "%f,%f,%f,"
-                    "%f,%f,%f,%f,"
-                    "%s,%s,%f,%f", 
-                    stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, OrderStatusEnum2StrMap[order->algoOrderStatus].c_str(), 
-                    order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->activeOrderType].c_str(), 
-                    order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->passiveOrderType].c_str(), 
-                    order->passiveVolumePct, order->activeMakerCancelOrderTime, order->activeTakerCancelOrderTime, order->passiveMakerCancelOrderTime, order->passiveTakerCancelOrderTime, order->activePassiveCancelOrderPct, order->activeMakerCancelOrderPct, order->activeTakerCancelOrderPct, order->passiveMakerCancelOrderPct, order->passiveTakerCancelOrderPct,
-                    order->activeMakerFeeRate, order->activeTakerFeeRate, order->passiveMakerFeeRate, order->passiveTakerFeeRate, order->activeTakerSlippage, order->activeMakerSlippage, order->passiveTakerSlippage, order->passiveMakerSlippage,
-                    order->pairActiveTotalPrice, order->pairTotalVolume, order->pairPassiveTotalPrice,
-                    order->makerTakerFs, order->takerTakerFs, order->maxMTOrderSize, order->maxTTOrderSize,
-                    stra::TargetSpredPriceEnum2Str[order->targetSpreadType].c_str(), stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType].c_str(), order->ttTargetVolume, order->mtTargetVolume
-                    );
-                    */
+
+        std::string s = fmt::format(
+            // --- 第一段 ---
+            "{},{},{},{},{},{},"                          // 6 字段（字符串/整数）
+            // --- 第二段 ---
+            "{},{:.13f},{:.13f},{},{},{},{},{},{},{},"   // 10 字段 
+            // --- 第三段 ---
+            "{},{:.13f},{:.13f},{},{},{},{},{},{},{},"   // 10 字段
+            // --- 第四段 ---
+            "{:.13f},{},{},{},{},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},"   // 10 字段
+            // --- 第五段 ---
+            "{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f}," // 8 字段
+            // --- 第六段 ---
+            "{:.13f},{:.13f},{:.13f},"                    // 3 字段
+            // --- 第七段 ---
+            "{:.13f},{:.13f},{},{},"            // 4 字段
+            // --- 第八段 ---
+            "{},{},{:.13f},{:.13f}",                      // 4 字段
+        
+            // 第一段
+            stra::AlgoTypeEnum2Str[order->algoType],
+            order->algoStrategyName,
+            order->algoOrderId,
+            order->pairInstrumentKey,
+            order->baseAsset,
+            OrderStatusEnum2StrMap[order->algoOrderStatus],
+        
+            // 第二段
+            order->activeInstrumentKey,
+            order->activePriceTakerPct,
+            order->activePriceMakerPct,
+            order->activeAccountId,
+            stra::DriveTypeEnum2Str[order->activeDriveType],
+            order->activeDepthMakerCheck,
+            order->activeDepthTakerCheck,
+            stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType],
+            stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType],
+            OrderTypeEnum2StrMap[order->activeOrderType],
+        
+            // 第三段
+            order->passiveInstrumentKey,
+            order->passivePriceTakerPct,
+            order->passivePriceMakerPct,
+            order->passiveAccountId,
+            stra::DriveTypeEnum2Str[order->passiveDriveType],
+            order->passiveDepthMakerCheck,
+            order->passiveDepthTakerCheck,
+            stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType],
+            stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType],
+            OrderTypeEnum2StrMap[order->passiveOrderType],
+        
+            // 第四段
+            order->passiveVolumePct,
+            order->activeMakerCancelOrderTime,
+            order->activeTakerCancelOrderTime,
+            order->passiveMakerCancelOrderTime,
+            order->passiveTakerCancelOrderTime,
+            order->activePassiveCancelOrderPct,
+            order->activeMakerCancelOrderPct,
+            order->activeTakerCancelOrderPct,
+            order->passiveMakerCancelOrderPct,
+            order->passiveTakerCancelOrderPct,
+        
+            // 第五段
+            order->activeMakerFeeRate,
+            order->activeTakerFeeRate,
+            order->passiveMakerFeeRate,
+            order->passiveTakerFeeRate,
+            order->activeTakerSlippage,
+            order->activeMakerSlippage,
+            order->passiveTakerSlippage,
+            order->passiveMakerSlippage,
+        
+            // 第六段
+            order->pairActiveTotalPrice,
+            order->pairTotalVolume,
+            order->pairPassiveTotalPrice,
+        
+            // 第七段
+            order->makerTakerFs,
+            order->takerTakerFs,
+            order->maxMTOrderSize,
+            order->maxTTOrderSize,
+        
+            // 第八段
+            stra::TargetSpredPriceEnum2Str[order->targetSpreadType],
+            stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType],
+            order->ttTargetVolume,
+            order->mtTargetVolume
+        );
 
         content c;
         c.type = 3;
@@ -180,92 +251,204 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
         contentQueue.Push(c);
     } else if (ord->algoType == stra::AlgoType_FishingTrading) {
         AlgoFishingOrder* order = (AlgoFishingOrder*)ord;
-        char s[stra::STR_LEN];
-        /*
-        sprintf(s, "%s,%s,%ld,%s,%s,%s,"
-                    "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
-                    "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
-                    "%f,%ld,%ld,%ld,%ld,%f,%f,%f,%f,%f,"
-                    "%f,%f,%f,%f,%f,%f,%f,%f,"
-                    "%f,%f,%f,"
-                    "%f,%f,%f,%f,"
-                    "%s,%s,%f,%f,%f", 
-                    stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, OrderStatusEnum2StrMap[order->algoOrderStatus].c_str(), 
-                    order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->activeOrderType].c_str(), 
-                    order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), stra::OrderTypeEnum2Str[order->passiveOrderType].c_str(), 
-                    order->passiveVolumePct, order->activeMakerCancelOrderTime, order->activeTakerCancelOrderTime, order->passiveMakerCancelOrderTime, order->passiveTakerCancelOrderTime, order->activePassiveCancelOrderPct, order->activeMakerCancelOrderPct, order->activeTakerCancelOrderPct, order->passiveMakerCancelOrderPct, order->passiveTakerCancelOrderPct,
-                    order->activeMakerFeeRate, order->activeTakerFeeRate, order->passiveMakerFeeRate, order->passiveTakerFeeRate, order->activeTakerSlippage, order->activeMakerSlippage, order->passiveTakerSlippage, order->passiveMakerSlippage,
-                    order->pairActiveTotalPrice, order->pairTotalVolume, order->pairPassiveTotalPrice,
-                    order->makerTakerFs, order->takerTakerFs, order->maxMTOrderSize, order->maxTTOrderSize,
-                    stra::TargetSpredPriceEnum2Str[order->targetSpreadType].c_str(), stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType].c_str(), order->ttTargetVolume, order->mtTargetVolume, order->fishingSlippagePct
-                    );
-                    */
+
+        std::string s = fmt::format(
+            // --- 第一段 ---
+            "{},{},{},{},{},{},"                        // 6
+            // --- 第二段 ---
+            "{},{:.13f},{:.13f},{},{},{},{},{},{},{},"   // 10
+            // --- 第三段 ---
+            "{},{:.13f},{:.13f},{},{},{},{},{},{},{},"   // 10
+            // --- 第四段 ---
+            "{:.13f},{},{},{},{},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},"   // 10
+            // --- 第五段 ---
+            "{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f}," // 8
+            // --- 第六段 ---
+            "{:.13f},{:.13f},{:.13f},"                   // 3
+            // --- 第七段 ---
+            "{:.13f},{:.13f},{},{},"
+            // --- 第八段 ---
+            "{},{},{:.13f},{:.13f},{:.13f}",            // 5
+        
+            // ================= 参数 =================
+        
+            // 第一段
+            stra::AlgoTypeEnum2Str[order->algoType],
+            order->algoStrategyName,
+            order->algoOrderId,
+            order->pairInstrumentKey,
+            order->baseAsset,
+            OrderStatusEnum2StrMap[order->algoOrderStatus],
+        
+            // 第二段
+            order->activeInstrumentKey,
+            order->activePriceTakerPct,
+            order->activePriceMakerPct,
+            order->activeAccountId,
+            stra::DriveTypeEnum2Str[order->activeDriveType],
+            order->activeDepthMakerCheck,
+            order->activeDepthTakerCheck,
+            stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType],
+            stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType],
+            OrderTypeEnum2StrMap[order->activeOrderType],
+        
+            // 第三段
+            order->passiveInstrumentKey,
+            order->passivePriceTakerPct,
+            order->passivePriceMakerPct,
+            order->passiveAccountId,
+            stra::DriveTypeEnum2Str[order->passiveDriveType],
+            order->passiveDepthMakerCheck,
+            order->passiveDepthTakerCheck,
+            stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType],
+            stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType],
+            OrderTypeEnum2StrMap[order->passiveOrderType],
+        
+            // 第四段
+            order->passiveVolumePct,
+            order->activeMakerCancelOrderTime,
+            order->activeTakerCancelOrderTime,
+            order->passiveMakerCancelOrderTime,
+            order->passiveTakerCancelOrderTime,
+            order->activePassiveCancelOrderPct,
+            order->activeMakerCancelOrderPct,
+            order->activeTakerCancelOrderPct,
+            order->passiveMakerCancelOrderPct,
+            order->passiveTakerCancelOrderPct,
+        
+            // 第五段
+            order->activeMakerFeeRate,
+            order->activeTakerFeeRate,
+            order->passiveMakerFeeRate,
+            order->passiveTakerFeeRate,
+            order->activeTakerSlippage,
+            order->activeMakerSlippage,
+            order->passiveTakerSlippage,
+            order->passiveMakerSlippage,
+        
+            // 第六段
+            order->pairActiveTotalPrice,
+            order->pairTotalVolume,
+            order->pairPassiveTotalPrice,
+        
+            // 第七段
+            order->makerTakerFs,
+            order->takerTakerFs,
+            order->maxMTOrderSize,
+            order->maxTTOrderSize,
+        
+            // 第八段
+            stra::TargetSpredPriceEnum2Str[order->targetSpreadType],
+            stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType],
+            order->ttTargetVolume,
+            order->mtTargetVolume,
+            order->fishingSlippagePct
+        );
 
         content c;
         c.type = 4;
         c.msg = s;
         contentQueue.Push(c);
+    } else if (ord->algoType == stra::AlgoType_Rebalance) {
+        AlgoRebalanceOrder* order = (AlgoRebalanceOrder*)ord;
+
+        std::string s = fmt::format(
+            // --- 第一段 ---
+            "{},{},{},{},{},{},"                     // 6
+            // --- 第二段 ---
+            "{},{:.13f},{:.13f},{},{},{},{},{},{},{},"   // 10
+            // --- 第三段 ---
+            "{},{:.13f},{:.13f},{},{},{},{},{},{},{},"   // 10
+            // --- 第四段 ---
+            "{:.13f},{},{},{},{},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},"  // 10
+            // --- 第五段 ---
+            "{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f},{:.13f}," // 8
+            // --- 第六段 ---
+            "{:.13f},{:.13f},{:.13f},"               // 3
+            // --- 第七段 ---
+            "{:.13f},{:.13f},{},{},"                           // 4
+            // --- 第八段 ---
+            "{},{},{:.13f},{:.13f},{}",           // 5（最后是 order->activeTrade）
+            // ================ 参数列表 ================
+        
+            // 第一段 (6)
+            stra::AlgoTypeEnum2Str[order->algoType],
+            order->algoStrategyName,
+            order->algoOrderId,
+            order->pairInstrumentKey,
+            order->baseAsset,
+            OrderStatusEnum2StrMap[order->algoOrderStatus],
+        
+            // 第二段 (10)
+            order->activeInstrumentKey,
+            order->activePriceTakerPct,
+            order->activePriceMakerPct,
+            order->activeAccountId,
+            stra::DriveTypeEnum2Str[order->activeDriveType],
+            order->activeDepthMakerCheck,
+            order->activeDepthTakerCheck,
+            stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType],
+            stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType],
+            OrderTypeEnum2StrMap[order->activeOrderType],
+        
+            // 第三段 (10)
+            order->passiveInstrumentKey,
+            order->passivePriceTakerPct,
+            order->passivePriceMakerPct,
+            order->passiveAccountId,
+            stra::DriveTypeEnum2Str[order->passiveDriveType],
+            order->passiveDepthMakerCheck,
+            order->passiveDepthTakerCheck,
+            stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType],
+            stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType],
+            OrderTypeEnum2StrMap[order->passiveOrderType],
+        
+            // 第四段 (10)
+            order->passiveVolumePct,
+            order->activeMakerCancelOrderTime,
+            order->activeTakerCancelOrderTime,
+            order->passiveMakerCancelOrderTime,
+            order->passiveTakerCancelOrderTime,
+            order->activePassiveCancelOrderPct,
+            order->activeMakerCancelOrderPct,
+            order->activeTakerCancelOrderPct,
+            order->passiveMakerCancelOrderPct,
+            order->passiveTakerCancelOrderPct,
+        
+            // 第五段 (8)
+            order->activeMakerFeeRate,
+            order->activeTakerFeeRate,
+            order->passiveMakerFeeRate,
+            order->passiveTakerFeeRate,
+            order->activeTakerSlippage,
+            order->activeMakerSlippage,
+            order->passiveTakerSlippage,
+            order->passiveMakerSlippage,
+        
+            // 第六段 (3)
+            order->pairActiveTotalPrice,
+            order->pairTotalVolume,
+            order->pairPassiveTotalPrice,
+        
+            // 第七段 (4)
+            order->makerTakerFs,
+            order->takerTakerFs,
+            order->maxMTOrderSize,
+            order->maxTTOrderSize,
+        
+            // 第八段 (5)
+            stra::TargetSpredPriceEnum2Str[order->targetSpreadType],
+            stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType],
+            order->ttTargetVolume,
+            order->mtTargetVolume,
+            order->activeTrade
+        );
+
+        content c;
+        c.type = 5;
+        c.msg = s;
+        contentQueue.Push(c); 
     }
-}
-
-inline void WriteAlgoPairOrder(AlgoPairOrder* order) {
-    char s[stra::STR_LEN];
-    /*
-    sprintf(s, "%s,%s,%ld,%s,%s,%s,"
-                "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
-                "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
-                "%f,%ld,%ld,%ld,%ld,%f,%f,%f,%f,%f,"
-                "%f,%f,%f,%f,%f,%f,%f,%f,"
-                "%f,%f,%f,"
-                "%f,%f,%f,%f,"
-                "%s,%s,%f,%f", 
-                stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, OrderStatusEnum2StrMap[order->algoOrderStatus].c_str(), 
-                order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->activeOrderType].c_str(), 
-                order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->passiveOrderType].c_str(), 
-                order->passiveVolumePct, order->activeMakerCancelOrderTime, order->activeTakerCancelOrderTime, order->passiveMakerCancelOrderTime, order->passiveTakerCancelOrderTime, order->activePassiveCancelOrderPct, order->activeMakerCancelOrderPct, order->activeTakerCancelOrderPct, order->passiveMakerCancelOrderPct, order->passiveTakerCancelOrderPct,
-                order->activeMakerFeeRate, order->activeTakerFeeRate, order->passiveMakerFeeRate, order->passiveTakerFeeRate, order->activeTakerSlippage, order->activeMakerSlippage, order->passiveTakerSlippage, order->passiveMakerSlippage,
-                order->pairActiveTotalPrice, order->pairTotalVolume, order->pairPassiveTotalPrice,
-                order->makerTakerFs, order->takerTakerFs, order->maxMTOrderSize, order->maxTTOrderSize,
-                stra::TargetSpredPriceEnum2Str[order->targetSpreadType].c_str(), stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType].c_str(), order->ttTargetVolume, order->mtTargetVolume
-                );
-    */
-
-    content c;
-    c.type = 3;
-    c.msg = s;
-    contentQueue.Push(c);
-}
-
-inline void WriteAlgoFishingOrder(AlgoFishingOrder* order) {
-    char s[stra::STR_LEN];
-    /*
-    sprintf(s, "%s,%s,%ld,%s,%s,%s,"
-                "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
-                "%s,%f,%f,%d,%s,%d,%d,%s,%s,%s,"
-                "%f,%ld,%ld,%ld,%ld,%f,%f,%f,%f,%f,"
-                "%f,%f,%f,%f,%f,%f,%f,%f,"
-                "%f,%f,%f,"
-                "%f,%f,%f,%f,"
-                "%s,%s,%f,%f,%f", 
-                stra::AlgoTypeEnum2Str[order->algoType].c_str(), order->algoStrategyName, order->algoOrderId, order->pairInstrumentKey, order->baseAsset, OrderStatusEnum2StrMap[order->algoOrderStatus].c_str(), 
-                order->activeInstrumentKey, order->activePriceTakerPct, order->activePriceMakerPct, order->activeAccountId, stra::DriveTypeEnum2Str[order->activeDriveType].c_str(), order->activeDepthMakerCheck, order->activeDepthTakerCheck, stra::CheckTypeEnum2Str[order->activeDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->activeDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->activeOrderType].c_str(), 
-                order->passiveInstrumentKey, order->passivePriceTakerPct, order->passivePriceMakerPct, order->passiveAccountId, stra::DriveTypeEnum2Str[order->passiveDriveType].c_str(), order->passiveDepthMakerCheck, order->passiveDepthTakerCheck, stra::CheckTypeEnum2Str[order->passiveDepthMakerCheckType].c_str(), stra::CheckTypeEnum2Str[order->passiveDepthTakerCheckType].c_str(), OrderTypeEnum2StrMap[order->passiveOrderType].c_str(), 
-                order->passiveVolumePct, order->activeMakerCancelOrderTime, order->activeTakerCancelOrderTime, order->passiveMakerCancelOrderTime, order->passiveTakerCancelOrderTime, order->activePassiveCancelOrderPct, order->activeMakerCancelOrderPct, order->activeTakerCancelOrderPct, order->passiveMakerCancelOrderPct, order->passiveTakerCancelOrderPct,
-                order->activeMakerFeeRate, order->activeTakerFeeRate, order->passiveMakerFeeRate, order->passiveTakerFeeRate, order->activeTakerSlippage, order->activeMakerSlippage, order->passiveTakerSlippage, order->passiveMakerSlippage,
-                order->pairActiveTotalPrice, order->pairTotalVolume, order->pairPassiveTotalPrice,
-                order->makerTakerFs, order->takerTakerFs, order->maxMTOrderSize, order->maxTTOrderSize,
-                stra::TargetSpredPriceEnum2Str[order->targetSpreadType].c_str(), stra::ActiveVolumeCalcualteTypeEnum2Str[order->activeVolumeCalcualteType].c_str(), order->ttTargetVolume, order->mtTargetVolume, order->fishingSlippagePct
-                );
-                */
-
-    content c;
-    c.type = 4;
-    c.msg = s;
-    contentQueue.Push(c);
-}
-
-inline void WriteAlgoRebalanceOrder(AlgoRebalanceOrder* order) {
-
 }
 
 #endif

@@ -719,7 +719,7 @@ void AlgoContext::OnCommand(string s) {
                         string pubMsg = pPairOrder->GeneratePubStr();
                         //QuantPub::Instance().Publish(pubMsg);
                         rLarkMsg.Push(pubMsg);
-                        WriteAlgoPairOrder(pPairOrder);
+                        WriteAlgoOrder(pPairOrder);
 
                         bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pPairOrder->pairInstrumentKey);
                         if (!exist) {
@@ -741,7 +741,7 @@ void AlgoContext::OnCommand(string s) {
                         string pubMsg = pFishingOrder->GeneratePubStr();
                         //QuantPub::Instance().Publish(pubMsg);
                         rLarkMsg.Push(pubMsg);
-                        WriteAlgoFishingOrder(pFishingOrder);
+                        WriteAlgoOrder(pFishingOrder);
 
                         bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pFishingOrder->pairInstrumentKey);
                         if (!exist) {
@@ -763,7 +763,7 @@ void AlgoContext::OnCommand(string s) {
                         string pubMsg = pRebalanceOrder->GeneratePubStr();
                         //QuantPub::Instance().Publish(pubMsg);
                         rLarkMsg.Push(pubMsg);
-                        WriteAlgoRebalanceOrder(pRebalanceOrder);
+                        WriteAlgoOrder(pRebalanceOrder);
 
                         bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pRebalanceOrder->pairInstrumentKey);
                         if (!exist) {
@@ -783,7 +783,7 @@ void AlgoContext::OnCommand(string s) {
                             string pubMsg = pPairOrder->GeneratePubStr();
                             //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
-                            WriteAlgoPairOrder(pPairOrder);
+                            WriteAlgoOrder(pPairOrder);
                         } else if (pAlgoOrder->algoType == stra::AlgoType_FishingTrading) {
                             AlgoFishingOrder* pFishingOrder = (AlgoFishingOrder*)pAlgoOrder;
                             if (body.HasMember("fishingSlippagePct")) {
@@ -792,7 +792,7 @@ void AlgoContext::OnCommand(string s) {
                             string pubMsg = pFishingOrder->GeneratePubStr();
                             //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
-                            WriteAlgoFishingOrder(pFishingOrder);
+                            WriteAlgoOrder(pFishingOrder);
                         } else if (pAlgoOrder->algoType == stra::AlgoType_Rebalance) {
                             AlgoRebalanceOrder* pRebalanceOrder = (AlgoRebalanceOrder*)pAlgoOrder;
                             if (body.HasMember("activeTrade")) {
@@ -802,7 +802,7 @@ void AlgoContext::OnCommand(string s) {
                             string pubMsg = pRebalanceOrder->GeneratePubStr();
                             //QuantPub::Instance().Publish(pubMsg);
                             rLarkMsg.Push(pubMsg);
-                            WriteAlgoRebalanceOrder(pRebalanceOrder);
+                            WriteAlgoOrder(pRebalanceOrder);
                         }
                     }
                     else {
@@ -966,7 +966,7 @@ void AlgoContext::OnCommand(string s) {
     // rLarkMsg.Push(pubMsg);
 
 
-    //WriteAlgoPairOrder(pPairOrder);
+    WriteAlgoPairOrder(pPairOrder);
 
     bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pPairOrder->pairInstrumentKey);
     if (!exist) {
@@ -1741,7 +1741,7 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
 
                     // algoOrder保存
                     // pAlgoOrder->SaveToFile();
-                    // WriteAlgoPairOrder(algoOrder);
+                    // WriteAlgoOrder(algoOrder);
                 } else {
                     // 主动腿未完结有成交则需要进行被动腿报单
                     //LOG_INFO("OnOrder start orderStatus not in filled rejected canceled PairOrderTrade!");
