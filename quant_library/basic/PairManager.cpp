@@ -99,7 +99,7 @@ stra::QuantOrder PairOrder::CreateActiveOrder(int64_t strategyOrderId) {
         orderAmount = targetVolume;
     }
 
-    LOG_INFO("CreateActiveOrder activeInstrument%s orderAmount:%f   activeInfo.minSize:%f", activeInstrument, orderAmount, activeInfo.minSize);
+    LOG_INFO("CreateActiveOrder activeInstrument:{} orderAmount:{} activeInfo.minSize:{}", activeInstrument, orderAmount, activeInfo.minSize);
     
     if (!reduceOnly) {
         if (orderAmount < activeInfo.minSize) {
@@ -205,7 +205,7 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
         orderAmount = targetVolume;
     }
 
-    LOG_INFO("CreateActiveOrder activeInstrument%s orderAmount:%f   passiveInfo.minSize:%f", activeInstrument, orderAmount, passiveInfo.minSize);
+    LOG_INFO("CreateActiveOrder activeInstrument:{} orderAmount:{} passiveInfo.minSize:{}", activeInstrument, orderAmount, passiveInfo.minSize);
     
     if (!reduceOnly) {
         if (orderAmount < passiveInfo.minSize) {

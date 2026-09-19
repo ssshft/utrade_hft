@@ -11,7 +11,7 @@
 
 std::vector<BaseStrategy*> strategyVec;
 static void signal_handler(int signum) {
-    LOG_INFO("handler interrupt signal (%d) received.", signum);
+    LOG_INFO("handler interrupt signal ({}) received.", signum);
     for(auto str : strategyVec){
         str->pre_stop();
     }

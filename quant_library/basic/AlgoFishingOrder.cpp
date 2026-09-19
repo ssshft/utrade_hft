@@ -34,13 +34,13 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
         if (tradingTypeOffset == stra::OPEN_SHORT || tradingTypeOffset == stra::CLOSE_LONG) {
             // activeDirection = L
             if (midPrice / pdata->activePriceTema - 1 < -0.003) {
-                LOG_INFO("midPrice / pdata->activePriceTema - 1 < -0.005  midPrice:%f  activePriceTema:%f", midPrice, pdata->activePriceTema);
+                LOG_INFO("midPrice / pdata->activePriceTema - 1 < -0.005  midPrice:{}  activePriceTema:{}", midPrice, pdata->activePriceTema);
                 return pairOrder;
             }
         } else if(tradingTypeOffset == stra::OPEN_LONG || tradingTypeOffset == stra::CLOSE_SHORT){
             // activeDirection = S
             if (midPrice / pdata->activePriceTema - 1 > 0.003) {
-                LOG_INFO("midPrice / pdata->activePriceTema - 1 > 0.005  midPrice:%f  activePriceTema:%f", midPrice, pdata->activePriceTema);
+                LOG_INFO("midPrice / pdata->activePriceTema - 1 > 0.005  midPrice:{}  activePriceTema:{}", midPrice, pdata->activePriceTema);
                 return pairOrder;
             }
         }
@@ -106,7 +106,7 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     }
     if (!swch){
         // 如果开关关闭则返回空配对单
-         LOG_INFO("swch is false! tradingTypeOrder:%s tradingTypeOffset:%s startSpread:%f endSpread:%f startVolume:%f endVolume:%f", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), startSpread, endSpread, startVolume, endVolume);
+         LOG_INFO("swch is false! tradingTypeOrder:{} tradingTypeOffset:{} startSpread:{} endSpread:{} startVolume:{} endVolume:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], startSpread, endSpread, startVolume, endVolume);
         return pairOrder;
     }
     // 从这里开始改造钓鱼单报价 ***********************
@@ -228,7 +228,7 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
                 acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType;
             } else {
-                LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
+                LOG_INFO("not support tradingTypeOrder:{}", stra::TradingTypeEnum2Str[tradingTypeOrder]);
                 return pairOrder;
             }
 
@@ -269,11 +269,11 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
                 acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
-                LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
+                LOG_INFO("not support tradingTypeOrder:{}", stra::TradingTypeEnum2Str[tradingTypeOrder]);
                 return pairOrder;
             }
         } else {
-            LOG_INFO("targetActiveVolume <= expectActiveVolume. targetActiveVolume:%f expectActiveVolume:%f", targetActiveVolume, expectActiveVolume);
+            LOG_INFO("targetActiveVolume <= expectActiveVolume. targetActiveVolume:{} expectActiveVolume:{}", targetActiveVolume, expectActiveVolume);
             return pairOrder;
         }
 
@@ -311,11 +311,11 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
                 acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
-                LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
+                LOG_INFO("not support tradingTypeOrder:{}", stra::TradingTypeEnum2Str[tradingTypeOrder]);
                 return pairOrder;
             }
         } else {
-             LOG_INFO("targetActiveVolume <= expectActiveVolume or targetActiveVolume <= 0. targetActiveVolume:%f expectActiveVolume:%f", targetActiveVolume, expectActiveVolume);
+             LOG_INFO("targetActiveVolume <= expectActiveVolume or targetActiveVolume <= 0. targetActiveVolume:{} expectActiveVolume:{}", targetActiveVolume, expectActiveVolume);
             return pairOrder;
         }
 
@@ -353,18 +353,18 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
                 acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType;
             } else {
-                LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
+                LOG_INFO("not support tradingTypeOrder:{}", stra::TradingTypeEnum2Str[tradingTypeOrder]);
                 return pairOrder;
             }
         } else {
-            LOG_INFO("targetActiveVolume <= expectActiveVolume. targetActiveVolume:%f expectActiveVolume:%f", targetActiveVolume, expectActiveVolume);
+            LOG_INFO("targetActiveVolume <= expectActiveVolume. targetActiveVolume:{} expectActiveVolume:{}", targetActiveVolume, expectActiveVolume);
             return pairOrder;
         }
     }
 
-    LOG_INFO("tradingTypeOffset:%s tradingTypeOrder:%s activeDirection:%s passiveDirection:%s endVolume:%f pairTotalVolume:%f tempTargetSpread:%f ajdPct:%f targetVolume:%f activeTargetPrice:%f passiveTargetPrice:%f acOrderType:%s paOrderType:%s", 
-            stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), DirectionEnum2StrMap[activeDirection].c_str(), DirectionEnum2StrMap[passiveDirection].c_str(), 
-            endVolume, pairTotalVolume, tempTargetSpread, ajdPct, targetVolume, activeTargetPrice, passiveTargetPrice, OrderTypeEnum2StrMap[acOrderType].c_str(), OrderTypeEnum2StrMap[paOrderType].c_str());
+    LOG_INFO("tradingTypeOffset:{} tradingTypeOrder:{} activeDirection:{} passiveDirection:{} endVolume:{} pairTotalVolume:{} tempTargetSpread:{} ajdPct:{} targetVolume:{} activeTargetPrice:{} passiveTargetPrice:{} acOrderType:{} paOrderType:{}", 
+            stra::TradingTypeEnum2Str[tradingTypeOffset], stra::TradingTypeEnum2Str[tradingTypeOrder], DirectionEnum2StrMap[activeDirection], DirectionEnum2StrMap[passiveDirection], 
+            endVolume, pairTotalVolume, tempTargetSpread, ajdPct, targetVolume, activeTargetPrice, passiveTargetPrice, OrderTypeEnum2StrMap[acOrderType], OrderTypeEnum2StrMap[paOrderType]);
 
     targetVolume = round(targetVolume / activeInfo.lotSize) * activeInfo.lotSize;
     if (targetVolume < stra::MIN_FLOAT) {

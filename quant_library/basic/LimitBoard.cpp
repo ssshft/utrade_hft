@@ -18,7 +18,7 @@ bool LimitCalcBoard::CheckPersec() {
 
     if (ordertimes.size() >= limitval.maxPersec) {
         pass = false;
-        LOG_INFO("accountId: %d ordertimes.size:%d limitval.maxPersec:%d", limitval.accountId, ordertimes.size(), limitval.maxPersec);
+        LOG_INFO("accountId: {} ordertimes.size:{} limitval.maxPersec:{}", limitval.accountId, ordertimes.size(), limitval.maxPersec);
     }
 
     return pass;
@@ -47,7 +47,7 @@ bool LimitCalcBoard::CheckCancelPersec() {
 
     if (ordertimes.size() >= limitval.maxCancelPersec) {
         pass = false;
-        LOG_INFO("accountId: %d ordertimes.size:%d limitval.maxCancelPersec:%d", limitval.accountId, ordertimes.size(), limitval.maxCancelPersec);
+        LOG_INFO("accountId: {} ordertimes.size:{} limitval.maxCancelPersec:{}", limitval.accountId, ordertimes.size(), limitval.maxCancelPersec);
     }
 
     return pass;

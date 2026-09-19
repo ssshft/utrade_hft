@@ -2112,12 +2112,12 @@ void AlgoContext::OnTimer(int64_t eventTime) {
 
 
     } catch(StraException& e) {
-        LOG_INFO("StraException in AlgoContext::OnTimer, error msg:%s", e.what());
+        LOG_INFO("StraException in AlgoContext::OnTimer, error msg:{}", e.what());
         char msg[stra::MSG_LEN];
         sprintf(msg, "StraException in AlgoContext::OnTimer, error msg:%s", e.what());
         rLarkMsg.Push(msg);
     } catch (exception& e) {
-        LOG_INFO("some errors has happened in AlgoContext::OnTimer, errormsg:%s", e.what());
+        LOG_INFO("some errors has happened in AlgoContext::OnTimer, errormsg:{}", e.what());
         char msg[stra::MSG_LEN];
         sprintf(msg, "some errors has happened in AlgoContext::OnTimer, errormsg:%s", e.what());
         rLarkMsg.Push(msg);

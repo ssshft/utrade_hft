@@ -45,14 +45,14 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
             // activeDirection = L
             //if (midPrice / pdata->activePriceTema - 1 < -0.005) {
             if (midPrice / pdata->activePriceTema - 1 < -0.003) {
-                LOG_INFO("midPrice / pdata->activePriceTema - 1 < -0.003  midPrice:%f  activePriceTema:%f", midPrice, pdata->activePriceTema);
+                LOG_INFO("midPrice / pdata->activePriceTema - 1 < -0.003  midPrice:{}  activePriceTema:{}", midPrice, pdata->activePriceTema);
                 return pairOrder;
             }
         } else if(tradingTypeOffset == stra::OPEN_LONG || tradingTypeOffset == stra::CLOSE_SHORT){
             // activeDirection = S
             //if (midPrice / pdata->activePriceTema - 1 > 0.005) {
             if (midPrice / pdata->activePriceTema - 1 > 0.003) {
-                LOG_INFO("midPrice / pdata->activePriceTema - 1 > 0.003  midPrice:%f  activePriceTema:%f", midPrice, pdata->activePriceTema);
+                LOG_INFO("midPrice / pdata->activePriceTema - 1 > 0.003  midPrice:{}  activePriceTema:{}", midPrice, pdata->activePriceTema);
                 return pairOrder;
             }
         }
@@ -168,7 +168,7 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
     }
     if (!swch){
         // 如果开关关闭则返回空配对单
-         LOG_INFO("swch is false! tradingTypeOrder:%s tradingTypeOffset:%s startSpread:%f endSpread:%f startVolume:%f endVolume:%f", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), startSpread, endSpread, startVolume, endVolume);
+         LOG_INFO("swch is false! tradingTypeOrder:{} tradingTypeOffset:{} startSpread:{} endSpread:{} startVolume:{} endVolume:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], startSpread, endSpread, startVolume, endVolume);
         return pairOrder;
     }
     if (tradingTypeOrder == stra::TAKER_TAKER) {
@@ -274,7 +274,7 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
         }
 
 
-    LOG_INFO("tradingTypeOrder:%s tradingTypeOffset:%s tempSpread:%f startSpread:%f endSpread:%f  activeInstrumentKey:%s  passiveInstrumentKey:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), tempSpread, startSpread, endSpread, activeInstrumentKey, passiveInstrumentKey);
+    LOG_INFO("tradingTypeOrder:{} tradingTypeOffset:{} tempSpread:{} startSpread:{} endSpread:{}  activeInstrumentKey:{}  passiveInstrumentKey:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], tempSpread, startSpread, endSpread, activeInstrumentKey, passiveInstrumentKey);
 
 
     double targetActiveVolume = 0;
@@ -328,11 +328,11 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
                 acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType;
             } else {
-                LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
+                LOG_INFO("not support tradingTypeOrder:{}", stra::TradingTypeEnum2Str[tradingTypeOrder]);
                 return pairOrder;
             }
         } else {
-            LOG_INFO("tradingTypeOrder:%s tradingTypeOffset:%s targetActiveVolume <= expectActiveVolume or targetActiveVolume <= 0. targetActiveVolume:%f expectActiveVolume:%f  activeInstrumentKey:%s  passiveInstrumentKey:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
+            LOG_INFO("tradingTypeOrder:{} tradingTypeOffset:{} targetActiveVolume <= expectActiveVolume or targetActiveVolume <= 0. targetActiveVolume:{} expectActiveVolume:{}  activeInstrumentKey:{}  passiveInstrumentKey:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
             return pairOrder;
         }
 
@@ -394,11 +394,11 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
                 acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
-                LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
+                LOG_INFO("not support tradingTypeOrder:{}", stra::TradingTypeEnum2Str[tradingTypeOrder]);
                 return pairOrder;
             }
         } else {
-            LOG_INFO("tradingTypeOrder:%s tradingTypeOffset:%s targetActiveVolume <= expectActiveVolume. targetActiveVolume:%f expectActiveVolume:%f  activeInstrumentKey:%s  passiveInstrumentKey:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
+            LOG_INFO("tradingTypeOrder:{} tradingTypeOffset:{} targetActiveVolume <= expectActiveVolume. targetActiveVolume:{} expectActiveVolume:{}  activeInstrumentKey:{}  passiveInstrumentKey:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
             return pairOrder;
         }
 
@@ -445,11 +445,11 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
                 acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
-                LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
+                LOG_INFO("not support tradingTypeOrder:{}", stra::TradingTypeEnum2Str[tradingTypeOrder]);
                 return pairOrder;
             }
         } else {
-             LOG_INFO("tradingTypeOrder:%s tradingTypeOffset:%s targetActiveVolume <= expectActiveVolume or targetActiveVolume <= 0. targetActiveVolume:%f expectActiveVolume:%f  activeInstrumentKey:%s  passiveInstrumentKey:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
+             LOG_INFO("tradingTypeOrder:{} tradingTypeOffset:{} targetActiveVolume <= expectActiveVolume or targetActiveVolume <= 0. targetActiveVolume:{} expectActiveVolume:{}  activeInstrumentKey:{}  passiveInstrumentKey:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
             return pairOrder;
         }
 
@@ -509,11 +509,11 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
                 acOrderType = OT_POST_ONLY;
                 paOrderType = passiveOrderType; 
             } else {
-                LOG_INFO("not support tradingTypeOrder:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str());
+                LOG_INFO("not support tradingTypeOrder:{}", stra::TradingTypeEnum2Str[tradingTypeOrder]);
                 return pairOrder;
             }
         } else {
-            LOG_INFO("tradingTypeOrder:%s tradingTypeOffset:%s targetActiveVolume <= expectActiveVolume. targetActiveVolume:%f expectActiveVolume:%f  activeInstrumentKey:%s  passiveInstrumentKey:%s", stra::TradingTypeEnum2Str[tradingTypeOrder].c_str(), stra::TradingTypeEnum2Str[tradingTypeOffset].c_str(), targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
+            LOG_INFO("tradingTypeOrder:{} tradingTypeOffset:{} targetActiveVolume <= expectActiveVolume. targetActiveVolume:{} expectActiveVolume:{}  activeInstrumentKey:{}  passiveInstrumentKey:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
             return pairOrder;
         }
     }

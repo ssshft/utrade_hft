@@ -71,32 +71,32 @@ void StrategyConfig::LoadStrategy() {
 
 
     // log md
-    LOG_INFO("md info --- mdAddr: %s  mdPort: %d  mdPassword: %s", mdAddr.c_str(), mdPort, mdPassword.c_str());
+    LOG_INFO("md info --- mdAddr: {}  mdPort: {}  mdPassword: {}", mdAddr, mdPort, mdPassword);
 
     // log lark
-    LOG_INFO("lar info --- larkurl: %s", larkUrl.c_str());
+    LOG_INFO("lar info --- larkurl: {}", larkUrl);
 
-    LOG_INFO("minOrderAmount: %f", minOrderAmount);
+    LOG_INFO("minOrderAmount: {}", minOrderAmount);
 
     // log account
     for (auto iter = mAccountInfo.begin(); iter != mAccountInfo.end(); ++iter) {
    	AccountInfo accountInfo = iter->second; 
-	LOG_INFO("accountName: %s", accountInfo.accountName.c_str());
-	LOG_INFO("accountId: %d", accountInfo.accountId);
-	LOG_INFO("accountType: %s", stra::AccountTypeEnum2Str[accountInfo.accountType].c_str());
-	LOG_INFO("exchangeType: %s", ExchangeTypeEnum2StrMap[accountInfo.exchangeType].c_str());
+	LOG_INFO("accountName: {}", accountInfo.accountName);
+	LOG_INFO("accountId: {}", accountInfo.accountId);
+	LOG_INFO("accountType: {}", stra::AccountTypeEnum2Str[accountInfo.accountType]);
+	LOG_INFO("exchangeType: {}", ExchangeTypeEnum2StrMap[accountInfo.exchangeType]);
 
     for (size_t i = 0; i < accountInfo.vInstType.size(); ++i) {
-        LOG_INFO("instType: %s", InstTypeEnum2StrMap[accountInfo.vInstType[i]].c_str());
+        LOG_INFO("instType: {}", InstTypeEnum2StrMap[accountInfo.vInstType[i]]);
     }
 
-	LOG_INFO("strategyId: %s", accountInfo.strategyId.c_str());
-	LOG_INFO("openRealLeverage: %f", accountInfo.openRealLeverage);
-	LOG_INFO("maxRealLeverage: %f", accountInfo.maxRealLeverage);
-	LOG_INFO("passiveOpenRealLeverage: %f", accountInfo.passiveOpenRealLeverage);
-	LOG_INFO("passiveMaxRealLeverage: %f", accountInfo.passiveMaxRealLeverage);
-	LOG_INFO("openActiveMgnRatio: %f", accountInfo.openActiveMgnRatio);
-	LOG_INFO("openPassiveMgnRatio: %f", accountInfo.openPassiveMgnRatio);
+	LOG_INFO("strategyId: {}", accountInfo.strategyId);
+	LOG_INFO("openRealLeverage: {}", accountInfo.openRealLeverage);
+	LOG_INFO("maxRealLeverage: {}", accountInfo.maxRealLeverage);
+	LOG_INFO("passiveOpenRealLeverage: {}", accountInfo.passiveOpenRealLeverage);
+	LOG_INFO("passiveMaxRealLeverage: {}", accountInfo.passiveMaxRealLeverage);
+	LOG_INFO("openActiveMgnRatio: {}", accountInfo.openActiveMgnRatio);
+	LOG_INFO("openPassiveMgnRatio: {}", accountInfo.openPassiveMgnRatio);
 	LOG_INFO("----------------------------------------------------------");
     }
 

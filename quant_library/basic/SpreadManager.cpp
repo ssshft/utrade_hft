@@ -35,7 +35,7 @@ void SpreadManager::AddSpreadPara(const std::string& pairInstrumentKey) {
         mInstEntry[v[1]].push_back({p, LegType::PASSIVE});
     }
 
-    LOG_INFO("Add new spread --- instrumentKey: %s", pairInstrumentKey.c_str());
+    LOG_INFO("Add new spread --- instrumentKey: {}", pairInstrumentKey);
 }
 
 void SpreadManager::DeleteSpread(const std::string& pairInstrumentKey) {

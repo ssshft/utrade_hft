@@ -717,7 +717,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                             ttSpread = 0.8 * ttSpread  + 0.2 * (pairRealSpread - pairOrder.pairTargetSpread);
                             if (ttSpread > 0.0002 && ttSpread > pairOrder.pairTargetSpreadProfit / 2) {
                                 ttSpreadFlag = true;
-                                LOG_INFO("TargetSpreadStop TAKERTAKER tradingTypeOffset:%s strategyName:%s algoOrderId:%ld ttSpread:%.13f pairTargetSpreadProfit:%.13f pairTargetSpread:%.13f  pairRealSpread:%.13f", stra::TradingTypeEnum2Str[pairOrder.tradingTypeOffset].c_str(), algoStrategyName, algoOrderId, ttSpread, pairOrder.pairTargetSpreadProfit, pairOrder.pairTargetSpread, pairRealSpread);
+                                LOG_INFO("TargetSpreadStop TAKERTAKER tradingTypeOffset:{} strategyName:{} algoOrderId:{} ttSpread:{} pairTargetSpreadProfit:{} pairTargetSpread:{}  pairRealSpread:{}", stra::TradingTypeEnum2Str[pairOrder.tradingTypeOffset], algoStrategyName, algoOrderId, ttSpread, pairOrder.pairTargetSpreadProfit, pairOrder.pairTargetSpread, pairRealSpread);
                             }
                         }
 
@@ -725,7 +725,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                             ttSpread = 0.8 * ttSpread  + 0.2 * (pairOrder.pairTargetSpread - pairRealSpread);
                             if (ttSpread > 0.0002 && ttSpread > pairOrder.pairTargetSpreadProfit / 2) {
                                 ttSpreadFlag = true;
-                                LOG_INFO("TargetSpreadStop TAKERTAKER tradingTypeOffset:%s strategyName:%s algoOrderId:%ld ttSpread:%.13f pairTargetSpreadProfit:%.13f pairTargetSpread:%.13f  pairRealSpread:%.13f", stra::TradingTypeEnum2Str[pairOrder.tradingTypeOffset].c_str(), algoStrategyName, algoOrderId, ttSpread, pairOrder.pairTargetSpreadProfit, pairOrder.pairTargetSpread, pairRealSpread);
+                                LOG_INFO("TargetSpreadStop TAKERTAKER tradingTypeOffset:{} strategyName:{} algoOrderId:{} ttSpread:{} pairTargetSpreadProfit:{} pairTargetSpread:{}  pairRealSpread:{}", stra::TradingTypeEnum2Str[pairOrder.tradingTypeOffset], algoStrategyName, algoOrderId, ttSpread, pairOrder.pairTargetSpreadProfit, pairOrder.pairTargetSpread, pairRealSpread);
                             }
                         }
                     } else if (pairOrder.tradingTypeOrder == stra::MAKER_TAKER) {
@@ -743,7 +743,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                             mtSpread = 0.8 * mtSpread  + 0.2 * (pairRealSpread - pairOrder.pairTargetSpread);
                             if (mtSpread > 0.0002 && mtSpread > pairOrder.pairTargetSpreadProfit / 2) {
                                 mtSpreadFlag = true;
-                                LOG_INFO("TargetSpreadStop MAKERTAKER tradingTypeOffset:%s strategyName:%s algoOrderId:%ld mtSpread:%.13f pairTargetSpreadProfit:%.13f pairTargetSpread:%.13f  pairRealSpread:%.13f", stra::TradingTypeEnum2Str[pairOrder.tradingTypeOffset].c_str(), algoStrategyName, algoOrderId, mtSpread, pairOrder.pairTargetSpreadProfit, pairOrder.pairTargetSpread, pairRealSpread);
+                                LOG_INFO("TargetSpreadStop MAKERTAKER tradingTypeOffset:{} strategyName:{} algoOrderId:{} mtSpread:{} pairTargetSpreadProfit:{} pairTargetSpread:{}  pairRealSpread:{}", stra::TradingTypeEnum2Str[pairOrder.tradingTypeOffset], algoStrategyName, algoOrderId, mtSpread, pairOrder.pairTargetSpreadProfit, pairOrder.pairTargetSpread, pairRealSpread);
                             }
                         }
 
@@ -751,7 +751,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                             mtSpread = 0.8 * mtSpread  + 0.2 * (pairOrder.pairTargetSpread - pairRealSpread);
                             if (mtSpread > 0.0002 && mtSpread > pairOrder.pairTargetSpreadProfit / 2) {
                                 mtSpreadFlag = true;
-                                LOG_INFO("TargetSpreadStop MAKERTAKER tradingTypeOffset:%s strategyName:%s algoOrderId:%ld mtSpread:%.13f pairTargetSpreadProfit:%.13f pairTargetSpread:%.13f  pairRealSpread:%.13f", stra::TradingTypeEnum2Str[pairOrder.tradingTypeOffset].c_str(), algoStrategyName, algoOrderId, mtSpread, pairOrder.pairTargetSpreadProfit, pairOrder.pairTargetSpread, pairRealSpread);
+                                LOG_INFO("TargetSpreadStop MAKERTAKER tradingTypeOffset:{} strategyName:{} algoOrderId:{} mtSpread:{} pairTargetSpreadProfit:{} pairTargetSpread:{}  pairRealSpread:{}", stra::TradingTypeEnum2Str[pairOrder.tradingTypeOffset], algoStrategyName, algoOrderId, mtSpread, pairOrder.pairTargetSpreadProfit, pairOrder.pairTargetSpread, pairRealSpread);
                             }
                         }
                     }
@@ -774,7 +774,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
             }
         } else {
             char msg[stra::MSG_LEN];
-            sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey);
+            sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:{}, pairId:{} instrumentKey:{}", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey);
             rLarkMsg.Push(msg);
         }
     }

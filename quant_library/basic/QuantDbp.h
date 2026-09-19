@@ -21,7 +21,7 @@ public:
 
     void Subscribe(string spreadInstId) {
         if (dbpreader) {
-            LOG_INFO("Subscribe dbpreader spreadInstId:%s", spreadInstId.c_str());
+            LOG_INFO("Subscribe dbpreader spreadInstId:{}", spreadInstId.c_str());
             dbpreader->Subscribe(spreadInstId);
         } else {
             LOG_INFO("Subscribe dbpreader is null");
@@ -30,7 +30,7 @@ public:
 
     void UnSubscribe(string spreadInstId) {
         if (dbpreader) {
-            LOG_INFO("UnSubscribe dbpreader spreadInstId:%s", spreadInstId.c_str());
+            LOG_INFO("UnSubscribe dbpreader spreadInstId:{}", spreadInstId.c_str());
             dbpreader->UnSubscribe(spreadInstId);
         } else {
             LOG_INFO("UnSubscribe dbpreader is null");
