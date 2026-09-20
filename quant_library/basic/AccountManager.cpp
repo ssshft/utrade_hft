@@ -34,7 +34,7 @@ AccountManager& AccountManager::Instance() {
 }
 
 void AccountManager::OnBalance(const pubsub::Balance& balance) {
-    std::cout << "AccountManager OnBalance: " <<  balance.getString() << std::endl;
+    LOG_INFO("AccountManager OnBalance: {}", balance.getString());
     auto& quantAccount = mAccount[balance.accountId];
     auto& ass = quantAccount.mAsset[balance.currency];
     ass.totalAmount = balance.total;
@@ -51,7 +51,7 @@ void AccountManager::OnTotalAccount(const pubsub::TotalAccount& totalAccount) {
 }
 
 void AccountManager::OnPosition(const pubsub::Position& position) {
-    std::cout << "AccountManager OnPosition: " <<  position.getString() << std::endl;
+    LOG_INFO("AccountManager OnPosition: {}", position.getString());
     auto& quantAccount = mAccount[position.accountId];
     string instrumentKey = ExchangeTypeEnum2StrMap[position.exchangeTypeEnum] + "." + InstTypeEnum2StrMap[position.instTypeEnum] + "." + position.instId;
     md::InstrumentInfo info;
