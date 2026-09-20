@@ -34,7 +34,7 @@ AccountManager& AccountManager::Instance() {
 }
 
 void AccountManager::OnBalance(const pubsub::Balance& balance) {
-    LOG_INFO("AccountManager OnBalance: {}", balance.getString());
+    std::cout << "AccountManager OnBalance: " <<  balance.getString() << std::endl;
     auto& quantAccount = mAccount[balance.accountId];
     auto& ass = quantAccount.mAsset[balance.currency];
     ass.totalAmount = balance.total;
@@ -51,7 +51,7 @@ void AccountManager::OnTotalAccount(const pubsub::TotalAccount& totalAccount) {
 }
 
 void AccountManager::OnPosition(const pubsub::Position& position) {
-    LOG_INFO("AccountManager OnPosition: {}", position.getString());
+    std::cout << "AccountManager OnPosition: " <<  position.getString() << std::endl;
     auto& quantAccount = mAccount[position.accountId];
     string instrumentKey = ExchangeTypeEnum2StrMap[position.exchangeTypeEnum] + "." + InstTypeEnum2StrMap[position.instTypeEnum] + "." + position.instId;
     md::InstrumentInfo info;
@@ -64,7 +64,7 @@ void AccountManager::OnPosition(const pubsub::Position& position) {
     }
     auto& pos = quantAccount.mPosition[instrumentKey];
     pos.floatAmount = position.unrealizedPnl;
-    
+
     if (position.direction == DT_LONG) {
         pos.longPosition = position.volume;
         pos.shortPosition = 0;
