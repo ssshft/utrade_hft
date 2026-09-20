@@ -34,6 +34,7 @@ AccountManager& AccountManager::Instance() {
 }
 
 void AccountManager::OnBalance(const pubsub::Balance& balance) {
+    LOG_INFO("AccountManager OnBalance: {}", balance.getString());
     auto& quantAccount = mAccount[balance.accountId];
     auto& ass = quantAccount.mAsset[balance.currency];
     ass.totalAmount = balance.total;
@@ -50,6 +51,7 @@ void AccountManager::OnTotalAccount(const pubsub::TotalAccount& totalAccount) {
 }
 
 void AccountManager::OnPosition(const pubsub::Position& position) {
+    LOG_INFO("AccountManager OnPosition: {}", position.getString());
     auto& quantAccount = mAccount[position.accountId];
     string instrumentKey = ExchangeTypeEnum2StrMap[position.exchangeTypeEnum] + "." + InstTypeEnum2StrMap[position.instTypeEnum] + "." + position.instId;
     md::InstrumentInfo info;
@@ -62,6 +64,7 @@ void AccountManager::OnPosition(const pubsub::Position& position) {
     }
     auto& pos = quantAccount.mPosition[instrumentKey];
     pos.floatAmount = position.unrealizedPnl;
+    
     if (position.direction == DT_LONG) {
         pos.longPosition = position.volume;
         pos.shortPosition = 0;
@@ -73,6 +76,7 @@ void AccountManager::OnPosition(const pubsub::Position& position) {
         pos.longAvgPrice = -1;
         pos.shortAvgPrice = position.avgPrice;
     }
+
     if (position.instTypeEnum == USDT_SWAP || position.instTypeEnum == USDT_FUTURES || position.instTypeEnum == BUSD_SWAP || position.instTypeEnum == C_SWAP || position.instTypeEnum == C_FUTURES) {
         double positionValue = 0.0;
         if (info.calcType == 0) {
@@ -83,7 +87,6 @@ void AccountManager::OnPosition(const pubsub::Position& position) {
             }
         }
 
-        LOG_INFO("OnPosition  instrument:{} longPosition:{} shortPosition:{} pos.positionValue:{}  cal positionValue:{}", position.instId, pos.longPosition, pos.shortPosition, pos.positionValue, positionValue);
         auto& ass = quantAccount.mAsset[info.margin];
         ass.positionValue += positionValue - pos.positionValue;
         pos.positionValue = positionValue;
