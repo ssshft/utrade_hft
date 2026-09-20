@@ -151,8 +151,9 @@ protected:
         if (configValue["op"].HasMember("strategyIds")) {
             std::cout << "111111" << std::endl;
             for (rapidjson::SizeType i = 0; i < configValue["op"]["strategyIds"].Size(); i++) {
-                std::cout << "22222222222" << std::endl;
+                
                 auto strategyId = configValue["op"]["strategyIds"][i].GetString();
+                std::cout << "22222222222 strategyId: " << strategyId << " 00000" << std::endl;
                 if (crypto::str_cmp(strategyId, "") != false) {
                     std::cout << "3333333" << std::endl;
                     std::cout << "_init strategyId: " << strategyId << std::endl;
