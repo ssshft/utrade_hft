@@ -121,7 +121,7 @@ namespace stra {
         {ALGO_OS_UNKNOWN, "ALGO_OS_UNKNOWN"},
         {ALGO_OS_FAILED, "ALGO_OS_FAILED"},
         {ALGO_OS_MAX, "ALGO_OS_MAX"}
-    }
+    };
 
     static std::unordered_map<std::string, CommandType> AlgoOrderStatusStr2Enum {
 	    {"ALGO_OS_MIN", ALGO_OS_MIN},
@@ -139,7 +139,7 @@ namespace stra {
         {"ALGO_OS_UNKNOWN", ALGO_OS_UNKNOWN},
         {"ALGO_OS_FAILED", ALGO_OS_FAILED},
         {"ALGO_OS_MAX", ALGO_OS_MAX},
-    }
+    };
 
     enum PriceType {
         PriceType_MIN = 0,
