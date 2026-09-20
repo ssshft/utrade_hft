@@ -87,18 +87,20 @@ private:
                         }
                     }
                     else if (crypto::convert_rcmd_2_balance(rcmd, balance)) {
+                        std::cout << "convert_rcmd_2_balance: " << balance.getString() << std::endl;
                         auto found = _strategyIds.find(balance.strategyId);
                         if (found != _strategyIds.end()) {
                             on_balance(balance);
                         }
                     }
                     else if (crypto::convert_rcmd_2_position(rcmd, position)) {
-                        auto found = _strategyIds.find(balance.strategyId);
+                        std::cout << "convert_rcmd_2_position: " << position.getString() << std::endl;
+                        auto found = _strategyIds.find(position.strategyId);
                         if (found != _strategyIds.end()) {
                             on_position(position);
                         }
                     } else if (crypto::convert_rcmd_2_total_account(rcmd, totalAccount)) {
-                        auto found = _strategyIds.find(balance.strategyId);
+                        auto found = _strategyIds.find(totalAccount.strategyId);
                         if (found != _strategyIds.end()) {
                             on_total_account(totalAccount);
                         }
@@ -146,7 +148,8 @@ protected:
         if (configValue["op"].HasMember("strategyIds")) {
             for (rapidjson::SizeType i = 0; i < configValue["op"]["strategyIds"].Size(); i++) {
                 auto strategyId = configValue["op"]["strategyIds"][i].GetString();
-                if(crypto::str_cmp(strategyId, "") != false){
+                if (crypto::str_cmp(strategyId, "") != false) {
+                    LOG_INFO("_init strategyId: {}", strategyId);
                     _strategyIds[strategyId] = strategyId;
                 }
             }
