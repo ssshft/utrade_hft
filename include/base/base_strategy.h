@@ -133,7 +133,6 @@ private:
 protected:
 
     void _init(Config* config) {
-        std::cout << "-----------_init-----------" << std::endl;
         std::string configStr = config->get_document_str();
         rapidjson::Document d;
         rapidjson::Value &configValue = d.Parse<rapidjson::kParseNumbersAsStringsFlag>(configStr.c_str());
@@ -146,17 +145,10 @@ protected:
 
         timerInterval = stoi(configValue["op"]["timerInterval"].GetString());
 
-        std::cout << "-------timerInterval----------: " << timerInterval << std::endl;
- 
         if (configValue["op"].HasMember("strategyIds")) {
-            std::cout << "111111" << std::endl;
             for (rapidjson::SizeType i = 0; i < configValue["op"]["strategyIds"].Size(); i++) {
-                
                 auto strategyId = configValue["op"]["strategyIds"][i].GetString();
-                std::cout << "22222222222 strategyId: " << strategyId << " 00000" << std::endl;
-                if (crypto::str_cmp(strategyId, "") != false) {
-                    std::cout << "3333333" << std::endl;
-                    std::cout << "_init strategyId: " << strategyId << std::endl;
+                if (!crypto::str_cmp(strategyId, "")) {
                     _strategyIds[strategyId] = strategyId;
                 }
             }
