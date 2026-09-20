@@ -26,7 +26,7 @@ struct BaseAlgoOrder {
     int64_t algoOrderId{0};
     char pairInstrumentKey[stra::INST_KEY_LEN]{""};
     char baseAsset[stra::ASSET_LEN]{""};
-    OrderStatus algoOrderStatus{OS_MIN};
+    AlgoOrderStatus algoOrderStatus{stra::ALGO_OS_MIN};
 
     char activeInstrumentKey[stra::INST_KEY_LEN]{""};
     int activeAccountId{0};

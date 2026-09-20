@@ -173,7 +173,7 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
             order->algoOrderId,
             order->pairInstrumentKey,
             order->baseAsset,
-            OrderStatusEnum2StrMap[order->algoOrderStatus],
+            stra::AlgoOrderStatusEnum2Str[order->algoOrderStatus],
         
             // 第二段
             order->activeInstrumentKey,
@@ -272,7 +272,7 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
             order->algoOrderId,
             order->pairInstrumentKey,
             order->baseAsset,
-            OrderStatusEnum2StrMap[order->algoOrderStatus],
+            stra::AlgoOrderStatusEnum2Str[order->algoOrderStatus],
         
             // 第二段
             order->activeInstrumentKey,
@@ -371,7 +371,7 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
             order->algoOrderId,
             order->pairInstrumentKey,
             order->baseAsset,
-            OrderStatusEnum2StrMap[order->algoOrderStatus],
+            stra::AlgoOrderStatusEnum2Str[order->algoOrderStatus],
         
             // 第二段 (10)
             order->activeInstrumentKey,

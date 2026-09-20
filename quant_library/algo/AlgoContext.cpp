@@ -254,7 +254,7 @@ void AlgoContext::OnCommand(string s) {
 
                 if (commandType == stra::CommandType_CANCEL) {
                     pAlgoOrder->commandType = stra::CommandType_UCANCELLING;
-                    pAlgoOrder->algoOrderStatus = OS_CANCELLING;
+                    pAlgoOrder->algoOrderStatus = stra::ALGO_OS_CANCELLING;
                     pAlgoOrder->cancelOrderTime = GetCurrentTimeUs();
                     string pubMsg = pAlgoOrder->GeneratePubStr();
                     //QuantPub::Instance().Publish(pubMsg);
@@ -711,7 +711,7 @@ void AlgoContext::OnCommand(string s) {
                 if (commandType == stra::CommandType_NEW) {
                     if (pPairOrder) {
                         pPairOrder->commandType = stra::CommandType_TRADING;
-                        pPairOrder->algoOrderStatus = OS_NEW;
+                        pPairOrder->algoOrderStatus = stra::ALGO_OS_NEW;
                         pPairOrder->algoType = algoType;
                         pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
                         pPairOrder->Init(smc);
@@ -733,7 +733,7 @@ void AlgoContext::OnCommand(string s) {
 
                     if (pFishingOrder) {
                         pFishingOrder->commandType = stra::CommandType_TRADING;
-                        pFishingOrder->algoOrderStatus = OS_NEW;
+                        pFishingOrder->algoOrderStatus = stra::ALGO_OS_NEW;
                         pFishingOrder->algoType = algoType;
                         pFishingOrder->algoOrderId = GenerateStrategyAlgoPairId();
                         pFishingOrder->Init(smc);
@@ -755,7 +755,7 @@ void AlgoContext::OnCommand(string s) {
 
                     if (pRebalanceOrder) {
                         pRebalanceOrder->commandType = stra::CommandType_TRADING;
-                        pRebalanceOrder->algoOrderStatus = OS_NEW;
+                        pRebalanceOrder->algoOrderStatus = stra::ALGO_OS_NEW;
                         pRebalanceOrder->algoType = algoType;
                         pRebalanceOrder->algoOrderId = GenerateStrategyAlgoPairId();
                         pRebalanceOrder->Init(smc);
@@ -957,7 +957,7 @@ void AlgoContext::OnCommand(string s) {
 
     AlgoPairOrder* pPairOrder = (AlgoPairOrder*)pAlgoOrder;
     pPairOrder->commandType = stra::CommandType_TRADING;
-    pPairOrder->algoOrderStatus = OS_NEW;
+    pPairOrder->algoOrderStatus = stra::ALGO_OS_NEW;
     pPairOrder->algoType = stra::AlgoType_PairTrading;
     pPairOrder->Init(smc);
     alogOrderManager.InsertAlgoOrderByAlgoOrder(pPairOrder);
@@ -1037,7 +1037,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                 // pAlgoOrder->posMgrMakerTaker.UpdateAccountOnMarketDepth(passiveBbo);
                 // pAlgoOrder->posMgrTakerTaker.UpdateAccountOnMarketDepth(passiveBbo);
 
-                if (pAlgoOrder->algoOrderStatus != OS_NEW && pAlgoOrder->algoOrderStatus != OS_PARTFILLED) { // algoOrderStatus;  // New Cancelling Canceled Filled Fault
+                if (pAlgoOrder->algoOrderStatus != stra::ALGO_OS_NEW && pAlgoOrder->algoOrderStatus != stra::ALGO_OS_PARTFILLED) { // algoOrderStatus;  // New Cancelling Canceled Filled Fault
                     continue;
                 }
 
@@ -1836,7 +1836,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 rLarkMsg.Push(msg);
                 LOG_INFO("Spread {}", msg);
                 it->second->commandType = stra::CommandType_ERROR;
-                //it->second->algoOrderStatus = stra::OrderStatus_ERRORCANCELLING; // 需要注意
+                it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELLING;
                 it->second->updateTime = eventTime;
             }
 
@@ -1925,7 +1925,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                     if (orderAmount < minSize && allPairOrders.size() == 0) {
                         //
                         //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
-                        it->second->algoOrderStatus = OS_FILLED;
+                        it->second->algoOrderStatus = stra::ALGO_OS_FILLED;
                         it->second->commandType = stra::CommandType_FINISHED;
                         it->second->updateTime = eventTime;
                         // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
@@ -1943,7 +1943,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                     if (orderAmount < it->second->activeInfo.minSize && allPairOrders.size() == 0) {
                         //
                         //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
-                        it->second->algoOrderStatus = OS_FILLED;
+                        it->second->algoOrderStatus = stra::ALGO_OS_FILLED;
                         it->second->commandType = stra::CommandType_FINISHED;
                         it->second->updateTime = eventTime;
                         // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
@@ -1999,7 +1999,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             // delete cancled status algoorder
             //LOG_INFO("algoId:%ld pairInstrumentKey:%s allPairOrders.size: %d  algoOrderStatus:%d", it->second->algoOrderId, it->second->pairInstrumentKey, allPairOrders.size(), int(it->second->algoOrderStatus));
             /*
-	    if (allPairOrders.size() > 0 && it->second->algoOrderStatus == stra::OrderStatus_CANCELLING) {
+	    if (allPairOrders.size() > 0 && it->second->algoOrderStatus == stra::ALGO_OS_CANCELLING) {
                 stringstream ss;
                 for (auto iter = allPairOrders.begin(); iter != allPairOrders.end(); ++iter) {
                     ss << "pairId:" << iter->second.pairId << " activeInstrumentKey:" << iter->second.activeInstrumentKey << " tradingTypeOrder:" << iter->second.tradingTypeOrder << " tradingTypeOffset:" << iter->second.tradingTypeOffset;
@@ -2008,16 +2008,16 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             }
 	    */
 
-            if (allPairOrders.size() == 0 && it->second->algoOrderStatus == OS_CANCELLING) {
+            if (allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_CANCELLING) {
                 it->second->commandType = stra::CommandType_CANCELED;
-                it->second->algoOrderStatus = OS_CANCELED;
+                it->second->algoOrderStatus = stra::ALGO_OS_CANCELED;
                 string pubMsg = it->second->GeneratePubStr();
                 //QuantPub::Instance().Publish(pubMsg);
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
-                std::cout << "allPairOrders.size() == 0 && it->second->algoOrderStatus == OS_CANCELLING" << std::endl;
-            } else if (allPairOrders.size() == 0/* && it->second->algoOrderStatus == stra::OrderStatus_ERRORCANCELLING */) {  //需要考虑下这个状态的定义
-                //it->second->algoOrderStatus = stra::OrderStatus_ERRORCANCELED; 
+                std::cout << "allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_CANCELLING" << std::endl;
+            } else if (allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_ERRORCANCELLING) {  //需要考虑下这个状态的定义
+                it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
                 string pubMsg = it->second->GeneratePubStr();
                 //QuantPub::Instance().Publish(pubMsg);
                 rLarkMsg.Push(pubMsg);

@@ -87,6 +87,60 @@ namespace stra {
         {"CommandType_MAX", CommandType_MAX}
     };
 
+    enum AlgoOrderStatus {
+        ALGO_OS_MIN = 0,
+        ALGO_OS_PEND,
+        ALGO_OS_PENDING_NEW,        
+        ALGO_OS_NEW,           
+        ALGO_OS_PARTFILLED,     
+        ALGO_OS_FILLED,         
+        ALGO_OS_REJECTED,
+        ALGO_OS_CANCEL,    
+        ALGO_OS_CANCELLING,     
+        ALGO_OS_CANCELED, 
+        ALGO_OS_ERRORCANCELLING,
+        ALGO_OS_ERRORCANCELED,
+        ALGO_OS_UNKNOWN,        
+        ALGO_OS_FAILED,
+        ALGO_OS_MAX
+    };
+
+    static std::unordered_map<AlgoOrderStatus, std::string> AlgoOrderStatusEnum2Str {
+	    {ALGO_OS_MIN, "ALGO_OS_MIN"},
+        {ALGO_OS_PEND, "ALGO_OS_PEND"},
+        {ALGO_OS_PENDING_NEW, "ALGO_OS_PENDING_NEW"},
+        {ALGO_OS_NEW, "ALGO_OS_NEW"},
+        {ALGO_OS_PARTFILLED, "ALGO_OS_PARTFILLED"},
+        {ALGO_OS_FILLED, "ALGO_OS_FILLED"},
+        {ALGO_OS_REJECTED, "ALGO_OS_REJECTED"},
+        {ALGO_OS_CANCEL, "ALGO_OS_CANCEL"},
+        {ALGO_OS_CANCELLING, "ALGO_OS_CANCELLING"},
+        {ALGO_OS_CANCELED, "ALGO_OS_CANCELED"},
+        {ALGO_OS_ERRORCANCELLING, "ALGO_OS_ERRORCANCELLING"},
+        {ALGO_OS_ERRORCANCELED, "ALGO_OS_ERRORCANCELED"},
+        {ALGO_OS_UNKNOWN, "ALGO_OS_UNKNOWN"},
+        {ALGO_OS_FAILED, "ALGO_OS_FAILED"},
+        {ALGO_OS_MAX, "ALGO_OS_MAX"}
+    }
+
+    static std::unordered_map<std::string, CommandType> AlgoOrderStatusStr2Enum {
+	    {"ALGO_OS_MIN", ALGO_OS_MIN},
+        {"ALGO_OS_PEND", ALGO_OS_PEND},
+        {"ALGO_OS_PENDING_NEW", ALGO_OS_PENDING_NEW},
+        {"ALGO_OS_NEW", ALGO_OS_NEW},
+        {"ALGO_OS_PARTFILLED", ALGO_OS_PARTFILLED},
+        {"ALGO_OS_FILLED", ALGO_OS_FILLED},
+        {"ALGO_OS_REJECTED", ALGO_OS_REJECTED},
+        {"ALGO_OS_CANCEL", ALGO_OS_CANCEL},
+        {"ALGO_OS_CANCELLING", ALGO_OS_CANCELLING},
+        {"ALGO_OS_CANCELED", ALGO_OS_CANCELED},
+        {"ALGO_OS_ERRORCANCELLING", ALGO_OS_ERRORCANCELLING},
+        {"ALGO_OS_ERRORCANCELED", ALGO_OS_ERRORCANCELED},
+        {"ALGO_OS_UNKNOWN", ALGO_OS_UNKNOWN},
+        {"ALGO_OS_FAILED", ALGO_OS_FAILED},
+        {"ALGO_OS_MAX", ALGO_OS_MAX},
+    }
+
     enum PriceType {
         PriceType_MIN = 0,
         PriceType_LIMIT,

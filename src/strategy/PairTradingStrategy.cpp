@@ -139,7 +139,7 @@ void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {
             ptContext.OnAlgoOrderUpdate(pi->pairInstrumentKey, pi->currentAlgoOrderId, volFilled, 0.0, 0.0, true, fullyFlat);
         }
         else {
-            if (order->algoOrderStatus == OS_FILLED || order->algoOrderStatus == OS_CANCELED/* || order->algoOrderStatus == stra::OrderStatus_ERRORCANCELED */) {
+            if (order->algoOrderStatus == stra::ALGO_OS_FILLED || order->algoOrderStatus == stra::ALGO_OS_CANCELED || order->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED) {
                 double volFilled = order->pairTotalVolume - pi->pairTotalVolume;
                 bool fullyFlat = !pi->HasPosition();
 

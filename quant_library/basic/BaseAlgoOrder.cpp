@@ -359,7 +359,7 @@ double BaseAlgoOrder::GetActiveVolumeByPassiveVolume(double volume, double price
 
 void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
     int64_t nowTime = crypto::getCurrentTime();
-    if (algoOrderStatus == OS_CANCELLING) {
+    if (algoOrderStatus == stra::ALGO_OS_CANCELLING) {
         auto& allOrders = orderMgr.GetAllOrders();
         for (auto it = allOrders.begin(); it != allOrders.end(); ++it) {
             //bool pass = LimitManager::Instance().PassLimit(it->second.strategyAccountId);
