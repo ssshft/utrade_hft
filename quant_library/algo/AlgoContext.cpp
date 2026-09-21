@@ -940,10 +940,10 @@ void AlgoContext::OnCommand(string s) {
     pAlgoOrder->mtCSEndVolume = 0;
     pAlgoOrder->mtCSSwitch = false;
 
-    pAlgoOrder->mtRebalanceSwitch = false;
-    pAlgoOrder->ttRebalanceSwitch = false;
-    pAlgoOrder->mtRebalanceFlag = false;
-    pAlgoOrder->ttRebalanceFlag = false;
+    pAlgoOrder->mtRebalanceSwitch = true;
+    pAlgoOrder->ttRebalanceSwitch = true;
+    pAlgoOrder->mtRebalanceFlag = true;
+    pAlgoOrder->ttRebalanceFlag = true;
     pAlgoOrder->mtPriceTrendProtectFlag = false;
     pAlgoOrder->ttPriceTrendProtectFlag = false;
     pAlgoOrder->activePriceTickFlag = false;
