@@ -1024,7 +1024,7 @@ namespace stra {
         double positionValue{0.0};
 
         string GetStr() const {
-            string s = fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", asset, baseAsset, initAmount, totalAmount, transferAmount, frozenAmount, marginAmount, 
+            string s = fmt::format("asset:{},baseAsset:{},initAmount:{},totalAmount:{},transferAmount:{},frozenAmount:{},marginAmount:{},openMarginAmount:{},feeAmount:{},fundAmount:{},loanAmount:{},interestAmount:{},closeAmount:{},floatAmount:{},positionValue:{}", asset, baseAsset, initAmount, totalAmount, transferAmount, frozenAmount, marginAmount, 
                             openMarginAmount, feeAmount, fundAmount, loanAmount, interestAmount, closeAmount, floatAmount, positionValue);
             return string(s);
         }
@@ -1048,7 +1048,7 @@ namespace stra {
         double lastPositionValue{0.0};
 
         string GetStr() const {
-            string s = fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", instrumentKey, baseAsset, longPosition,
+            string s = fmt::format("instrumentKey:{},baseAsset:{},longPosition:{},longAvgPrice:{},shortPosition:{},shortAvgPrice:{},floatAmount:{},closeAmount:{},positionValue:{},frozenLongPosition:{},frozenLongPrice:{},frozenShortPosition:{},frozenShortPrice:{},lastFloatAmount:{},lastPositionValue:{}", instrumentKey, baseAsset, longPosition,
                             longAvgPrice, shortPosition, shortAvgPrice, floatAmount, closeAmount, positionValue, frozenLongPosition,
                             frozenLongPrice, frozenShortPosition, frozenShortPrice, lastFloatAmount, lastPositionValue);
             return s;

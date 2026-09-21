@@ -82,6 +82,7 @@ void PositionManager::OnInsertOrder(const stra::QuantOrder& order) {
             }
             pos.frozenShortPosition += order.volume;
         }
+        LOG_INFO("OnInsertOrder asset:{} instrumentKey:{} frozenLongPrice:{} frozenLongPosition:{} frozenShortPrice:{} frozenShortPosition:{}", ass.asset, instrumentKey, pos.frozenLongPrice, pos.frozenLongPosition, pos.frozenShortPrice, pos.frozenShortPosition);
     }
 }
 
@@ -198,6 +199,7 @@ void PositionManager::OnDeleteOrder(const stra::QuantOrder& order) {
                 }
             }
         }
+        LOG_INFO("OnOrder instrumentKey:{} margin:{} status:{}  pos:{}", instrumentKey, info.margin, OrderStatusEnum2StrMap[order.orderStatus], pos.GetStr());
     }
 }
 
@@ -400,6 +402,7 @@ void PositionManager::OnOrder(const stra::QuantOrder& order) {
                 ass.openMarginAmount -= order.tradeVolume * info.value / order.price / account.openRealLeverage;
             }
         }
+        LOG_INFO("OnOrder instrumentKey:{} margin:{} status:{}  pos:{}", instrumentKey, info.margin, OrderStatusEnum2StrMap[order.orderStatus], pos.GetStr());
     }
 }
 
