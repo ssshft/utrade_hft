@@ -354,7 +354,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId, Position
         auto& leftAss = posMgr->GetAccount().mAsset[activeInfo.base];
         auto& pos = posMgr->GetAccount().mPosition[activeInstrumentKey];
         activeAmount += leftAss.totalAmount - leftAss.loanAmount;
-	    LOG_INFO("CreatePassiveOrder leftAss:{} activeAmount:{} leftAss.totalAmount:{} loanAmount:{}", activeInfo.instLeft, activeAmount, leftAss.totalAmount, leftAss.loanAmount);
+	    LOG_INFO("CreatePassiveOrder leftAss:{} activeAmount:{} leftAss.totalAmount:{} loanAmount:{}", leftAss, activeAmount, leftAss.totalAmount, leftAss.loanAmount);
         if (activeInfo.calcType == 0) {
             if (pos.longPosition > stra::MIN_FLOAT) {
                 if (activeInstType == USDT_SWAP || activeInstType == USDT_FUTURES || activeInstType == BUSD_SWAP || activeInstType == C_SWAP || activeInstType == C_FUTURES) {
