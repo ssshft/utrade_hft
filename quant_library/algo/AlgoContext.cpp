@@ -895,48 +895,48 @@ void AlgoContext::OnCommand(string s) {
     pAlgoOrder->ttOLStartSpread = -0.0001;
     pAlgoOrder->ttOLEndSpread = -0.0005;
     pAlgoOrder->ttOLStartVolume = 0.0;
-    pAlgoOrder->ttOLEndVolume = -1000;
+    pAlgoOrder->ttOLEndVolume = -300;
     pAlgoOrder->ttOLSwitch = false;
       
     pAlgoOrder->ttCLStartSpread = 0;
     pAlgoOrder->ttCLEndSpread = 0.001;
-    pAlgoOrder->ttCLStartVolume = -1000;
+    pAlgoOrder->ttCLStartVolume = -300;
     pAlgoOrder->ttCLEndVolume = 0;
     pAlgoOrder->ttCLSwitch = false;
     
     pAlgoOrder->ttOSStartSpread = 0;
     pAlgoOrder->ttOSEndSpread = 0.001;
     pAlgoOrder->ttOSStartVolume = 0;
-    pAlgoOrder->ttOSEndVolume = 1000;
+    pAlgoOrder->ttOSEndVolume = 300;
     pAlgoOrder->ttOSSwitch = true;
     
     pAlgoOrder->ttCSStartSpread = -0.0001;
     pAlgoOrder->ttCSEndSpread = -0.0005;
-    pAlgoOrder->ttCSStartVolume = 1000;
+    pAlgoOrder->ttCSStartVolume = 300;
     pAlgoOrder->ttCSEndVolume = 0;
     pAlgoOrder->ttCSSwitch = false;
       
     pAlgoOrder->mtOLStartSpread = -0.0001;
     pAlgoOrder->mtOLEndSpread = -0.0005;
     pAlgoOrder->mtOLStartVolume = 0.0;
-    pAlgoOrder->mtOLEndVolume = -1000;
+    pAlgoOrder->mtOLEndVolume = -300;
     pAlgoOrder->mtOLSwitch = false;
      
     pAlgoOrder->mtCLStartSpread = 0;
     pAlgoOrder->mtCLEndSpread = 0.001;
-    pAlgoOrder->mtCLStartVolume = -1000;
+    pAlgoOrder->mtCLStartVolume = -300;
     pAlgoOrder->mtCLEndVolume = 0;
     pAlgoOrder->mtCLSwitch = false;
       
     pAlgoOrder->mtOSStartSpread = 0;
     pAlgoOrder->mtOSEndSpread = 0.001;
     pAlgoOrder->mtOSStartVolume = 0;
-    pAlgoOrder->mtOSEndVolume = 1000;
+    pAlgoOrder->mtOSEndVolume = 300;
     pAlgoOrder->mtOSSwitch = false;
      
     pAlgoOrder->mtCSStartSpread = -0.0001;
     pAlgoOrder->mtCSEndSpread = -0.0005;
-    pAlgoOrder->mtCSStartVolume = 1000;
+    pAlgoOrder->mtCSStartVolume = 300;
     pAlgoOrder->mtCSEndVolume = 0;
     pAlgoOrder->mtCSSwitch = false;
 
