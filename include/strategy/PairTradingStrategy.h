@@ -41,9 +41,12 @@ private:
     void SubmitAlgoCommand(const std::string& json); // 策略层构建的json指令转发给AlgoContext
 
     void ScanFinishedAlgoOrders(int64_t nowUs);
-    
+
     pt::PairTradingConfig m_ptCfg;
 
     int64_t m_lastScanUs{0};
     static constexpr int64_t SCAN_INTERVAL_US = 200000LL; // 200ms
+
+    int64_t lastOnCommand{0};
+    bool createAlgo{false};
 };

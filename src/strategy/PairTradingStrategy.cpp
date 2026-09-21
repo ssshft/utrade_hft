@@ -22,6 +22,8 @@ PairTradingStrategy::~PairTradingStrategy() {
 };
 
 void PairTradingStrategy::pre_start(Config* config) {
+    lastOnCommand = crypto::getCurrentTime();
+
     _init(config);
 
     std::string cfgStr = config->get_document_str();
@@ -58,7 +60,6 @@ void PairTradingStrategy::pre_start(Config* config) {
     algoContext.Init(smc);
     algoContext.SetDbp(dbpreader);
     algoContext.PreStart();
-    algoContext.OnCommand("");
 
     //ptContext.SetAlgoCommandCallback([this](const std::string& json) { 
     //    SubmitAlgoCommand(json); 
@@ -89,6 +90,15 @@ void PairTradingStrategy::on_timer(const int64_t& utcTime) {
     if (utcTime - m_lastScanUs >= SCAN_INTERVAL_US) {
         //ScanFinishedAlgoOrders(utcTime);
         m_lastScanUs = utcTime;
+    }
+
+
+    if (utcTime - lastOnCommand > 10000000LL) {
+        if (!createAlgo) {
+            algoContext.OnCommand("");
+            lastOnCommand = utcTime;
+            createAlgo = true;
+        }
     }
 }
 
