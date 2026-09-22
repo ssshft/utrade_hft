@@ -908,13 +908,13 @@ void AlgoContext::OnCommand(string s) {
     pAlgoOrder->ttOSEndSpread = 0.000001;
     pAlgoOrder->ttOSStartVolume = 0;
     pAlgoOrder->ttOSEndVolume = 200;
-    pAlgoOrder->ttOSSwitch = true;
+    pAlgoOrder->ttOSSwitch = false;
     
-    pAlgoOrder->ttCSStartSpread = -0.0001;
-    pAlgoOrder->ttCSEndSpread = -0.0005;
+    pAlgoOrder->ttCSStartSpread = 0.0011;
+    pAlgoOrder->ttCSEndSpread = 0.001;
     pAlgoOrder->ttCSStartVolume = 200;
     pAlgoOrder->ttCSEndVolume = 0;
-    pAlgoOrder->ttCSSwitch = false;
+    pAlgoOrder->ttCSSwitch = true;
       
     pAlgoOrder->mtOLStartSpread = -0.0001;
     pAlgoOrder->mtOLEndSpread = -0.0005;

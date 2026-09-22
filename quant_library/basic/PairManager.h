@@ -16,7 +16,7 @@ struct PairOrder {
     int64_t pairId{-1};
     int64_t algoPairId{-1};
     char strategyName[stra::NAME_LEN]{""};
-    char baseAsset[stra::ASSET_LEN]{""};
+    char baseAsset[stra::ASSET_LEN]{"USDT"};
     double targetVolume{0.0};
     stra::TradingType tradingTypeOrder;
     stra::TradingType tradingTypeOffset;

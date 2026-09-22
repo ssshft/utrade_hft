@@ -646,7 +646,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (ttCSSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
             } else {
-                LOG_INFO("");
+                //LOG_INFO("");
             }
         } else if (expectVolume <= -minVolume + stra::MIN_FLOAT) {
             if (ttOLSwitch && ttCLSwitch) {
@@ -659,7 +659,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (ttCLSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
             } else {
-                LOG_INFO("");
+               // LOG_INFO("");
             }
         } else {
             if (ttOSSwitch) {
@@ -683,7 +683,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (mtCSSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
             } else {
-                LOG_INFO("");
+                //LOG_INFO("");
             }
         } else if (expectVolume <= -minVolume + stra::MIN_FLOAT) {
             if (mtOLSwitch && mtCLSwitch) {
@@ -696,7 +696,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (mtCLSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
             } else {
-                LOG_INFO("");
+                //LOG_INFO("");
             }
         } else {
             if (mtOSSwitch) {
