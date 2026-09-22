@@ -881,8 +881,8 @@ void AlgoContext::OnCommand(string s) {
     pAlgoOrder->pairPassiveTotalVolume = -200;
     pAlgoOrder->pairPassiveTotalPrice = 0.10027;
     
-    pAlgoOrder->maxMTOrderSize = 1;
-    pAlgoOrder->maxTTOrderSize = 1;
+    pAlgoOrder->maxMTOrderSize = 2;
+    pAlgoOrder->maxTTOrderSize = 2;
     pAlgoOrder->targetSpreadType = stra::TargetSpredPrice_NOW;
     pAlgoOrder->activeVolumeCalcualteType = stra::ActiveVolumeCalcualteType_PassiveVolumePct;
     
