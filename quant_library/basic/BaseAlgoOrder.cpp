@@ -685,6 +685,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                         rLarkMsg.Push(msg);
                     }
                 } else {
+                    LOG_INFO("ttRebalanceFlag set false, pairOrder.passiveTotalVolumeOnOrder:{} activeFrozenValue:{} passiveFrozenValue:{}", pairOrder.passiveTotalVolumeOnOrder, activeFrozenValue, passiveFrozenValue);
                     // 被动腿有成交且pairOrder完结,更改rebalance状态
                     ttRebalanceFlag = false; // 为什么要修改rebalance的状态
                     // 被动腿有成交且pairOrder完结,更新滑点

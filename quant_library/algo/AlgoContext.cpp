@@ -1190,6 +1190,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                     if (createFlag) {
                                         bool pass = LimitManager::Instance().PassLimit(pAlgoOrder->activeAccountId);
                                         if (pass) {
+                                             LOG_INFO("ttRebalanceFlag false create new pair order");
                                             PairOrder pairOrder = pAlgoOrder->CreatePairOrder(stra::TAKER_TAKER);
                                             if (pairOrder.pairId > 0) {
                                                 WritePairOrder(pairOrder, pdata);
