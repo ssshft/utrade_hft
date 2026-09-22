@@ -876,10 +876,10 @@ void AlgoContext::OnCommand(string s) {
     pAlgoOrder->passiveTakerSlippage = 0.0;
     pAlgoOrder->passiveMakerSlippage = 0.0;
     
-    pAlgoOrder->pairActiveTotalPrice = -1.0;
-    pAlgoOrder->pairTotalVolume = 0.0;
-    pAlgoOrder->pairPassiveTotalVolume = 0.0;
-    pAlgoOrder->pairPassiveTotalPrice = -1.0;
+    pAlgoOrder->pairActiveTotalPrice = 0.100335;
+    pAlgoOrder->pairTotalVolume = 200;
+    pAlgoOrder->pairPassiveTotalVolume = -200;
+    pAlgoOrder->pairPassiveTotalPrice = 0.10027;
     
     pAlgoOrder->maxMTOrderSize = 120;
     pAlgoOrder->maxTTOrderSize = 120;
