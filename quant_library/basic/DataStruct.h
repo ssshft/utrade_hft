@@ -883,8 +883,6 @@ namespace stra {
             updateTime = crypto::getCurrentTime();
         }
 
-        
-
         QuantOrder UpdateOrderOnOrder(const pubsub::OrderResponse& orderResponse) {
             queryCount = 0;
 

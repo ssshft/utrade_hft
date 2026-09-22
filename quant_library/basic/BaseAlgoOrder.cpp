@@ -686,7 +686,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                     }
                 } else {
                     // 被动腿有成交且pairOrder完结,更改rebalance状态
-                    ttRebalanceFlag = false;
+                    ttRebalanceFlag = false; // 为什么要修改rebalance的状态
                     // 被动腿有成交且pairOrder完结,更新滑点
                     ttSlipage = 0.8 * ttSlipage + 0.2 * pairOrder.CalculatePassiveSlippage();
                     if (ttSlipage > 2 * passiveTakerSlippage + profitPct){
