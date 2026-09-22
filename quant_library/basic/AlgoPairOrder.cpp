@@ -274,7 +274,7 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
         }
 
 
-    LOG_INFO("tradingTypeOrder:{} tradingTypeOffset:{} tempSpread:{} startSpread:{} endSpread:{}  activeInstrumentKey:{}  passiveInstrumentKey:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], tempSpread, startSpread, endSpread, activeInstrumentKey, passiveInstrumentKey);
+    LOG_INFO("tradingTypeOrder:{} tradingTypeOffset:{} tempSpread:{} startSpread:{} endSpread:{}  expectActiveVolume:{} activeInstrumentKey:{}  passiveInstrumentKey:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], tempSpread, startSpread, endSpread, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
 
 
     double targetActiveVolume = 0;
@@ -335,12 +335,6 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
             LOG_INFO("tradingTypeOrder:{} tradingTypeOffset:{} targetActiveVolume <= expectActiveVolume or targetActiveVolume <= 0. targetActiveVolume:{} expectActiveVolume:{}  activeInstrumentKey:{}  passiveInstrumentKey:{}", stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], targetActiveVolume, expectActiveVolume, activeInstrumentKey, passiveInstrumentKey);
             return pairOrder;
         }
-
-    pAlgoOrder->ttCSStartSpread = 0.0011;
-    pAlgoOrder->ttCSEndSpread = 0.001;
-    pAlgoOrder->ttCSStartVolume = 200;
-    pAlgoOrder->ttCSEndVolume = 0;
-
     } else if (tradingTypeOffset == stra::CLOSE_SHORT) {
         if (tempSpread > startSpread) {
             targetActiveVolume = startVolume;
@@ -375,6 +369,8 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
                 }
             }
         }
+
+        LOG_INFO("CLOSE SHORT targetActiveVolume:{} expectActiveVolume:{} tempSpread:{} startSpread:{}", targetActiveVolume, expectActiveVolume, tempSpread, startSpread);
 
         if (targetActiveVolume < expectActiveVolume && tempSpread <= startSpread ) {
             activeDirection = DT_SHORT;
