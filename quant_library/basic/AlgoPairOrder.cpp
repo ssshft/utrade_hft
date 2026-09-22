@@ -336,6 +336,11 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
             return pairOrder;
         }
 
+    pAlgoOrder->ttCSStartSpread = 0.0011;
+    pAlgoOrder->ttCSEndSpread = 0.001;
+    pAlgoOrder->ttCSStartVolume = 200;
+    pAlgoOrder->ttCSEndVolume = 0;
+
     } else if (tradingTypeOffset == stra::CLOSE_SHORT) {
         if (tempSpread > startSpread) {
             targetActiveVolume = startVolume;
@@ -633,7 +638,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
     PairOrder pairOrder;
     int64_t pairOrderId = GenerateStrategyPairId();
     double expectVolume = GetExpectActiveVolume();
-    //LOG_INFO("tradingType:%s  pairOrderId:%ld  expectVolume:%f  ttTargetVolume:%f  mtTargetVolume:%f", stra::TradingTypeEnum2Str[tradingType].c_str(), pairOrderId, expectVolume, ttTargetVolume, mtTargetVolume);
+    LOG_INFO("tradingType:{}  pairOrderId:{}  expectVolume:{}  minVolume:{} ttTargetVolume:{}  mtTargetVolume:{}", stra::TradingTypeEnum2Str[tradingType], pairOrderId, expectVolume, minVolume, ttTargetVolume, mtTargetVolume);
     if (tradingType == stra::TAKER_TAKER) {
         if (expectVolume >= minVolume - stra::MIN_FLOAT) {
             if (ttOSSwitch && ttCSSwitch) {
