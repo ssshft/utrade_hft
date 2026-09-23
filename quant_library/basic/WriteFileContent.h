@@ -146,7 +146,7 @@ public:
                 r.isActiveOrder,
                 r.rebalance,
             
-                r.dbp.generateTs;
+                r.dbp.generateTs,
                 r.dbp.activeDepthTs,
                 r.dbp.passiveDepthTs,
                 r.dbp.activeDepthDelay,
