@@ -888,6 +888,16 @@ struct AccountInfo {
     int orderNum;
 };
 
+struct content {
+    int type{0};
+    union {
+        stra::QuantOrderRecord quantOrder;
+        stra::PairOrderRecord pairOrder;
+        stra::AlgoOrderRecord algoOrder;
+    };
+    content() {}                       // 成员都是 POD，无需构造/析构
+};
+
 
 inline double GetAmountByVolumePrice(const md::InstrumentInfo& info, string baseAsset, double volume, double price) {
     double amount = 0.0;

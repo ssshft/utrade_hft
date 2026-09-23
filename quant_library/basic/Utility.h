@@ -15,32 +15,14 @@ using namespace std;
 using namespace std::chrono;
 
 
-
-
-
-struct content {
-    int type{0};
-    union {
-        stra::QuantOrderRecord quantOrder;
-        stra::PairOrderRecord  pairOrder;
-        stra::AlgoOrderRecord  algoOrder;
-    };
-    content() {}                       // 成员都是 POD，无需构造/析构
-};
-
 typedef ConcurrentQueue<string, 10000> RQUEUE;
 typedef ConcurrentQueue<content, 100000> CONTENTQUEUE;
 extern RQUEUE rLarkMsg;
 extern CONTENTQUEUE contentQueue;
 
 
-
 inline int64_t GetCurrentTimeUs() { // 微妙
 	return high_resolution_clock::now().time_since_epoch().count() / 1000;
-}
-
-inline int64_t gettickcount() {  // 毫秒
-    return GetCurrentTimeUs() / 1000; 
 }
 
 inline int64_t GetCurrentTime() {  // 秒
@@ -87,16 +69,6 @@ inline void splitString(const string& source, vector<string>& v, const string de
 		lastPos = source.find_first_not_of(delimiters, pos);
 		pos = source.find_first_of(delimiters, lastPos);
 	}
-}
-
-inline int DiffPeriod(int64_t preDateTime, int64_t currentTime, int period) {
-    if (preDateTime <= 0 || currentTime <= 0 || currentTime < preDateTime) {
-        return 0;
-    }
-
-    int64_t curPeriod = currentTime / period;
-    int64_t prePeriod = currentTime / period;
-    return curPeriod - prePeriod;
 }
 
 inline int64_t GenerateStrategyOrderId() {
