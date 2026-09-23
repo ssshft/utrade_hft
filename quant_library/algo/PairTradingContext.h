@@ -10,6 +10,7 @@
 
 #include "../basic/PairInfo.h"
 #include "../basic/PairInfoManager.h"
+#include "../basic/BaseAlgoOrder.h"
 #include "../signal/SignalGenerator.h"
 #include "../risk/RiskManager.h"
 
@@ -43,7 +44,8 @@ struct PairTradingConfig {
     int signalRecalcIntervalSec{300};    // 5min 重算orderParams
 };
 
-using AlgoCommandCallback = std::function<void(const std::string& jsonCmd)>;
+// 回调直接传递创建好的算法单对象（不再拼 JSON 字符串）
+using AlgoCommandCallback = std::function<void(BaseAlgoOrder* pAlgoOrder)>;
 
 class PairTradingContext {
 public:
@@ -94,11 +96,14 @@ private:
     // direction : OL/OS/CL/CS;   algoMode: TT/MT
     void SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;
 
-    std::string BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;
+    // 函数名沿用旧名，但已不再拼 JSON：直接创建算法单对象并返回，创建失败（开关关闭/报单量非法）返回 nullptr
+    BaseAlgoOrder* BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;
 
     static int64_t NowUs();
 
-    static std::string GenerateAlgoOrderId();
+    // 算法单唯一ID：必须是纯数字，ScanFinishedAlgoOrders 会用 stoll(currentAlgoOrderId)
+    // 还原成 int64 去 AlgoContext 的 alogOrderManager 里查算法单
+    static int64_t GenerateAlgoOrderId();
 
     std::string baseAsset{"USDT"};
 

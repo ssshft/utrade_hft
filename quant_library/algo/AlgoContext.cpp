@@ -76,6 +76,37 @@ void AlgoContext::SetDbp(dbp::DbpReader* dbp) {
 }
 
 
+// 注册策略层直接创建好的算法单对象（不再拼 JSON 字符串）
+void AlgoContext::SubmitAlgoOrder(BaseAlgoOrder* pAlgoOrder) {
+    if (pAlgoOrder == nullptr) {
+        return;
+    }
+
+    pAlgoOrder->commandType = stra::CommandType_TRADING;
+    pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
+    // 策略层已经分配好 algoOrderId 时沿用（PairInfoManager 用同一个 id 追踪算法单）
+    if (pAlgoOrder->algoOrderId == 0) {
+        pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
+    }
+    pAlgoOrder->Init(smc);
+
+    alogOrderManager.InsertAlgoOrderByAlgoOrder(pAlgoOrder);
+
+    string pubMsg = pAlgoOrder->GeneratePubStr();
+    rLarkMsg.Push(pubMsg);
+    WriteAlgoOrder(pAlgoOrder);
+
+    bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pAlgoOrder->pairInstrumentKey);
+    if (!exist) {
+        LOG_INFO("Subscribe pairInstrumentKey:{}", pAlgoOrder->pairInstrumentKey);
+        SpreadManager::Instance().AddSpreadPara(pAlgoOrder->pairInstrumentKey);
+        QuantDbp::Instance().Subscribe(pAlgoOrder->pairInstrumentKey);
+    } else {
+        LOG_INFO("Not Subscribe pairInstrumentKey:{} already exist!", pAlgoOrder->pairInstrumentKey);
+    }
+}
+
+
 void AlgoContext::OnCommand(string s) {
     // rLarkMsg.Push(s);
     /*
@@ -829,6 +860,9 @@ void AlgoContext::OnCommand(string s) {
 
 
 
+    // 原 JSON 建单路径已由 AlgoContext::SubmitAlgoOrder(BaseAlgoOrder*) 取代。
+    // 下面这段硬编码的 DOGE 测试单先注释保留，确认新链路跑通后可直接删除。
+    /*
     BaseAlgoOrder* pAlgoOrder = new AlgoPairOrder();
     pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
     pAlgoOrder->commandType = stra::CommandType_NEW;
@@ -976,6 +1010,7 @@ void AlgoContext::OnCommand(string s) {
     } else {
         LOG_INFO("Not Subscribe pairInstrumentKey:{} already exist!", pPairOrder->pairInstrumentKey);
     }   
+    */
 }
 
 void AlgoContext::OnMarketDepth() {
@@ -1029,6 +1064,14 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
             BaseAlgoOrder* pAlgoOrder = it->second;
 
             if (strcmp(pAlgoOrder->pairInstrumentKey, topic->__name) == 0) {
+                // 已经终结的算法单不再处理任何行情逻辑（OnTimer 会留一个宽限期给策略层读取终结状态，
+                // 宽限期内这些单子还在容器里，不能再去撤它已经成交/已撤掉的子单）
+                if (pAlgoOrder->algoOrderStatus == stra::ALGO_OS_FILLED ||
+                    pAlgoOrder->algoOrderStatus == stra::ALGO_OS_CANCELED ||
+                    pAlgoOrder->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED) {
+                    continue;
+                }
+
                 pAlgoOrder->CancelOrderOnSpread(pdata); // 执行撤单逻辑
 
                 // 暂时注释
@@ -1784,7 +1827,6 @@ void AlgoContext::OnTimer(int64_t eventTime) {
     // 杠杆检查，accountMgr杠杆过高检查，超过标准需要报警。未来在极端情况下强制进行自动减仓
     // 订单异常检查
     try {
-        bool deleteAlgoOrderFlag = false;
         double orderAmount = 0.0;
         int64_t second1 = 1000 * 1000;
         rebalanceCount++;
@@ -1809,6 +1851,27 @@ void AlgoContext::OnTimer(int64_t eventTime) {
         string algoOrderStr = "";
         auto& allAlgoOrders = alogOrderManager.GetAllAlgoOrders();
         for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end();) {
+            bool deleteAlgoOrderFlag = false;
+
+            // 已经终结的算法单先留在容器里一个宽限期，让策略层的 ScanFinishedAlgoOrders
+            // 能读到成交量和成交价。否则 OnTimer 一标记终结就立刻 delete，
+            // 策略层永远只能看到"订单不存在"，OnAlgoOrderUpdate 拿到的成交量是 0，
+            // 持仓均价不会更新、RiskManager::OnAlgoFinished 和 RecalcOrderParams 也不会执行。
+            bool algoOrderTerminal = (it->second->algoOrderStatus == stra::ALGO_OS_FILLED ||
+                                      it->second->algoOrderStatus == stra::ALGO_OS_CANCELED ||
+                                      it->second->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED);
+            if (algoOrderTerminal) {
+                if (eventTime - it->second->updateTime > 5 * second1) {
+                    vUnSubscribePairInstId.push_back(it->second->pairInstrumentKey);
+                    delete it->second;
+                    it->second = nullptr;
+                    allAlgoOrders.erase(it++);
+                } else {
+                    it++;
+                }
+                continue;
+            }
+
             auto& orderMgr = it->second->orderMgr;
             auto& allOrders = orderMgr.GetAllOrders();
 
@@ -2027,13 +2090,21 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             }
 
             if (deleteAlgoOrderFlag) {
-                vUnSubscribePairInstId.push_back(it->second->pairInstrumentKey);
+                // 刚被标记为终结的算法单不在这里立刻删除，交给循环开头的宽限期分支处理
+                bool terminal = (it->second->algoOrderStatus == stra::ALGO_OS_FILLED ||
+                                 it->second->algoOrderStatus == stra::ALGO_OS_CANCELED ||
+                                 it->second->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED);
+                if (terminal) {
+                    it++;
+                } else {
+                    vUnSubscribePairInstId.push_back(it->second->pairInstrumentKey);
 
-                if (it->second) {
-                    delete it->second;
-                    it->second = nullptr;
+                    if (it->second) {
+                        delete it->second;
+                        it->second = nullptr;
+                    }
+                    allAlgoOrders.erase(it++);
                 }
-                allAlgoOrders.erase(it++);
                 deleteAlgoOrderFlag = false;
             } else {
                 it++;

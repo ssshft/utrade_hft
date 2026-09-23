@@ -39,6 +39,9 @@ public:
 
     BaseAlgoOrder* GetAlgoOrder(int64_t algoOrderId);
 
+    // 直接注册策略层创建好的算法单对象（不再走 JSON 字符串）：Init / 插入 algoOrderManager / 落库 / 订阅价差
+    void SubmitAlgoOrder(BaseAlgoOrder* pAlgoOrder);
+
 private:
     AlgoOrderManager alogOrderManager;
     double pendToPendingTimeSpan; // 根据on_order进行更新

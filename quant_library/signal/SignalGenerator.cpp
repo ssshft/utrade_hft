@@ -7,6 +7,7 @@ std::pair<double, double> SignalGenerator::CalcExpectSpread(double quantileBound
     double totalCost = activeFee + passiveFee + slippage + extraBuffer;
     double startSpread = quantileBound * m_cfg.spreadAdjPct - direction * totalCost;
     double endSpread = startSpread - direction * 0.000005; // 5e-6 缓冲带
+    return {startSpread, endSpread};
 }
 
 double SignalGenerator::CalcMinMoveSlippage(double minMove, double price) const {
@@ -192,11 +193,6 @@ SignalResult SignalGenerator::CheckSignal(const PairInfo& pi) const {
         result.ttCSSignal = true;
         result.hasSignal = true;
     }
-
-
-
-
-
 
     if (op.mtOLSwitch && rt.spreadBidBid < op.mtOLStartSpread && vol > op.mtOLEndVolume + 1e-9) {
         result.mtOLSignal = true;

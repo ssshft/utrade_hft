@@ -13,8 +13,8 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
         pi.SetPairKey(pk.c_str());
         pi.activeAccountId = activeAccountId;
         pi.passiveAccountId = passiveAccountId;
-        pi.modifyTime = GetCurrentTimeUs();
-        pi.lastTinyCloseOnlyScanTime = GetCurrentTimeUs();
+        pi.modifyTime = crypto::getCurrentTime();
+        pi.lastTinyCloseOnlyScanTime = crypto::getCurrentTime();
 
         size_t sep = pk.find("|");
         if (sep == std::string::npos) {
@@ -229,7 +229,7 @@ void PairInfoManager::UpdateOnPosition(const pubsub::Position& pos) {
             pi->passiveAdlRank = pos.adlQuantile;
             UpdateLiquidStatus(*pi, true, pos);
         }
-        pi->modifyTime = GetCurrentTimeUs();
+        pi->modifyTime = crypto::getCurrentTime();
     }
 }
 
@@ -266,7 +266,7 @@ void PairInfoManager::UpdateLiquidStatus(PairInfo& pi, bool isActive, const pubs
 }
 
 void PairInfoManager::UpdateOnBalance(const pubsub::Balance& balance, const std::string& baseAsset) {
-    std::string symbol = std::string(balance.currency) + "-" + baseAsset;
+    std::string symbol = std::string(balance.currency) + "-" + baseAsset; // 需要加上exchange，insttype
 
     for (auto& kv : m_pairInfoMap) {
         PairInfo& pi = kv.second;

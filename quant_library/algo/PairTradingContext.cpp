@@ -20,6 +20,7 @@
 
 #include "PairTradingContext.h"
 #include "basic/DataStruct.h"
+#include "basic/AlgoPairOrder.h"
 
 
 namespace pt {
@@ -29,10 +30,10 @@ int64_t PairTradingContext::NowUs() {
     return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-std::string PairTradingContext::GenerateAlgoOrderId() {
+int64_t PairTradingContext::GenerateAlgoOrderId() {
     static std::atomic<int64_t> seq{0};
     int64_t id = NowUs() * 1000 + (seq.fetch_add(1) % 1000);
-    return "PT_" + std::to_string(id);
+    return id;
 }
 
 PairTradingContext::PairTradingContext() = default;
@@ -164,118 +165,283 @@ void PairTradingContext::SubmitAlgoOrder(const PairInfo& pi, const std::string& 
         return;
     }
 
-    std::string json = BuildAlgoOrderJson(pi, algoMode, direction, forgoProfit);
-    if (json.empty()) {
+    // 直接创建算法单对象（不再拼 JSON 字符串），创建失败返回 nullptr
+    BaseAlgoOrder* pAlgoOrder = BuildAlgoOrderJson(pi, algoMode, direction, forgoProfit);
+    if (pAlgoOrder == nullptr) {
         return;
     }
 
-    auto algoId = GenerateAlgoOrderId();
+    // 先占住这个对子，避免算法单未结束时同一对子重复触发。
+    // 注意：这里存的 id 必须和算法单对象的 algoOrderId 一致（ScanFinishedAlgoOrders
+    //      会用 stoll(currentAlgoOrderId) 去 AlgoContext 里查这个算法单）
     auto& pim = PairInfoManager::Instance();
-    pim.SetActiveAlgoOrder(pi.pairInstrumentKey, algoId.c_str());
+    pim.SetActiveAlgoOrder(pi.pairInstrumentKey, std::to_string(pAlgoOrder->algoOrderId).c_str());
 
-    m_algoCommandCb(json);
-
-    // 可以在这里把算法单BaseAlgoOrder创建好，并插入到algoOrderManager中，在AlgoContext.cpp中就可以直接on_spread执行了。
+    // 交给 AlgoContext 注册：Init / 插入 algoOrderManager / 落库 / 订阅价差
+    m_algoCommandCb(pAlgoOrder);
 }
 
-std::string PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
+BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
     const auto& op = pi.orderParams;
-    bool isTT = (algoMode == "TT");
+    const bool isTT = (algoMode == "TT");
+    const bool isClose = (direction == "CL" || direction == "CS");
 
-    double startSpread = 0.0;
-    double endSpread = 0.0;
-    double startVolume = 0.0;
-    double endVolume = 0.0;
-    bool sw = false;
-
+    // 1. 定位本次触发的是哪一组参数（TT/MT x OL/OS/CL/CS）
+    const bool* pSw = nullptr;
     if (algoMode == "TT" && direction == "OL") {
-        startSpread = op.ttOLStartSpread;
-        endSpread = op.ttOLEndSpread;
-        startVolume = op.ttOLStartVolume;
-        endVolume = op.ttOLEndVolume;
-        sw = op.ttOLSwitch;
+        pSw = &op.ttOLSwitch;
     }
     else if (algoMode == "TT" && direction == "OS") {
-        startSpread = op.ttOSStartSpread;
-        endSpread = op.ttOSEndSpread;
-        startVolume = op.ttOSStartVolume;
-        endVolume = op.ttOSEndVolume;
-        sw = op.ttOSSwitch;
+        pSw = &op.ttOSSwitch;
     }
     else if (algoMode == "TT" && direction == "CL") {
-        startSpread = op.ttCLStartSpread;
-        endSpread = op.ttCLEndSpread;
-        startVolume = op.ttCLStartVolume;
-        endVolume = op.ttCLEndVolume;
-        sw = op.ttCLSwitch;
+        pSw = &op.ttCLSwitch;
     }
     else if (algoMode == "TT" && direction == "CS") {
-        startSpread = op.ttCSStartSpread;
-        endSpread = op.ttCSEndSpread;
-        startVolume = op.ttCSStartVolume;
-        endVolume = op.ttCSEndVolume;
-        sw = op.ttCSSwitch;
+        pSw = &op.ttCSSwitch;
     }
     else if (algoMode == "MT" && direction == "OL") {
-        startSpread = op.mtOLStartSpread;
-        endSpread = op.mtOLEndSpread;
-        startVolume = op.mtOLStartVolume;
-        endVolume = op.mtOLEndVolume;
-        sw = op.mtOLSwitch;
+        pSw = &op.mtOLSwitch;
     }
     else if (algoMode == "MT" && direction == "OS") {
-        startSpread = op.mtOSStartSpread;
-        endSpread = op.mtOSEndSpread;
-        startVolume = op.mtOSStartVolume;
-        endVolume = op.mtOSEndVolume;
-        sw = op.mtOSSwitch;
+        pSw = &op.mtOSSwitch;
     }
     else if (algoMode == "MT" && direction == "CL") {
-        startSpread = op.mtCLStartSpread;
-        endSpread = op.mtCLEndSpread;
-        startVolume = op.mtCLStartVolume;
-        endVolume = op.mtCLEndVolume;
-        sw = op.mtCLSwitch;
+        pSw = &op.mtCLSwitch;
     }
     else if (algoMode == "MT" && direction == "CS") {
-        startSpread = op.mtCSStartSpread;
-        endSpread = op.mtCSEndSpread;
-        startVolume = op.mtCSStartVolume;
-        endVolume = op.mtCSEndVolume;
-        sw = op.mtCSSwitch;
+        pSw = &op.mtCSSwitch;
     }
     else {
-        return "";
+        LOG_ERROR("invalid algoMode:{} direction:{}", algoMode, direction);
+        return nullptr;
     }
 
-    bool isClose = (direction == "CL" || direction == "CS");
+    const bool sw = *pSw;
+
+    // 2. 开关校验：正常开仓必须开关打开；平仓（含风控强平）不受开关限制
     if (!sw && !isClose && forgoProfit == 0.0) {
-        return "";
+        return nullptr;
     }
 
-    if (isClose && forgoProfit > 0.0) {
-        if (direction == "CL") {
-            startSpread -= forgoProfit;
-            endSpread -= forgoProfit;
-        }
-        else {
-            startSpread += forgoProfit;
-            endSpread += forgoProfit;     
-        }
-    }
-
-    std::string activeOrderType = isTT ? "'OrderType_MARKET" : "OrderType_LIMIT";
-    std::string passiveOrderType = "OrderType_MARKET";
-
+    // 3. 报单量有效性校验
     double targetVolume = isTT ? pi.ttTargetVolume : pi.mtTargetVolume;
     if (std::isnan(targetVolume) || targetVolume <= 0.0) {
-        return "";
+        LOG_WARN("invalid targetVolume:{} pairKey:{} algoMode:{} direction:{}", targetVolume, pi.pairInstrumentKey, algoMode, direction);
+        return nullptr;
     }
 
-    std::string algoOrderId = GenerateAlgoOrderId();
-    std::ostringstream oss;
-    oss << "{\"commandType\"" << "}";
-    return oss.str();
+    // 4. 创建算法单对象
+    //    除下面显式赋值的字段外，其余参数先取默认值，后续统一改为从 PairTradingConfig 读取
+    const char* algoStrategyName = "pair_trading";
+
+    AlgoPairOrder* pAlgoOrder = new AlgoPairOrder();
+    pAlgoOrder->algoType = stra::AlgoType_PairTrading;
+
+    // ---- 身份 / 币对 ----
+    pAlgoOrder->algoOrderId = GenerateAlgoOrderId();
+    pAlgoOrder->commandType = stra::CommandType_NEW;
+    pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
+    pAlgoOrder->insertTime = crypto::getCurrentTime();
+    pAlgoOrder->updateTime = pAlgoOrder->insertTime;
+    strncpy(pAlgoOrder->algoStrategyName, algoStrategyName, sizeof(pAlgoOrder->algoStrategyName) - 1);
+    strncpy(pAlgoOrder->pairInstrumentKey, pi.pairInstrumentKey, sizeof(pAlgoOrder->pairInstrumentKey) - 1);
+    strncpy(pAlgoOrder->activeInstrumentKey, pi.activeInstrumentKey, sizeof(pAlgoOrder->activeInstrumentKey) - 1);
+    strncpy(pAlgoOrder->passiveInstrumentKey, pi.passiveInstrumentKey, sizeof(pAlgoOrder->passiveInstrumentKey) - 1);
+    strncpy(pAlgoOrder->baseAsset, baseAsset.c_str(), sizeof(pAlgoOrder->baseAsset) - 1);
+
+    // ---- 账户 ----
+    pAlgoOrder->activeAccountId = pi.activeAccountId;
+    pAlgoOrder->passiveAccountId = pi.passiveAccountId;
+
+    // ---- 腿属性（默认值，后续从 PairTradingConfig 来）----
+    pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
+    pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
+    // TT 主动腿吃单 -> MARKET；MT 主动腿挂单 -> LIMIT
+    pAlgoOrder->activeOrderType = isTT ? OT_MARKET : OT_LIMIT;
+    // 被动腿永远是吃单腿
+    pAlgoOrder->passiveOrderType = OT_MARKET;
+
+    pAlgoOrder->activeDepthMakerCheck = false;
+    pAlgoOrder->activeDepthTakerCheck = false;
+    pAlgoOrder->passiveDepthMakerCheck = false;
+    pAlgoOrder->passiveDepthTakerCheck = false;
+
+    pAlgoOrder->activePriceTakerPct = 0.0;
+    pAlgoOrder->activePriceMakerPct = 0.0;
+    pAlgoOrder->passivePriceTakerPct = 0.0;
+    pAlgoOrder->passivePriceMakerPct = 0.0;
+    pAlgoOrder->passiveVolumePct = 0.5;
+
+    // ---- 撤单参数（默认值，后续从 PairTradingConfig 来）----
+    pAlgoOrder->activeMakerCancelOrderTime = 300LL * 1000 * 1000;
+    pAlgoOrder->activeTakerCancelOrderTime = 5LL * 1000 * 1000;
+    pAlgoOrder->passiveMakerCancelOrderTime = 60LL * 1000 * 1000;
+    pAlgoOrder->passiveTakerCancelOrderTime = 5LL * 1000 * 1000;
+    pAlgoOrder->activePassiveCancelOrderPct = 0.001;
+    pAlgoOrder->activeMakerCancelOrderPct = 0.001;
+    pAlgoOrder->activeTakerCancelOrderPct = 0.001;
+    pAlgoOrder->passiveMakerCancelOrderPct = 0.001;
+    pAlgoOrder->passiveTakerCancelOrderPct = 0.001;
+
+    // ---- 费率 / 滑点：复用信号侧的同一套配置，保证两边口径一致 ----
+    // takerTakerFs / makerTakerFs 会直接参与 GetTargetPairOrder 的目标价差计算，不能留 0
+    const auto& fs = SignalGenerator::Instance().GetConfig();
+    pAlgoOrder->activeMakerFeeRate = fs.activeMakerFeeRate;
+    pAlgoOrder->activeTakerFeeRate = fs.activeTakerFeeRate;
+    pAlgoOrder->passiveMakerFeeRate = fs.passiveMakerFeeRate;
+    pAlgoOrder->passiveTakerFeeRate = fs.passiveTakerFeeRate;
+    // 信号侧 totalCost 只计一次滑点，这里放在主动腿，避免 Fs 中重复计入
+    pAlgoOrder->activeMakerSlippage = fs.basicSlippage;
+    pAlgoOrder->activeTakerSlippage = fs.basicSlippage;
+    pAlgoOrder->passiveMakerSlippage = 0.0;
+    pAlgoOrder->passiveTakerSlippage = 0.0;
+    pAlgoOrder->takerTakerFs = pAlgoOrder->activeTakerFeeRate + pAlgoOrder->passiveTakerFeeRate
+                             + pAlgoOrder->activeTakerSlippage + pAlgoOrder->passiveTakerSlippage;
+    pAlgoOrder->makerTakerFs = pAlgoOrder->activeMakerFeeRate + pAlgoOrder->passiveTakerFeeRate
+                             + pAlgoOrder->activeMakerSlippage + pAlgoOrder->passiveTakerSlippage;
+
+    // ---- 持仓 / 报单量 ----
+    pAlgoOrder->pairTotalVolume = pi.pairTotalVolume;
+    pAlgoOrder->pairActiveTotalPrice = pi.pairActiveTotalPrice;
+    pAlgoOrder->pairPassiveTotalPrice = pi.pairPassiveTotalPrice;
+    pAlgoOrder->pairPassiveTotalVolume = pi.pairPassiveTotalVolume;
+    pAlgoOrder->ttTargetVolume = pi.ttTargetVolume;
+    pAlgoOrder->mtTargetVolume = pi.mtTargetVolume;
+    pAlgoOrder->minVolume = pi.minVolume;
+    pAlgoOrder->maxMTOrderSize = 1.0;   // 默认值，后续从 PairTradingConfig 来
+    pAlgoOrder->maxTTOrderSize = 1.0;   // 默认值，后续从 PairTradingConfig 来
+
+    // ---- 开关 / 策略参数（默认值，后续从 PairTradingConfig 来）----
+    pAlgoOrder->targetSpreadType = stra::TargetSpredPrice_NOW;
+    pAlgoOrder->activeVolumeCalcualteType = stra::ActiveVolumeCalcualteType_PassiveVolumePct;
+    pAlgoOrder->profitSwitch = pi.profitSwitch;
+    pAlgoOrder->profitPct = pi.profitPct;
+    pAlgoOrder->mtRebalanceSwitch = true;
+    pAlgoOrder->ttRebalanceSwitch = true;
+    pAlgoOrder->mtRebalanceFlag = true;
+    pAlgoOrder->ttRebalanceFlag = true;
+    pAlgoOrder->mtPriceTrendProtectFlag = false;
+    pAlgoOrder->ttPriceTrendProtectFlag = false;
+    pAlgoOrder->activePriceTickFlag = false;
+    pAlgoOrder->activePriceTickNum = 0;
+    pAlgoOrder->passivePriceTickFlag = false;
+    pAlgoOrder->passivePriceTickNum = 0;
+    pAlgoOrder->isManual = pi.manualFlag;
+
+    // ---- 32 个开平仓触发参数整体拷贝 ----
+    pAlgoOrder->ttOLStartSpread = op.ttOLStartSpread;
+    pAlgoOrder->ttOLEndSpread = op.ttOLEndSpread;
+    pAlgoOrder->ttOLStartVolume = op.ttOLStartVolume;
+    pAlgoOrder->ttOLEndVolume = op.ttOLEndVolume;
+    pAlgoOrder->ttOLSwitch = op.ttOLSwitch;
+
+    pAlgoOrder->ttCLStartSpread = op.ttCLStartSpread;
+    pAlgoOrder->ttCLEndSpread = op.ttCLEndSpread;
+    pAlgoOrder->ttCLStartVolume = op.ttCLStartVolume;
+    pAlgoOrder->ttCLEndVolume = op.ttCLEndVolume;
+    pAlgoOrder->ttCLSwitch = op.ttCLSwitch;
+
+    pAlgoOrder->ttOSStartSpread = op.ttOSStartSpread;
+    pAlgoOrder->ttOSEndSpread = op.ttOSEndSpread;
+    pAlgoOrder->ttOSStartVolume = op.ttOSStartVolume;
+    pAlgoOrder->ttOSEndVolume = op.ttOSEndVolume;
+    pAlgoOrder->ttOSSwitch = op.ttOSSwitch;
+
+    pAlgoOrder->ttCSStartSpread = op.ttCSStartSpread;
+    pAlgoOrder->ttCSEndSpread = op.ttCSEndSpread;
+    pAlgoOrder->ttCSStartVolume = op.ttCSStartVolume;
+    pAlgoOrder->ttCSEndVolume = op.ttCSEndVolume;
+    pAlgoOrder->ttCSSwitch = op.ttCSSwitch;
+
+    pAlgoOrder->mtOLStartSpread = op.mtOLStartSpread;
+    pAlgoOrder->mtOLEndSpread = op.mtOLEndSpread;
+    pAlgoOrder->mtOLStartVolume = op.mtOLStartVolume;
+    pAlgoOrder->mtOLEndVolume = op.mtOLEndVolume;
+    pAlgoOrder->mtOLSwitch = op.mtOLSwitch;
+
+    pAlgoOrder->mtCLStartSpread = op.mtCLStartSpread;
+    pAlgoOrder->mtCLEndSpread = op.mtCLEndSpread;
+    pAlgoOrder->mtCLStartVolume = op.mtCLStartVolume;
+    pAlgoOrder->mtCLEndVolume = op.mtCLEndVolume;
+    pAlgoOrder->mtCLSwitch = op.mtCLSwitch;
+
+    pAlgoOrder->mtOSStartSpread = op.mtOSStartSpread;
+    pAlgoOrder->mtOSEndSpread = op.mtOSEndSpread;
+    pAlgoOrder->mtOSStartVolume = op.mtOSStartVolume;
+    pAlgoOrder->mtOSEndVolume = op.mtOSEndVolume;
+    pAlgoOrder->mtOSSwitch = op.mtOSSwitch;
+
+    pAlgoOrder->mtCSStartSpread = op.mtCSStartSpread;
+    pAlgoOrder->mtCSEndSpread = op.mtCSEndSpread;
+    pAlgoOrder->mtCSStartVolume = op.mtCSStartVolume;
+    pAlgoOrder->mtCSEndVolume = op.mtCSEndVolume;
+    pAlgoOrder->mtCSSwitch = op.mtCSSwitch;
+
+    // 5. 本次触发的模式+方向：套用风控价差修正，并确保开关打开
+    double* pStartSpread = nullptr;
+    double* pEndSpread = nullptr;
+    bool*   pSwitch = nullptr;
+    if (algoMode == "TT" && direction == "OL") {
+        pStartSpread = &pAlgoOrder->ttOLStartSpread;
+        pEndSpread = &pAlgoOrder->ttOLEndSpread;
+        pSwitch = &pAlgoOrder->ttOLSwitch;
+    }
+    else if (algoMode == "TT" && direction == "OS") {
+        pStartSpread = &pAlgoOrder->ttOSStartSpread;
+        pEndSpread = &pAlgoOrder->ttOSEndSpread;
+        pSwitch = &pAlgoOrder->ttOSSwitch;
+    }
+    else if (algoMode == "TT" && direction == "CL") {
+        pStartSpread = &pAlgoOrder->ttCLStartSpread;
+        pEndSpread = &pAlgoOrder->ttCLEndSpread;
+        pSwitch = &pAlgoOrder->ttCLSwitch;
+    }
+    else if (algoMode == "TT" && direction == "CS") {
+        pStartSpread = &pAlgoOrder->ttCSStartSpread;
+        pEndSpread = &pAlgoOrder->ttCSEndSpread;
+        pSwitch = &pAlgoOrder->ttCSSwitch;
+    }
+    else if (algoMode == "MT" && direction == "OL") {
+        pStartSpread = &pAlgoOrder->mtOLStartSpread;
+        pEndSpread = &pAlgoOrder->mtOLEndSpread;
+        pSwitch = &pAlgoOrder->mtOLSwitch;
+    }
+    else if (algoMode == "MT" && direction == "OS") {
+        pStartSpread = &pAlgoOrder->mtOSStartSpread;
+        pEndSpread = &pAlgoOrder->mtOSEndSpread;
+        pSwitch = &pAlgoOrder->mtOSSwitch;
+    }
+    else if (algoMode == "MT" && direction == "CL") {
+        pStartSpread = &pAlgoOrder->mtCLStartSpread;
+        pEndSpread = &pAlgoOrder->mtCLEndSpread;
+        pSwitch = &pAlgoOrder->mtCLSwitch;
+    }
+    else {
+        pStartSpread = &pAlgoOrder->mtCSStartSpread;
+        pEndSpread = &pAlgoOrder->mtCSEndSpread;
+        pSwitch = &pAlgoOrder->mtCSSwitch;
+    }
+
+    // 风控强平：放弃一部分利润，把触发价差往更容易成交的方向挪
+    if (isClose && forgoProfit > 0.0) {
+        if (direction == "CL") {
+            *pStartSpread -= forgoProfit;
+            *pEndSpread -= forgoProfit;
+        }
+        else {
+            *pStartSpread += forgoProfit;
+            *pEndSpread += forgoProfit;
+        }
+    }
+
+    // 本次已经决定报单，开关必须是打开的（风控强平时对应开关可能是关的）
+    *pSwitch = true;
+
+    LOG_INFO("create algo order pairKey:{} algoMode:{} direction:{} startSpread:{} endSpread:{} forgoProfit:{}",
+             pi.pairInstrumentKey, algoMode, direction, *pStartSpread, *pEndSpread, forgoProfit);
+
+    return pAlgoOrder;
 }
 
 void PairTradingContext::OnPosition(const pubsub::Position& position) {

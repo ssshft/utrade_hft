@@ -38,7 +38,7 @@ private:
 
     pt::PairTradingContext ptContext;
 
-    void SubmitAlgoCommand(const std::string& json); // 策略层构建的json指令转发给AlgoContext
+    void SubmitAlgoCommand(BaseAlgoOrder* pAlgoOrder); // 策略层创建好的算法单对象转发给AlgoContext
 
     void ScanFinishedAlgoOrders(int64_t nowUs);
 
