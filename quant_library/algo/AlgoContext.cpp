@@ -877,12 +877,12 @@ void AlgoContext::OnCommand(string s) {
     pAlgoOrder->passiveMakerSlippage = 0.0;
     
     pAlgoOrder->pairActiveTotalPrice = 0.100335;
-    pAlgoOrder->pairTotalVolume = 200;
-    pAlgoOrder->pairPassiveTotalVolume = -200;
+    pAlgoOrder->pairTotalVolume = 1000;
+    pAlgoOrder->pairPassiveTotalVolume = -1000;
     pAlgoOrder->pairPassiveTotalPrice = 0.10027;
     
-    pAlgoOrder->maxMTOrderSize = 2;
-    pAlgoOrder->maxTTOrderSize = 2;
+    pAlgoOrder->maxMTOrderSize = 5;
+    pAlgoOrder->maxTTOrderSize = 5;
     pAlgoOrder->targetSpreadType = stra::TargetSpredPrice_NOW;
     pAlgoOrder->activeVolumeCalcualteType = stra::ActiveVolumeCalcualteType_PassiveVolumePct;
     
@@ -895,48 +895,48 @@ void AlgoContext::OnCommand(string s) {
     pAlgoOrder->ttOLStartSpread = -0.0001;
     pAlgoOrder->ttOLEndSpread = -0.0005;
     pAlgoOrder->ttOLStartVolume = 0.0;
-    pAlgoOrder->ttOLEndVolume = -200;
+    pAlgoOrder->ttOLEndVolume = -1000;
     pAlgoOrder->ttOLSwitch = false;
       
     pAlgoOrder->ttCLStartSpread = 0;
     pAlgoOrder->ttCLEndSpread = 0.001;
-    pAlgoOrder->ttCLStartVolume = -200;
+    pAlgoOrder->ttCLStartVolume = -1000;
     pAlgoOrder->ttCLEndVolume = 0;
     pAlgoOrder->ttCLSwitch = false;
     
     pAlgoOrder->ttOSStartSpread = 0;
     pAlgoOrder->ttOSEndSpread = 0.000001;
     pAlgoOrder->ttOSStartVolume = 0;
-    pAlgoOrder->ttOSEndVolume = 200;
+    pAlgoOrder->ttOSEndVolume = 1000;
     pAlgoOrder->ttOSSwitch = false;
     
     pAlgoOrder->ttCSStartSpread = 0.0011;
     pAlgoOrder->ttCSEndSpread = 0.001;
-    pAlgoOrder->ttCSStartVolume = 200;
+    pAlgoOrder->ttCSStartVolume = 1000;
     pAlgoOrder->ttCSEndVolume = 0;
     pAlgoOrder->ttCSSwitch = true;
       
     pAlgoOrder->mtOLStartSpread = -0.0001;
     pAlgoOrder->mtOLEndSpread = -0.0005;
     pAlgoOrder->mtOLStartVolume = 0.0;
-    pAlgoOrder->mtOLEndVolume = -200;
+    pAlgoOrder->mtOLEndVolume = -1000;
     pAlgoOrder->mtOLSwitch = false;
      
     pAlgoOrder->mtCLStartSpread = 0;
     pAlgoOrder->mtCLEndSpread = 0.001;
-    pAlgoOrder->mtCLStartVolume = -200;
+    pAlgoOrder->mtCLStartVolume = -1000;
     pAlgoOrder->mtCLEndVolume = 0;
     pAlgoOrder->mtCLSwitch = false;
       
     pAlgoOrder->mtOSStartSpread = 0;
     pAlgoOrder->mtOSEndSpread = 0.001;
     pAlgoOrder->mtOSStartVolume = 0;
-    pAlgoOrder->mtOSEndVolume = 200;
+    pAlgoOrder->mtOSEndVolume = 1000;
     pAlgoOrder->mtOSSwitch = false;
      
     pAlgoOrder->mtCSStartSpread = -0.0001;
     pAlgoOrder->mtCSEndSpread = -0.0005;
-    pAlgoOrder->mtCSStartVolume = 200;
+    pAlgoOrder->mtCSStartVolume = 1000;
     pAlgoOrder->mtCSEndVolume = 0;
     pAlgoOrder->mtCSSwitch = false;
 
