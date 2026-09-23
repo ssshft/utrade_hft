@@ -179,7 +179,7 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
             price = ceil((price - stra::MIN_FLOAT) / passiveInfo.tickSize) * passiveInfo.tickSize;
         }
     }
-    // price = round(price / passiveInfo.tickSize) * passiveInfo.tickSize;
+
     stra::QuantOrder order;
     // 小于最小报单量,不创建order
     double orderAmount = 0.0;
@@ -227,9 +227,9 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
     strncpy(order.pairInstrumentKey, pairInstrumentKey, stra::INST_KEY_LEN);
     order.tradingType = tradingTypeOrder;
     order.tradingTypeOffset = tradingTypeOffset;
-    order.instType = activeInstType;
-    order.orderType = activeOrderType;
-    order.direction = activeDirection;
+    order.instType = passiveInstType;
+    order.orderType = passiveOrderType;
+    order.direction = passiveDirection;
     order.offsetFlag = OF_OPEN;
     order.orderStatus = OS_PEND;
 
@@ -238,10 +238,10 @@ stra::QuantOrder PairOrder::CreateVolumePassiveOrder(int64_t strategyOrderId) {
     order.targetPrice = passiveTargetPrice;
     order.pairId = pairId;
     order.algoPairId = algoPairId;
-    order.isActiveOrder = true;
+    order.isActiveOrder = false;
     order.rebalance = rebalanceFlag;
     strncpy(order.strategyName, strategyName, stra::NAME_LEN);
-    sActiveOrder.insert(order.strategyOrderId);
+    sPassiveOrder.insert(order.strategyOrderId);
     order.reduceOnly = reduceOnly;
     return order;
 }

@@ -404,8 +404,8 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
     return pairOrder;
 }
 
-void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t eventTime) {
-    updateTime = eventTime;
+void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder) {
+    updateTime = crypto::getCurrentTime();
     if (activeTrade == 1 && pairOrder.activeTotalVolumeOnOrder > stra::MIN_FLOAT) {
         double activeVolume = pairOrder.activeTotalVolumeOnOrder;
         double activePrice = pairOrder.activeTotalPriceOnOrder;
@@ -524,7 +524,7 @@ void AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, in
     }
 }
 
-void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime) {
+void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder) {
     double activeFrozenValue = 0.0;
     if (activeInfo.calcType == 0) {
         activeFrozenValue = pairOrder.activeFrozenVolume * pairOrder.activeFrozenPrice * activeInfo.value;
@@ -542,12 +542,12 @@ void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder, int64_t eventTime)
     }
 
 
-    if ((activeTrade == 1 && activeFrozenValue <= stra::MIN_FLOAT) && (activeTrade == 0 && passiveFrozenValue <= stra::MIN_FLOAT)) {
+    if ((activeTrade == 1 && activeFrozenValue <= stra::MIN_FLOAT) || (activeTrade == 0 && passiveFrozenValue <= stra::MIN_FLOAT)) {
         // 这时候pairOrder已经完结，进行完结更新
         //LOG_INFO("start UpdateAlgoPairOrderByPairOrder!");
-        UpdateAlgoPairOrderByPairOrder(pairOrder, eventTime);
+        UpdateAlgoPairOrderByPairOrder(pairOrder);
         pairOrder.status = 1;
-        pairOrder.updateTime = eventTime;
+        pairOrder.updateTime = crypto::getCurrentTime();
         string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
         dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
         WritePairOrder(pairOrder, pdata);

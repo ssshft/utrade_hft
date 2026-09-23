@@ -16,6 +16,6 @@ struct AlgoRebalanceOrder : public BaseAlgoOrder {
     AlgoRebalanceOrder();
     PairOrder GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId);
     PairOrder CreatePairOrder(stra::TradingType tradingType);
-    void PairOrderTrade(PairOrder& pairOrder, int64_t eventTime);
-    void UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder, int64_t eventTime);
+    void PairOrderTrade(PairOrder& pairOrder);
+    void UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder);
 };

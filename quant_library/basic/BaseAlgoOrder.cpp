@@ -304,7 +304,29 @@ double BaseAlgoOrder::GetExpectActiveVolume() {
     stra::QuantAccount& accountTakerTaker = posMgrTakerTaker.GetAccount();
     double frozenActiveVolume = accountMakerTaker.mPosition[activeInstrumentKey].frozenLongPosition - accountMakerTaker.mPosition[activeInstrumentKey].frozenShortPosition;
     frozenActiveVolume += accountTakerTaker.mPosition[activeInstrumentKey].frozenLongPosition - accountTakerTaker.mPosition[activeInstrumentKey].frozenShortPosition;
-    return pairTotalVolume + frozenActiveVolume;
+    
+    
+    // return pairTotalVolume + frozenActiveVolume;
+
+    // 补回"在途pairOrder已成交的主动腿量"。
+    // pairTotalVolume只在pairOrder完结时(UpdateAlgoPairOrderByPairOrder)才更新，
+    // 而frozen在成交时(PositionManager::OnOrder)即被释放并转入long/shortPosition，
+    // 两者之间存在记账空档；不补回会让新建pairOrder按陈旧总量计算目标量，导致多报单/多平。
+    double inflightActiveVolume = 0.0;
+    auto& allPairOrders = pairOrderMgr.GetAllPairOrders();
+    for (auto it = allPairOrders.begin(); it != allPairOrders.end(); ++it) {
+        const PairOrder& pairOrder = it->second;
+        if (pairOrder.activeTotalVolumeOnOrder > stra::MIN_FLOAT) {
+            // 与UpdateAlgoPairOrderByPairOrder中的累加规则严格一致
+            if (pairOrder.activeDirection == DT_LONG) {
+                inflightActiveVolume += pairOrder.activeTotalVolumeOnOrder;
+            } else {
+                inflightActiveVolume -= pairOrder.activeTotalVolumeOnOrder;
+            }
+        }
+    }
+
+    return pairTotalVolume + inflightActiveVolume + frozenActiveVolume;
 }
 
 double BaseAlgoOrder::GetExpectPassiveVolume() {
@@ -312,7 +334,25 @@ double BaseAlgoOrder::GetExpectPassiveVolume() {
     stra::QuantAccount& accountTakerTaker = posMgrTakerTaker.GetAccount();
     double frozenPassiveVolume = accountMakerTaker.mPosition[passiveInstrumentKey].frozenLongPosition - accountMakerTaker.mPosition[passiveInstrumentKey].frozenShortPosition;
     frozenPassiveVolume += accountTakerTaker.mPosition[passiveInstrumentKey].frozenLongPosition - accountTakerTaker.mPosition[passiveInstrumentKey].frozenShortPosition;
-    return pairPassiveTotalVolume + frozenPassiveVolume;
+   
+   
+    // return pairPassiveTotalVolume + frozenPassiveVolume;
+
+    // 补回"在途pairOrder已成交的被动腿量"，规则与 AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder 的被动分支一致
+    double inflightPassiveVolume = 0.0;
+    auto& allPairOrders = pairOrderMgr.GetAllPairOrders();
+    for (auto it = allPairOrders.begin(); it != allPairOrders.end(); ++it) {
+        const PairOrder& pairOrder = it->second;
+        if (pairOrder.passiveTotalVolumeOnOrder > stra::MIN_FLOAT) {
+            if (pairOrder.passiveDirection == DT_LONG) {
+                inflightPassiveVolume += pairOrder.passiveTotalVolumeOnOrder;
+            } else {
+                inflightPassiveVolume -= pairOrder.passiveTotalVolumeOnOrder;
+            }
+        }
+    }
+
+    return pairPassiveTotalVolume + inflightPassiveVolume + frozenPassiveVolume;
 }
 
 double BaseAlgoOrder::GetLockedSpread() {
@@ -368,7 +408,15 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                 continue;
             }
 
-            if (it->second.isActiveOrder && (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED)) {
+            bool cancelFlag = false;
+            if (algoType == stra::AlgoType_Rebalance) {
+                cancelFlag = (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED);
+            }
+            else {
+                cancelFlag = it->second.isActiveOrder && (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED);
+            }
+
+            if (cancelFlag) {
                 if (nowTime - it->second.updateTime > 1000 * 10) {
                     bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                     if (cancel_flag) {

@@ -196,7 +196,7 @@ struct BaseAlgoOrder {
     void UpdateAlgoPairOrderByInsertQuantOrder(const stra::QuantOrder& order);
     void UpdateAlgoPairOrderByDeleteQuantOrder(const stra::QuantOrder& order);
     void UpdateAlgoPairOrderByQuantOrder(const stra::QuantOrder& order);
-    void UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder);
+    virtual void UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder);
     double GetExpectActiveVolume();
     double GetExpectPassiveVolume();
     double GetLockedSpread();
