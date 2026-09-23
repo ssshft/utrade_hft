@@ -639,8 +639,6 @@ namespace stra {
         int systemAccountId{0};
         int physicalAccountId{0};
         AccountType accountType{AT_MIN};
-        AccountMarginType marginType{AccountMarginType_MIN};
-        AccountMarginType accountMarginType{AccountMarginType_MIN};
         double openRealLeverage{0.9};
         double maxRealLeverage{0.95};
 	    double passiveOpenRealLeverage{1.0};
@@ -653,7 +651,6 @@ namespace stra {
         double openPassiveMgnRatio{1000000};
         unordered_map<string, AssetUnit> mAsset;
         unordered_map<string, PositionUnit> mPosition;
-        vector<int> vTransfer;
 
         string GetStr() const {
             stringstream ss;
