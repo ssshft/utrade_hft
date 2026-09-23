@@ -144,8 +144,4 @@ bool DataArray<T>::IsEmpty() {
     }
 }
 
-template class DataArray<stra::QuantKline>;
-template class DataArray<stra::QuantMarketDepth>;
-template class DataArray<stra::QuantMarketTrade>;
-template class DataArray<stra::QuantSpread>;
 template class DataArray<double>;
