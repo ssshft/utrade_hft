@@ -4,6 +4,7 @@
 #include "fmt/core.h"
 #include "ConcurrentQueue.h"
 #include "time_util.h"
+#include "DataStruct.h"
 #include <perf.h>
 #include <chrono>
 #include <vector>
@@ -14,11 +15,18 @@ using namespace std;
 using namespace std::chrono;
 
 
-struct content {
-	int type;
-	string msg;
-};
 
+
+
+struct content {
+    int type{0};
+    union {
+        stra::QuantOrderRecord quantOrder;
+        stra::PairOrderRecord  pairOrder;
+        stra::AlgoOrderRecord  algoOrder;
+    };
+    content() {}                       // 成员都是 POD，无需构造/析构
+};
 
 typedef ConcurrentQueue<string, 10000> RQUEUE;
 typedef ConcurrentQueue<content, 100000> CONTENTQUEUE;

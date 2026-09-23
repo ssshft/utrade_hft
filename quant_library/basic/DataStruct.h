@@ -480,6 +480,186 @@ namespace stra {
         }
     };
 
+
+
+    struct DbpSnapshot {
+        double activeBidPrice1{0};
+        double activeBidVolume1{0};
+        double activeAskPrice1{0};
+        double activeAskVolume1{0};
+        double passiveBidPrice1{0};
+        double passiveBidVolume1{0};
+        double passiveAskPrice1{0};
+        double passiveAskVolume1{0};
+        double spreadBidAsk{0};
+        double spreadBidBid{0};
+        double spreadAskBid{0};
+        double spreadAskAsk{0};
+        int64_t generateTs{0};
+        int64_t activeDepthTs{0};
+        int64_t passiveDepthTs{0};
+        int64_t activeDepthDelay{0};
+        int64_t passiveDepthDelay{0};
+
+        // pdata 可能为 null（BaseAlgoOrder.cpp:713 拿到的 GetSpread 就可能返回空），要判空
+        void From(const dbp::DbpData* p) {
+            if (!p) { 
+                return; 
+            }
+            activeBidPrice1 = p->activeBidPrice[0];
+            activeBidVolume1 = p->activeBidVolume[0];
+            activeAskPrice1 = p->activeAskPrice[0];
+            activeAskVolume1 = p->activeAskVolume[0];
+            passiveBidPrice1 = p->passiveBidPrice[0];
+            passiveBidVolume1 = p->passiveBidVolume[0];
+            passiveAskPrice1  = p->passiveAskPrice[0];
+            passiveAskVolume1 = p->passiveAskVolume[0];
+            spreadBidAsk = p->spreadBidAsk;
+            spreadBidBid = p->spreadBidBid;
+            spreadAskBid = p->spreadAskBid;
+            spreadAskAsk = p->spreadAskAsk;
+            generateTs = p->generateTs;
+            activeDepthTs = p->activeDepthTs;
+            passiveDepthTs = p->passiveDepthTs;
+            activeDepthDelay = p->activeDepthDelay;
+            passiveDepthDelay = p->passiveDepthDelay;
+        }
+    };
+
+    struct QuantOrderRecord {
+        // 身份（对应 quantOrder.csv 第 1~5 列）
+        char strategyName[32]{""};
+        int64_t strategyOrderId{0};
+        char systemOrderId[64]{""};
+        char exchangeOrderId[64]{""};
+        char instrumentKey[128]{""};
+        // 枚举（存原始值，写线程再查 Enum2StrMap）
+        int orderType{0};
+        int direction{0};
+        int orderStatus{0};
+        // 订单自身（第 9~14 列）
+        double targetPrice{0};
+        double price{0};
+        double volume{0};
+        double totalPriceOnOrder{0};
+        double totalVolumeOnOrder{0};
+        double tradeVolume{0};
+        // 行情快照（第 15~22 列）
+        DbpSnapshot dbp;
+        // 其余（第 23~33 列）
+        int64_t updateTime{0};
+        int errorId{0};
+        char originErrorMsg[128]{""};
+        bool reduceOnly{false};
+        int64_t pairId{0};
+        int64_t algoPairId{0};
+        bool isActiveOrder{false};
+        bool rebalance{false};
+    };
+
+    struct PairOrderRecord {
+        // 与 pairOrder.csv 的 48 列表头 1:1，这里只列分类，落地时逐列写全
+        int64_t pairId{0};
+        int64_t algoPairId{0};
+        char strategyName[32]{""};
+        char baseAsset[32]{""};
+        int tradingTypeOrder{0};
+        int tradingTypeOffset{0};   // 存原始枚举值
+        double targetVolume{0};
+        char activeInstrumentKey[128]{""};
+        int activeDirection{0};
+        double activeTargetPrice{0};
+        char passiveInstrumentKey[128]{""};
+        int passiveDirection{0};
+        double passiveTargetPrice{0};
+        DbpSnapshot dbp;                                      // 第 11~14、18~30 列里的行情部分
+        double activeTotalPriceOnOrder{0};
+        double activeTotalVolumeOnOrder{0};
+        double passiveTotalPriceOnOrder{0};
+        double passiveTotalVolumeOnOrder{0};
+        double pairTotalVolume{0};
+        double pairActiveTotalPrice{0};
+        double pairPassiveTotalPrice{0};
+        double activeFrozenPrice{0};
+        double activeFrozenVolume{0};
+        double passiveFrozenPrice{0};
+        double passiveFrozenVolume{0};
+        int activeAccountId{0};
+        int passiveAccountId{0};
+        int status{0};
+        bool rebalanceFlag{false};
+        int64_t updateTime{0};
+        int64_t createTime{0};
+        double pairTargetSpread{0};
+    };
+
+    struct AlgoOrderRecord {
+        int algoType{0};               // 决定写哪个文件 / 用哪套列
+        char algoStrategyName[32]{""};
+        int64_t algoOrderId{0};
+        char pairInstrumentKey[128]{""};
+        char baseAsset[32]{""};
+        int algoOrderStatus{0};
+        int64_t updateTime;
+
+        char activeInstrumentKey[128]{""};
+        double activePriceTakerPct{0};
+        double activePriceMakerPct{0};
+        int activeAccountId{0};
+        int activeDriveType{0};
+        bool activeDepthMakerCheck{false};
+        bool activeDepthTakerCheck{false};
+        int activeDepthMakerCheckType{0};
+        int activeDepthTakerCheckType{0};
+        int activeOrderType{0};
+
+        char passiveInstrumentKey[128]{""};
+        double passivePriceTakerPct{0};
+        double passivePriceMakerPct{0};
+        int passiveAccountId{0};
+        int passiveDriveType{0};
+        bool passiveDepthMakerCheck{false};
+        bool passiveDepthTakerCheck{false};
+        int passiveDepthMakerCheckType{0};
+        int passiveDepthTakerCheckType{0};
+        int passiveOrderType{0};
+
+        double passiveVolumePct{0};
+        int64_t activeMakerCancelOrderTime{0};
+        int64_t activeTakerCancelOrderTime{0};
+        int64_t passiveMakerCancelOrderTime{0};
+        int64_t passiveTakerCancelOrderTime{0};
+        double activePassiveCancelOrderPct{0};
+        double activeMakerCancelOrderPct{0};
+        double activeTakerCancelOrderPct{0};
+        double passiveMakerCancelOrderPct{0};
+        double passiveTakerCancelOrderPct{0};
+
+        double activeMakerFeeRate{0};
+        double activeTakerFeeRate{0};
+        double passiveMakerFeeRate{0};
+        double passiveTakerFeeRate{0};
+        double activeTakerSlippage{0};
+        double activeMakerSlippage{0};
+        double passiveTakerSlippage{0};
+        double passiveMakerSlippage{0};
+
+        double pairActiveTotalPrice{0};
+        double pairTotalVolume{0};
+        double pairPassiveTotalPrice{0};
+        double makerTakerFs{0};
+        double takerTakerFs{0};
+        double maxMTOrderSize{0};
+        double maxTTOrderSize{0};
+        int targetSpreadType{0};
+        int activeVolumeCalcualteType{0};
+        double ttTargetVolume{0};
+        double mtTargetVolume{0};
+        // 子类专属
+        double fishingSlippagePct{0};     // AlgoFishingOrder
+        int activeTrade{0};            // AlgoRebalanceOrder
+    };
+
     struct QuantOrder {
         int64_t strategyOrderId{-1};
         char systemOrderId[64]{0};

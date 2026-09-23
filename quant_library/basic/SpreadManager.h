@@ -2,7 +2,6 @@
 #define _SPREAD_MANAGER_H
 
 #include "DataStruct.h"
-#include "DataArray.h"
 #include <unordered_map>
 #include <vector>
 #include <string>
