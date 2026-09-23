@@ -72,7 +72,7 @@ public:
                 "activeMakerFeeRate,activeTakerFeeRate,passiveMakerFeeRate,passiveTakerFeeRate,activeTakerSlippage,activeMakerSlippage,passiveTakerSlippage,passiveMakerSlippage,"
                 "pairActiveTotalPrice,pairTotalVolume,pairPassiveTotalPrice,"
                 "makerTakerFs,takerTakerFs,maxMTOrderSize,maxTTOrderSize,"
-                "targetSpreadType,activeVolumeCalcualteType,ttTargetVolume,mtTargetVolume,fishingSlippagePct,activeTrade"
+                "targetSpreadType,activeVolumeCalcualteType,ttTargetVolume,mtTargetVolume,fishingSlippagePct,activeTrade";
         }
     }
 
@@ -100,7 +100,6 @@ public:
         }
         mCurDate = newDate;
     }
-
 
     std::string FormatContent(const content& c) {
         if (c.type == 1) { // quantOrder
