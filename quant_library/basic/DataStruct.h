@@ -8,6 +8,7 @@
 #include "StraException.h"
 #include "crypto_errors.h"
 #include "data_struct.h"
+#include "dbp/include.h"
 
 using namespace std;
 
