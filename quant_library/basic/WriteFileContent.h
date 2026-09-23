@@ -115,9 +115,9 @@ public:
                 r.systemOrderId,
                 r.exchangeOrderId,
                 r.instrumentKey,
-                OrderTypeEnum2StrMap[r.orderType],
-                DirectionEnum2StrMap[r.direction],
-                OrderStatusEnum2StrMap[r.orderStatus],
+                OrderTypeEnum2StrMap[OrderType(r.orderType)],
+                DirectionEnum2StrMap[Direction(r.direction)],
+                OrderStatusEnum2StrMap[OrderStatus(r.orderStatus)],
             
                 r.targetPrice,
                 r.price,
@@ -177,12 +177,12 @@ public:
                 r.algoPairId,                     // 2  %ld
                 r.strategyName,                   // 3  %s
                 r.baseAsset,                      // 4  %s
-                stra::TradingTypeEnum2Str[r.tradingTypeOrder],   // 5  %s
-                stra::TradingTypeEnum2Str[r.tradingTypeOffset],  // 6  %s
+                stra::TradingTypeEnum2Str[stra::TradingType(r.tradingTypeOrder)],   // 5  %s
+                stra::TradingTypeEnum2Str[stra::TradingType(r.tradingTypeOffset)],  // 6  %s
                 r.targetVolume,                   // 7  %.13f
             
                 r.activeInstrumentKey,            // 8  %s
-                DirectionEnum2StrMap[r.activeDirection],     // 9  %s
+                DirectionEnum2StrMap[Direction(r.activeDirection)],     // 9  %s
                 r.activeTargetPrice,              //10  %.13f
 
                 r.dbp.activeBidPrice1,               //11  %.13f
@@ -191,7 +191,7 @@ public:
                 r.dbp.activeAskVolume1,              //14  %.13f
             
                 r.passiveInstrumentKey,           //15  %s
-                DirectionEnum2StrMap[r.passiveDirection],    //16  %s
+                DirectionEnum2StrMap[Direction(r.passiveDirection)],    //16  %s
                 r.passiveTargetPrice,             //17  %.13f
                 r.dbp.passiveBidPrice1,              //18  %.13f
                 r.dbp.passiveBidVolume1,             //19  %.13f
@@ -254,36 +254,36 @@ public:
                 "{},{},{},{},{},{}",                      // 4 字段
             
                 // 第一段
-                stra::AlgoTypeEnum2Str[r.algoType],
+                stra::AlgoTypeEnum2Str[stra::AlgoType(r.algoType)],
                 r.algoStrategyName,
                 r.algoOrderId,
                 r.pairInstrumentKey,
                 r.baseAsset,
-                stra::AlgoOrderStatusEnum2Str[r.algoOrderStatus],
+                stra::AlgoOrderStatusEnum2Str[stra::AlgoOrderStatus(r.algoOrderStatus)],
             
                 // 第二段
                 r.activeInstrumentKey,
                 r.activePriceTakerPct,
                 r.activePriceMakerPct,
                 r.activeAccountId,
-                stra::DriveTypeEnum2Str[r.activeDriveType],
+                stra::DriveTypeEnum2Str[stra::DriveType(r.activeDriveType)],
                 r.activeDepthMakerCheck,
                 r.activeDepthTakerCheck,
-                stra::CheckTypeEnum2Str[r.activeDepthMakerCheckType],
-                stra::CheckTypeEnum2Str[r.activeDepthTakerCheckType],
-                OrderTypeEnum2StrMap[r.activeOrderType],
+                stra::CheckTypeEnum2Str[stra::CheckType(r.activeDepthMakerCheckType)],
+                stra::CheckTypeEnum2Str[stra::CheckType(r.activeDepthTakerCheckType)],
+                OrderTypeEnum2StrMap[OrderType(r.activeOrderType)],
             
                 // 第三段
                 r.passiveInstrumentKey,
                 r.passivePriceTakerPct,
                 r.passivePriceMakerPct,
                 r.passiveAccountId,
-                stra::DriveTypeEnum2Str[r.passiveDriveType],
+                stra::DriveTypeEnum2Str[stra::DriveType(r.passiveDriveType)],
                 r.passiveDepthMakerCheck,
                 r.passiveDepthTakerCheck,
-                stra::CheckTypeEnum2Str[r.passiveDepthMakerCheckType],
-                stra::CheckTypeEnum2Str[r.passiveDepthTakerCheckType],
-                OrderTypeEnum2StrMap[r.passiveOrderType],
+                stra::CheckTypeEnum2Str[stra::CheckType(r.passiveDepthMakerCheckType)],
+                stra::CheckTypeEnum2Str[stra::CheckType(r.passiveDepthTakerCheckType)],
+                OrderTypeEnum2StrMap[OrderType(r.passiveOrderType)],
             
                 // 第四段
                 r.passiveVolumePct,
@@ -319,8 +319,8 @@ public:
                 r.maxTTOrderSize,
             
                 // 第八段
-                stra::TargetSpredPriceEnum2Str[r.targetSpreadType],
-                stra::ActiveVolumeCalcualteTypeEnum2Str[r.activeVolumeCalcualteType],
+                stra::TargetSpredPriceEnum2Str[stra::TargetSpredPrice(r.targetSpreadType)],
+                stra::ActiveVolumeCalcualteTypeEnum2Str[stra::ActiveVolumeCalcualteType(r.activeVolumeCalcualteType)],
                 r.ttTargetVolume,
                 r.mtTargetVolume,
                 r.fishingSlippagePct,
