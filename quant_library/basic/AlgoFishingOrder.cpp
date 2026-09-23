@@ -7,6 +7,7 @@
 
 AlgoFishingOrder::AlgoFishingOrder() : BaseAlgoOrder() {
     fishingSlippagePct = 0;
+    algoType = stra::AlgoType_FishingTrading;
 }
 
 

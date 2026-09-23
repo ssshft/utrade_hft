@@ -6,7 +6,7 @@
 
 
 AlgoPairOrder::AlgoPairOrder() : BaseAlgoOrder() {
-
+    algoType = stra::AlgoType_PairTrading;
 }
 
 PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId) {

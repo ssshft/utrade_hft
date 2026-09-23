@@ -7,6 +7,7 @@
 
 AlgoRebalanceOrder::AlgoRebalanceOrder() : BaseAlgoOrder() {
     activeTrade = -1;
+    algoType = stra::AlgoType_Rebalance;
 }
 
 PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId) {
