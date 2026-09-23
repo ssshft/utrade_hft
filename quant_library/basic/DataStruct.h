@@ -1,5 +1,4 @@
-#ifndef _DATASTRUCT_H
-#define _DATASTRUCT_H
+#pragma once
 
 #include <string>
 #include <sstream>
@@ -930,5 +929,3 @@ inline double GetVolumeByAmountPrice(const md::InstrumentInfo& info, string base
 
 
 extern std::unordered_map<std::string, int> mAccountNameAccountId;
-
-#endif

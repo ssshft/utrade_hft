@@ -2,10 +2,6 @@
 
 #include "Utility.h"
 
-
-
-
-
 class WriteFileContent {
 private:
     struct FileSink {
@@ -408,5 +404,3 @@ public:
         }
     }
 };
-
-#endif
