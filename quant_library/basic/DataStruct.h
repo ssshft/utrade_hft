@@ -10,6 +10,7 @@
 #include "data_struct.h"
 #include "dbp/include.h"
 #include "pubsub_protocol.h"
+#include "time_util.h"
 
 using namespace std;
 
