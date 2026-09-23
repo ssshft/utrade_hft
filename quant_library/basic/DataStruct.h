@@ -9,6 +9,7 @@
 #include "crypto_errors.h"
 #include "data_struct.h"
 #include "dbp/include.h"
+#include "pubsub_protocol.h"
 
 using namespace std;
 
