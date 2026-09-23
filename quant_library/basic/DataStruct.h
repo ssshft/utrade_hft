@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include "StraException.h"
 #include "crypto_errors.h"
+#include "data_struct.h"
 
 using namespace std;
 
