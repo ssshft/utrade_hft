@@ -261,72 +261,6 @@ namespace stra {
         {"AT_MAX", AT_MAX}
     };
 
-    enum MarginType {
-        MarginType_MIN = 0,
-        MarginType_NORMAL,
-        MarginType_BORROW,
-        MarginType_REPAY,
-        MarginType_MAX
-    };
-
-    static unordered_map<MarginType, string> MarginTypeEnum2Str {
-        {MarginType_MIN, "MarginType_MIN"},
-        {MarginType_NORMAL, "MarginType_NORMAL"},
-        {MarginType_BORROW, "MarginType_BORROW"},
-        {MarginType_REPAY, "MarginType_REPAY"},
-        {MarginType_MAX, "MarginType_MAX"}
-    };
-
-    static unordered_map<string, MarginType> MarginTypeStr2Enum {
-        {"MarginType_MIN", MarginType_MIN},
-        {"MarginType_NORMAL", MarginType_NORMAL},
-        {"MarginType_BORROW", MarginType_BORROW},
-        {"MarginType_REPAY", MarginType_REPAY},
-        {"MarginType_MAX", MarginType_MAX}
-    };
-
-    enum AccountMarginType {
-        AccountMarginType_MIN = 0,
-        AccountMarginType_ISOLATED,
-        AccountMarginType_CROSSED,
-        AccountMarginType_MAX
-    };
-
-    static unordered_map<AccountMarginType, string> AccountMarginTypeEnum2Str {
-        {AccountMarginType_MIN, "AccountMarginType_MIN"},
-        {AccountMarginType_ISOLATED, "AccountMarginType_ISOLATED"},
-        {AccountMarginType_CROSSED, "AccountMarginType_CROSSED"},
-        {AccountMarginType_MAX, "AccountMarginType_MAX"}
-    };
-
-    static unordered_map<string, AccountMarginType> AccountMarginTypeStr2Enum {
-        {"AccountMarginType_MIN", AccountMarginType_MIN},
-        {"AccountMarginType_ISOLATED", AccountMarginType_ISOLATED},
-        {"AccountMarginType_CROSSED", AccountMarginType_CROSSED},
-        {"AccountMarginType_MAX", AccountMarginType_MAX}
-    };
-
-    enum LendingType {
-        LendingType_MIN = 0,
-        LendingType_BORROW,
-        LendingType_REPAY,
-        LendingType_MAX
-    };
-
-    static unordered_map<LendingType, string> LendingTypeEnum2Str {
-        {LendingType_MIN, "LendingType_MIN"},
-        {LendingType_BORROW, "LendingType_BORROW"},
-        {LendingType_REPAY, "LendingType_REPAY"},
-        {LendingType_MAX, "LendingType_MAX"}
-    };
-
-    static unordered_map<string, LendingType> LendingTypeStr2Enum {
-        {"LendingType_MIN", LendingType_MIN},
-        {"LendingType_BORROW", LendingType_BORROW},
-        {"LendingType_REPAY", LendingType_REPAY},
-        {"LendingType_MAX", LendingType_MAX}
-    };
-
     enum AlgoType {
         AlgoType_MIN = 0,
         AlgoType_Basic,
@@ -375,33 +309,6 @@ namespace stra {
         {"SpreadDrive_Active", SpreadDrive_Active},
         {"SpreadDrive_Passive", SpreadDrive_Passive},
         {"SpreadDrive_MAX", SpreadDrive_MAX}
-    };
-
-    enum SpreadType{
-        SpreadType_MIN = 0,
-        SpreadType_AMPDA,  // (A*a-P*p)/A
-        SpreadType_PMADA,  // (P*p-A*a)/A for pair_algo_manager
-        SpreadType_AMP,  // A*a-P*p
-        SpreadType_PMA,  // P*p-A*a
-        SpreadType_MAX
-    };
-
-    static unordered_map<SpreadType, string> SpreadTypeEnum2Str {
-        {SpreadType_MIN, "SpreadType_MIN"},
-        {SpreadType_AMPDA, "SpreadType_AMPDA"},
-        {SpreadType_PMADA, "SpreadType_PMADA"},
-        {SpreadType_AMP, "SpreadType_AMP"},
-        {SpreadType_PMA, "SpreadType_PMA"},
-        {SpreadType_MAX, "SpreadType_MAX"}
-    };
-
-    static unordered_map<string, SpreadType> SpreadTypeStr2Enum {
-        {"SpreadType_MIN", SpreadType_MIN},
-        {"SpreadType_AMPDA", SpreadType_AMPDA},
-        {"SpreadType_PMADA", SpreadType_PMADA},
-        {"SpreadType_AMP", SpreadType_AMP},
-        {"SpreadType_PMA", SpreadType_PMA},
-        {"SpreadType_MAX", SpreadType_MAX}
     };
 
     enum TargetSpredPrice {
