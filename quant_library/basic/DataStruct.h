@@ -6,17 +6,10 @@
 #include <map>
 #include <vector>
 #include <unordered_map>
-#include <cstring>
-#include "Utility.h"
 #include "StraException.h"
 #include "crypto_errors.h"
-#include "json/nlohmann/json.hpp"
-#include "log_engine.h"
-#include "pubsub_protocol.h"
 
 using namespace std;
-using json = nlohmann::json;
-
 
 namespace stra {
     const double MIN_FLOAT = 0.0000000001;
