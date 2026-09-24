@@ -36,15 +36,19 @@ BaseAlgoOrder::BaseAlgoOrder() {
     ttPriceTrendProtectFlag = false;  // 价格短期形成趋势是否停止不利交易
     activeDepthMakerCheck = false; // 似乎未使用，用于检查盘口是否满足报单条件
     activeDepthTakerCheck = false; // 似乎未使用，用于检查盘口是否满足报单条件
+    // 这四个字段目前只用于落库，没有参与任何判断逻辑。
+    // 但如果不初始化，它们就是未定义值，会被写进 CSV（而且 CheckTypeEnum2Str 查不到，
+    // operator[] 还会往静态 map 里插一个垃圾 key）。
+    activeDepthMakerCheckType = stra::CheckType_MIN;
+    activeDepthTakerCheckType = stra::CheckType_MIN;
     // algoPairOrder.activeDepthMakerCheckType = stra::CheckType_GE_VOLUME;
     // unordered_map<string, int> mActiveDepthMakerCheckTarget;
-    // stra::CheckType activeDepthTakerCheckType;
     // unordered_map<string, int> mActiveDepthTakerCheckTarget;
     passiveDepthMakerCheck = false; // 似乎未使用，用于检查盘口是否满足报单条件
     passiveDepthTakerCheck = false; // 似乎未使用，用于检查盘口是否满足报单条件
-    // stra::CheckType passiveDepthMakerCheckType;
+    passiveDepthMakerCheckType = stra::CheckType_MIN;
+    passiveDepthTakerCheckType = stra::CheckType_MIN;
     // unordered_map<string, double> mPassiveDepthMakerCheckTarget;  // 固定参数
-    // stra::CheckType passiveDepthTakerCheckType;
     // unordered_map<string, double> mPassiveDepthTakerCheckTarget;
     int64_t oneSecond = 1000 * 1000;
     passiveVolumePct = 0.5;

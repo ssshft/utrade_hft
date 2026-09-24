@@ -61,7 +61,7 @@ class QuantOrderStatictis:
             quant_order.active_ask_volume_1 = row['activeAskVolume1']
             quant_order.passive_bid_price_1 = row['passiveBidPrice1']
             quant_order.passive_bid_volume_1 = row['passiveBidVolume1']
-            quant_order.passive_ask_price_1 = row['passiveAsk1Price1']
+            quant_order.passive_ask_price_1 = row['passiveAskPrice1']
             quant_order.passive_ask_volume_1 = row['passiveAskVolume1']
             quant_order.total_short_fee = row['totalShortFee']
             quant_order.total_long_fee = row['totalLongFee']

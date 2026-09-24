@@ -13,7 +13,7 @@ OrderManager::~OrderManager() {
 // }
 
 // void OrderManager::Recovery() {
-//     int64_t currentTime = GetCurrentTimeUs();
+//     int64_t currentTime = crypto::getCurrentTime();
 //     int64_t oneDayUs = 24 * 60 * 60 * 1000 * 1000;
 
 //     unordered_map<int64_t, stra::QuantOrder> mOrd;

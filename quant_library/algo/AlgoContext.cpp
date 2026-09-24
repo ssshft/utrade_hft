@@ -49,7 +49,7 @@ void AlgoContext::Init(sm::SecurityManager* s) {
     curSpreadDelay = static_cast<int64_t>(StrategyConfig::GetInstance().GetCurSpreadDelay()) * 1000;
     curSpreadDepthDelay = static_cast<int64_t>(StrategyConfig::GetInstance().GetCurSpreadDepthDelay()) * 1000;
     curSpreadTradesDelay = static_cast<int64_t>(StrategyConfig::GetInstance().GetCurSpreadTradesDelay()) * 1000;
-    lastAlgoUpdateTime = GetCurrentTimeUs();
+    lastAlgoUpdateTime = crypto::getCurrentTime();
     tradesDelayThreshold = static_cast<int64_t>(StrategyConfig::GetInstance().GetTradesThreshold()) * 1000;
     onTimerTrade = StrategyConfig::GetInstance().GetOnTimerTrade();
 }
@@ -286,7 +286,7 @@ void AlgoContext::OnCommand(string s) {
                 if (commandType == stra::CommandType_CANCEL) {
                     pAlgoOrder->commandType = stra::CommandType_UCANCELLING;
                     pAlgoOrder->algoOrderStatus = stra::ALGO_OS_CANCELLING;
-                    pAlgoOrder->cancelOrderTime = GetCurrentTimeUs();
+                    pAlgoOrder->cancelOrderTime = crypto::getCurrentTime();
                     string pubMsg = pAlgoOrder->GeneratePubStr();
                     //QuantPub::Instance().Publish(pubMsg);
                     rLarkMsg.Push(pubMsg);

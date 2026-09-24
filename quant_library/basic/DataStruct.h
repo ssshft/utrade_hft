@@ -5,6 +5,8 @@
 #include <map>
 #include <vector>
 #include <unordered_map>
+#include <cstring>
+#include "fmt/core.h"          // 本文件里直接用了 fmt::format，显式声明依赖
 #include "StraException.h"
 #include "crypto_errors.h"
 #include "data_struct.h"
@@ -597,7 +599,7 @@ namespace stra {
         char pairInstrumentKey[128]{""};
         char baseAsset[32]{""};
         int algoOrderStatus{0};
-        int64_t updateTime;
+        int64_t updateTime{0};
 
         char activeInstrumentKey[128]{""};
         double activePriceTakerPct{0};
@@ -892,7 +894,7 @@ struct content {
         stra::PairOrderRecord pairOrder;
         stra::AlgoOrderRecord algoOrder;
     };
-    content() {}                       // 成员都是 POD，无需构造/析构
+    content() { std::memset(static_cast<void*>(this), 0, sizeof(*this)); }
 };
 
 

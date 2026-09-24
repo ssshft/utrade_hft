@@ -86,8 +86,12 @@ inline void WritePairOrder(const PairOrder& order, const dbp::DbpData* pdata) {
 
 
 inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
+    if (!ord) {
+        return;
+    }
+
     content c;
-    c.type = 3;   
+    c.type = 3;                        // 三种算法单合并到一个文件（表头是 57 列超集）
     stra::AlgoOrderRecord& r = c.algoOrder;
     r.algoType = int(ord->algoType);
     strncpy(r.algoStrategyName, ord->algoStrategyName, sizeof(r.algoStrategyName) - 1);
@@ -153,12 +157,14 @@ inline void WriteAlgoOrder(BaseAlgoOrder* ord) {
     r.ttTargetVolume = ord->ttTargetVolume;
     r.mtTargetVolume = ord->mtTargetVolume;
 
+    // 子类专属字段：表头对三种算法单是同一套 57 列，所以不匹配的类型必须显式留 0，
+    // 不能依赖 content 的默认值（content 的构造函数已经 memset 清零，这里是双保险）
     if (ord->algoType == stra::AlgoType_FishingTrading) {
-        AlgoFishingOrder* order = (AlgoFishingOrder*)ord;
+        AlgoFishingOrder* order = static_cast<AlgoFishingOrder*>(ord);
         r.fishingSlippagePct = order->fishingSlippagePct;
     }
     else if (ord->algoType == stra::AlgoType_Rebalance) {
-        AlgoRebalanceOrder* order = (AlgoRebalanceOrder*)ord;
+        AlgoRebalanceOrder* order = static_cast<AlgoRebalanceOrder*>(ord);
         r.activeTrade = order->activeTrade;
     }
 

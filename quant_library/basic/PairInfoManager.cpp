@@ -175,7 +175,7 @@ void PairInfoManager::UpdateLargeStats(const std::string& pairKey, const SpreadS
     }
 
     pi->largeStats = stats;
-    pi->modifyTime = GetCurrentTimeUs();
+    pi->modifyTime = crypto::getCurrentTime();
 }
 
 void PairInfoManager::UpdateSmallStats(const std::string& pairKey, const SpreadStats& stats) {
@@ -185,7 +185,7 @@ void PairInfoManager::UpdateSmallStats(const std::string& pairKey, const SpreadS
     }
 
     pi->smallStats = stats;
-    pi->modifyTime = GetCurrentTimeUs();
+    pi->modifyTime = crypto::getCurrentTime();
 }
 
 
@@ -314,7 +314,7 @@ void PairInfoManager::UpdateOnAlgoOrderFinished(const std::string& pairKey, doub
     pi->pairTotalVolume += volumeFilled;
 
     pi->positionValue = pi->CalcPositionValue();
-    pi->modifyTime = GetCurrentTimeUs();
+    pi->modifyTime = crypto::getCurrentTime();
 
     ClearActiveAlgoOrder(pairKey);
 }
@@ -501,7 +501,7 @@ void PairInfoManager::ApplyCommand(const std::string& pairKey, PairCommandType c
             break;
     }
 
-    pi->modifyTime = GetCurrentTimeUs();
+    pi->modifyTime = crypto::getCurrentTime();
 }
 
 void PairInfoManager::RegisterInstrument(const std::string& instrKey, const std::string& pairKey) {

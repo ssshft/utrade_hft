@@ -590,8 +590,8 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
     }else{
         pairOrder.rebalanceFlag = ttRebalanceFlag;
     }
-    pairOrder.createTime = GetCurrentTimeUs();
-    pairOrder.updateTime = GetCurrentTimeUs();
+    pairOrder.createTime = crypto::getCurrentTime();
+    pairOrder.updateTime = crypto::getCurrentTime();
 
     if (tradingTypeOrder == stra::TAKER_TAKER) {
         if (tradingTypeOffset == stra::OPEN_LONG) {

@@ -124,7 +124,7 @@ class PairOrderStatictis:
             pair_order.passive_target_price = row['passiveTargetPrice']
             pair_order.passive_bid_price_1 = row['passiveBidPrice1']
             pair_order.passive_bid_volume_1 = row['passiveBidVolume1']
-            pair_order.passive_ask_price_1 = row['passiveAsk1Price1']
+            pair_order.passive_ask_price_1 = row['passiveAskPrice1']
             pair_order.passive_ask_volume_1 = row['passiveAskVolume1']
             pair_order.spread_bid_ask = row['spreadBidAsk']
             pair_order.spread_bid_bid = row['spreadBidBid']

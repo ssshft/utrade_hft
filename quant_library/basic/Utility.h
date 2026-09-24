@@ -16,18 +16,14 @@ using namespace std::chrono;
 
 
 typedef ConcurrentQueue<string, 10000> RQUEUE;
-typedef ConcurrentQueue<content, 100000> CONTENTQUEUE;
+// content 已经从 {int + std::string} 变成 {int + union}，sizeof(content) 实测 808 字节
+// （最大成员是 AlgoOrderRecord = 800）。100000 的初始容量会预分配约 77MB，
+// 而写线程现在会把队列排空，正常应该长期贴近 0，16384（约 12MB）足够。
+// 真要调大，moodycamel 在写满时会自行扩容，不会丢数据，只是会多一次分配。
+typedef ConcurrentQueue<content, 16384> CONTENTQUEUE;
+
 extern RQUEUE rLarkMsg;
 extern CONTENTQUEUE contentQueue;
-
-
-inline int64_t GetCurrentTimeUs() { // 微妙
-	return high_resolution_clock::now().time_since_epoch().count() / 1000;
-}
-
-inline int64_t GetCurrentTime() {  // 秒
-    return GetCurrentTimeUs() / 1000 / 1000; 
-}
 
 inline string CovertToUtcStr(int64_t tUs, bool hasUs = true) {
 	if (tUs <= 0) {

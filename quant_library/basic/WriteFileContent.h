@@ -1,27 +1,37 @@
 #pragma once
 
+#include <fstream>
+#include <string>
+#include <vector>
+#include <thread>
+#include <atomic>
+#include <unistd.h>
+#include <sys/stat.h>
+
 #include "Utility.h"
 
 class WriteFileContent {
 private:
+    static constexpr int     kTypeCount        = 3;          // content.type 的取值范围
+    static constexpr size_t  kBufSize          = 256 * 1024; // 256KB
+    static constexpr int64_t kFlushIntervalUs  = 200 * 1000; // 200ms
+
     struct FileSink {
         std::ofstream f;
         std::string path;
-        std::vector<char> buf;          // ★ 必须由我们自己持有，见 §3.3
+        std::vector<char> buf;          // ★ 必须由我们自己持有，pubsetbuf 不接管所有权
         bool opened{false};
         bool headerWritten{false};
         int64_t lastFlushUs{0};
     };
 
-    FileSink mSinks[3];              // 下标 = content.type（1~3）
+    FileSink mSinks[kTypeCount];        // 下标 = content.type - 1
     std::string mCurDate;               // 当前文件日期，只有跨天才重算
-    static constexpr size_t kBufSize       = 256 * 1024;   // 256KB
-    static constexpr int64_t kFlushIntervalUs = 200 * 1000; // 200ms
 
-    bool running;
-    thread* runningThread;
+    std::atomic<bool> running{true};
+    thread* runningThread{nullptr};
+
     WriteFileContent() {
-        running = true;
         runningThread = new thread(&WriteFileContent::Run, this);
     }
 
@@ -44,8 +54,9 @@ public:
             return "_pairOrder.csv";
         }
         else if (ty == 3) {
-            return "_algoPairOrder.csv";
+            return "_algoOrder.csv";
         }
+        return "";
     }
 
     std::string HeaderOf(int ty) {
@@ -54,14 +65,14 @@ public:
 		    "orderType,direction,orderStatus,"
             "targetPrice,price,volume,totalPriceOnOrder,totalVolumeOnOrder,tradeVolume,"
             "activeBidPrice1,activeBidVolume1,activeAskPrice1,activeAskVolume1,"
-            "passiveBidPrice1,passiveBidVolume1,passiveAsk1Price1,passiveAskVolume1,"
+            "passiveBidPrice1,passiveBidVolume1,passiveAskPrice1,passiveAskVolume1,"
 		    "updateTime,errorId,originErrorMsg,reduceOnly," 
             "pairId,algoPairId,isActiveOrder,rebalance,generateTs,activeDepthTs,passiveDepthTs,activeDepthDelay,passiveDepthDelay";
         }
         else if (ty == 2) {
             return "pairId,algoPairId,strategyName,baseAsset,tradingTypeOrder,tradingTypeOffset,targetVolume,"
                 "activeInstrumentKey,activeDirection,activeTargetPrice,activeBidPrice1,activeBidVolume1,activeAskPrice1,activeAskVolume1,"
-                "passiveInstrumentKey,passiveDirection,passiveTargetPrice,passiveBidPrice1,passiveBidVolume1,passiveAsk1Price1,passiveAskVolume1,"
+                "passiveInstrumentKey,passiveDirection,passiveTargetPrice,passiveBidPrice1,passiveBidVolume1,passiveAskPrice1,passiveAskVolume1,"
                 "spreadBidAsk,spreadBidBid,spreadAskBid,spreadAskAsk,generateTs,activeDepthTs,passiveDepthTs,activeDepthDelay,passiveDepthDelay,"
                 "activeTotalPriceOnOrder,activeTotalVolumeOnOrder,passiveTotalPriceOnOrder,passiveTotalVolumeOnOrder,"
                 "pairTotalVolume,pairActiveTotalPrice,pairPassiveTotalPrice,"
@@ -78,18 +89,23 @@ public:
                 "makerTakerFs,takerTakerFs,maxMTOrderSize,maxTTOrderSize,"
                 "targetSpreadType,activeVolumeCalcualteType,ttTargetVolume,mtTargetVolume,fishingSlippagePct,activeTrade";
         }
+        return "";
     }
 
     int64_t RecordTimeUs(const content& c) {
+        int64_t t = 0;
         if (c.type == 1) {
-            return c.quantOrder.updateTime;
+            t = c.quantOrder.updateTime;
         }
         else if (c.type == 2) {
-            return c.pairOrder.updateTime;
+            t = c.pairOrder.updateTime;
         }
         else if (c.type == 3) {
-            return c.algoOrder.updateTime;
+            t = c.algoOrder.updateTime;
         }
+        // 兜底：时间戳为 0 时 CovertToUtcDate 会返回 "0"，文件名会变成 "0_xxx.csv"，
+        // 而且下一条正常记录又会把文件轮转回来，来回 close/open
+        return (t > 0) ? t : crypto::getCurrentTime();
     }
 
     void RotateAll(const std::string& newDate) {
@@ -333,10 +349,17 @@ public:
 
             return s;
         }
+        return "";
     }
 
     void WriteFile(const content& c) {
-        // ① 用「记录自身的时间」选文件（不是写线程的当前时刻，见 §3.5）
+        // type 越界保护：mSinks 只有 kTypeCount 个，越界会写坏相邻内存
+        if (c.type < 1 || c.type > kTypeCount) {
+            LOG_ERROR("WriteFileContent invalid content type: {}", c.type);
+            return;
+        }
+
+        // ① 用「记录自身的时间」选文件（不是写线程的当前时刻）
         std::string date = CovertToUtcDate(RecordTimeUs(c));
         if (date != mCurDate) {
             RotateAll(date);                       // 关掉全部 sink、清 headerWritten
@@ -348,9 +371,9 @@ public:
             OpenSink(sink, c.type, date);
         }
 
-        // ③ 表头只写一次
+        // ③ 表头只写一次（★ 别忘了换行，否则表头会和第一条数据粘在同一行）
         if (!sink.headerWritten) {
-            sink.f << HeaderOf(c.type);
+            sink.f << HeaderOf(c.type) << "\n";
             sink.headerWritten = true;
         }
 
@@ -380,30 +403,41 @@ public:
         sink.headerWritten = (::stat(sink.path.c_str(), &st) == 0 && st.st_size > 0);
     }
 
-    void Stop() {                      // 新增
-        running = false;               // running 要改成 std::atomic<bool>
-        if (runningThread && runningThread->joinable()) {
-            runningThread->join();
+    void Stop() {
+        running = false;
+        if (runningThread) {
+            if (runningThread->joinable()) {
+                runningThread->join();
+            }
+            delete runningThread;
+            runningThread = nullptr;
         }
         for (FileSink& s : mSinks) {
-            if (s.opened) { 
-                s.f.flush(); 
-                s.f.close(); 
-                s.opened = false; 
+            if (s.opened) {
+                s.f.flush();
+                s.f.close();
+                s.opened = false;
             }
         }
     }
 
     void Run() {
         while (running) {
-            try {
-			    content c;
-			    if (contentQueue.Pop(c)) {
-				    WriteFile(c);
-			    }
-            } catch(exception& e) {
+            bool idle = true;
+            content c;
+            // 一次把队列排空，而不是每条睡 1ms（否则上限只有约 1000 条/秒，积压后永远追不上）
+            while (contentQueue.Pop(c)) {
+                idle = false;
+                try {
+                    WriteFile(c);
+                } catch (const std::exception& e) {
+                    // 不要空 catch：格式化/写文件失败必须能看到
+                    LOG_ERROR("WriteFileContent failed, type:{} err:{}", c.type, e.what());
+                }
             }
-            usleep(1000);
+            if (idle) {
+                usleep(1000);
+            }
         }
     }
 };

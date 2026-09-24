@@ -1,6 +1,7 @@
 #include "strategy/PairTradingStrategy.h"
 #include "basic/DataStruct.h"
 #include "basic/PairInfoManager.h"
+#include "basic/WriteFileContent.h"
 
 #include "log_engine.h"
 #include <chrono>
@@ -72,6 +73,13 @@ void PairTradingStrategy::pre_stop() {
     if (!m_ptCfg.csvStatePath.empty()) {
         pt::PairInfoManager::Instance().SaveToCSV(m_ptCfg.csvStatePath);
     }
+
+    // 显式停掉落库线程并 flush 缓冲区。
+    // 只靠 ~WriteFileContent() 不够：exit() 里的静态析构顺序跨 TU 未定义，
+    // 万一 contentQueue（BaseAlgoOrder.cpp 里的全局对象）先被析构，
+    // 写线程还在跑就会访问已析构对象。
+    WriteFileContent::GetInstance().Stop();
+
     BaseStrategy::pre_stop();
 }
 
