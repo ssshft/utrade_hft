@@ -56,7 +56,7 @@ bool LimitCalcBoard::CheckCancelPersec() {
 
 void LimitCalcBoard::OnOrder(const stra::QuantOrder& order) {
     ++orderNum;
-    ordertimes.push_back(gettickcount());
+    ordertimes.push_back(crypto::getCurrentTimeMilli());
 }
 
 int LimitCalcBoard::GetOrderNum() {
