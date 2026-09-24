@@ -11,6 +11,7 @@
 #include "dbp/include.h"
 #include "pubsub_protocol.h"
 #include "time_util.h"
+#include "log_engine.h"
 
 using namespace std;
 
