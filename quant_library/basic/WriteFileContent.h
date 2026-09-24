@@ -25,6 +25,10 @@ private:
         runningThread = new thread(&WriteFileContent::Run, this);
     }
 
+    ~WriteFileContent() {
+        Stop();
+    }
+
 public:
 
     static WriteFileContent& GetInstance() {
