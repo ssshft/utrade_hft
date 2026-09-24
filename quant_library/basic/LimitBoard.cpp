@@ -1,4 +1,5 @@
 #include "LimitBoard.h"
+#include "log_engine.h"
 
 
 void LimitCalcBoard::SetLimitUnit(const LimitUnit& unit) {
@@ -7,7 +8,7 @@ void LimitCalcBoard::SetLimitUnit(const LimitUnit& unit) {
 
 bool LimitCalcBoard::CheckPersec() {
     bool pass = true;
-    auto curtime = gettickcount();
+    auto curtime = crypto::getCurrentTimeMilli();
     while(!ordertimes.empty()){
         auto begin = ordertimes.front();
         if (curtime > begin + 1000){
@@ -36,7 +37,7 @@ bool LimitCalcBoard::CheckNum() {
 
 bool LimitCalcBoard::CheckCancelPersec() {
     bool pass = true;
-    auto curtime = gettickcount();
+    auto curtime = crypto::getCurrentTimeMilli();
     while(!ordertimes.empty()){
         auto begin = ordertimes.front();
         if (curtime > begin + 1000){

@@ -2,6 +2,7 @@
 #define LIMIT_BOARD_H
 
 #include "DataStruct.h"
+#include <list>
 
 /*for limit units */
 struct LimitUnit{
