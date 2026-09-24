@@ -66,7 +66,7 @@ void PairTradingStrategy::pre_start(Config* config) {
         SubmitAlgoCommand(pAlgoOrder); 
     });
 
-    ptContext.Init(m_ptCfg, smc);
+    //ptContext.Init(m_ptCfg, smc);
 }
 
 void PairTradingStrategy::pre_stop() {
@@ -93,10 +93,10 @@ void PairTradingStrategy::on_command(const std::string& json) {
 
 void PairTradingStrategy::on_timer(const int64_t& utcTime) {
     algoContext.OnTimer(utcTime);
-    ptContext.OnTimer(utcTime);
+    //ptContext.OnTimer(utcTime);
 
     if (utcTime - m_lastScanUs >= SCAN_INTERVAL_US) {
-        ScanFinishedAlgoOrders(utcTime);
+        //ScanFinishedAlgoOrders(utcTime);
         m_lastScanUs = utcTime;
     }
 
@@ -113,25 +113,25 @@ void PairTradingStrategy::on_timer(const int64_t& utcTime) {
 void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum) {
     std::cout << topic->__name << " " << pdata->activeAskPrice[0] << " " << pdata->activeBidPrice[0] << " " << pdata->passiveAskPrice[0] << " " << pdata->passiveBidPrice[0] << std::endl;
     algoContext.OnSpread(topic, pdata);
-    ptContext.OnSpread(topic, pdata);
+    //ptContext.OnSpread(topic, pdata);
 }
 
 
 void PairTradingStrategy::on_balance(pubsub::Balance& balance) {
     algoContext.OnBalance(balance);
-    ptContext.OnBalance(balance);
+    //ptContext.OnBalance(balance);
 }
 
 
 void PairTradingStrategy::on_position(pubsub::Position& position) {
     algoContext.OnPosition(position);
-    ptContext.OnPosition(position);
+    //ptContext.OnPosition(position);
 }
 
 
 void PairTradingStrategy::on_total_account(pubsub::TotalAccount& totalAccount) {
     algoContext.OnTotalAccount(totalAccount);
-    ptContext.OnTotalAccount(totalAccount);
+    //ptContext.OnTotalAccount(totalAccount);
 }
 
 

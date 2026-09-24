@@ -862,7 +862,7 @@ void AlgoContext::OnCommand(string s) {
 
     // 原 JSON 建单路径已由 AlgoContext::SubmitAlgoOrder(BaseAlgoOrder*) 取代。
     // 下面这段硬编码的 DOGE 测试单先注释保留，确认新链路跑通后可直接删除。
-    /*
+    
     BaseAlgoOrder* pAlgoOrder = new AlgoPairOrder();
     pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
     pAlgoOrder->commandType = stra::CommandType_NEW;
@@ -1010,7 +1010,7 @@ void AlgoContext::OnCommand(string s) {
     } else {
         LOG_INFO("Not Subscribe pairInstrumentKey:{} already exist!", pPairOrder->pairInstrumentKey);
     }   
-    */
+    
 }
 
 void AlgoContext::OnMarketDepth() {
