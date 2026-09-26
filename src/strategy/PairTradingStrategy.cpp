@@ -142,6 +142,9 @@ void PairTradingStrategy::on_ordertrade(pubsub::OrderResponse& orderResponse) {
     algoContext.OnOrder(orderResponse);
 }
 
+// 兜底扫描：算法单终结的回传已由 AlgoContext 在同线程内直接调用
+// （OnTimer 的终态分支 + BaseAlgoOrder::PairOrderTrade 的成交分支），
+// 这里只处理漏网的情况，正常路径不会命中。
 void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {
     auto& pim = pt::PairInfoManager::Instance();
 
@@ -154,18 +157,14 @@ void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {
         BaseAlgoOrder* order = algoContext.GetAlgoOrder(algoOrderIdInt);
 
         if (!order) {
-            double volFilled = order ? order->pairTotalVolume - pi->pairTotalVolume : 0.0;
-            bool fullyFlat = !pi->HasPosition();
-
-            ptContext.OnAlgoOrderUpdate(pi->pairInstrumentKey, pi->currentAlgoOrderId, volFilled, 0.0, 0.0, true, fullyFlat);
+            // 拿不到算法单时任何量价都是错的，只释放对子，不碰 pair_info
+            LOG_INFO("ScanFinishedAlgoOrders: algo order not found, release pair. algoOrderId:{} pairKey:{}", pi->currentAlgoOrderId, pi->pairInstrumentKey);
+            pim.ClearActiveAlgoOrder(pi->pairInstrumentKey);
+            continue;
         }
-        else {
-            if (order->algoOrderStatus == stra::ALGO_OS_FILLED || order->algoOrderStatus == stra::ALGO_OS_CANCELED || order->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED) {
-                double volFilled = order->pairTotalVolume - pi->pairTotalVolume;
-                bool fullyFlat = !pi->HasPosition();
 
-                ptContext.OnAlgoOrderUpdate(pi->pairInstrumentKey, pi->currentAlgoOrderId, volFilled, order->pairActiveTotalPrice, order->pairPassiveTotalPrice, true, fullyFlat);
-            }
+        if (order->algoOrderStatus == stra::ALGO_OS_FILLED || order->algoOrderStatus == stra::ALGO_OS_CANCELED || order->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED) {
+            ptContext.OnAlgoOrderUpdate(order);
         }
     }
 }

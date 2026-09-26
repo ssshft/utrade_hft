@@ -286,37 +286,19 @@ void PairInfoManager::UpdateOnTotalAccount(const pubsub::TotalAccount& totalAcco
 
 }
 
-// 算法单同步
-void PairInfoManager::UpdateOnAlgoOrderFinished(const std::string& pairKey, double activePriceFilled, double volumeFilled, double passivePriceFilled) {
+// 算法单同步：执行端是唯一数据源，量 / 价直接覆盖
+void PairInfoManager::UpdateOnAlgoOrder(const std::string& pairKey, double volume, double activePrice, double passivePrice) {
     auto* pi = GetPairInfo(pairKey);
     if (!pi) {
         return;
-    } 
-
-    double prevAbs = std::abs(pi->pairTotalVolume);
-    double newAbs = prevAbs + std::abs(volumeFilled);
-
-    if (std::abs(newAbs) > 1e-9) {
-        if (pi->pairActiveTotalPrice < 0) {
-            pi->pairActiveTotalPrice = 0;
-        }
-
-        if (pi->pairPassiveTotalPrice < 0) {
-            pi->pairPassiveTotalPrice = 0;
-        }
-
-        pi->pairActiveTotalPrice = (pi->pairActiveTotalPrice * prevAbs + activePriceFilled * std::abs(volumeFilled)) / newAbs;
-
-        pi->pairPassiveTotalPrice = (pi->pairPassiveTotalPrice * prevAbs + passivePriceFilled * std::abs(volumeFilled)) / newAbs;
-
     }
 
-    pi->pairTotalVolume += volumeFilled;
+    pi->pairTotalVolume = volume;
+    pi->pairActiveTotalPrice = activePrice;
+    pi->pairPassiveTotalPrice = passivePrice;
 
     pi->positionValue = pi->CalcPositionValue();
     pi->modifyTime = crypto::getCurrentTime();
-
-    ClearActiveAlgoOrder(pairKey);
 }
 
 void PairInfoManager::SetActiveAlgoOrder(const std::string& pairKey, const char* algoOrderId) {

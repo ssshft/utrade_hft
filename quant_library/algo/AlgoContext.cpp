@@ -10,6 +10,7 @@
 #include "basic/AlgoFishingOrder.h"
 #include "basic/AlgoRebalanceOrder.h"
 #include "basic/AlgoRebalanceOrder.h"
+#include "algo/PairTradingContext.h"
 
 
 std::unordered_map<std::string, int> mAccountNameAccountId;
@@ -1062,8 +1063,6 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
 
         auto& allAlgoOrders = alogOrderManager.GetAllAlgoOrders();
         std::cout << "AlgoContext allAlgoOrders size: " << allAlgoOrders.size() << std::endl;
-        return;
-
 
 
         for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end(); ++it) {
@@ -1643,7 +1642,6 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
 }
 
 void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
-    return;
     try {
         int64_t nowTime = crypto::getCurrentTime();
   
@@ -1830,7 +1828,6 @@ void AlgoContext::OnFundingRate() {
 }
 
 void AlgoContext::OnTimer(int64_t eventTime) {
-    return;
     // 延迟检查，订单从发出到回报的延迟时间作为一个变量存起来，超过标准需要报警
     // 杠杆检查，accountMgr杠杆过高检查，超过标准需要报警。未来在极端情况下强制进行自动减仓
     // 订单异常检查
@@ -1861,10 +1858,9 @@ void AlgoContext::OnTimer(int64_t eventTime) {
         for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end();) {
             bool deleteAlgoOrderFlag = false;
 
-            // 已经终结的算法单先留在容器里一个宽限期，让策略层的 ScanFinishedAlgoOrders
-            // 能读到成交量和成交价。否则 OnTimer 一标记终结就立刻 delete，
-            // 策略层永远只能看到"订单不存在"，OnAlgoOrderUpdate 拿到的成交量是 0，
-            // 持仓均价不会更新、RiskManager::OnAlgoFinished 和 RecalcOrderParams 也不会执行。
+            // 已经终结的算法单先留在容器里一个宽限期再回收。
+            // 终结回传已由本函数各终态分支同线程直接调用（NotifyAlgoOrderUpdate），
+            // 不再依赖策略层轮询，所以宽限期现在只用于兜底与状态核对。
             bool algoOrderTerminal = (it->second->algoOrderStatus == stra::ALGO_OS_FILLED ||
                                       it->second->algoOrderStatus == stra::ALGO_OS_CANCELED ||
                                       it->second->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED);
@@ -1935,6 +1931,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         }
                         if (order.queryCount > 5){
                             it->second->commandType = stra::CommandType_ERROR;
+                            it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
                             it->second->updateTime = eventTime;
                             // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                             string pubMsg = it->second->GeneratePubStr();
@@ -1942,6 +1939,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
+                            pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                             std::cout << "---stuck order----query error-----" << std::endl;
                         }
 
@@ -1968,6 +1966,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         }
                         if (order.queryCount > 5) {
                             it->second->commandType = stra::CommandType_ERROR;
+                            it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
                             it->second->updateTime = eventTime;
                             // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                             string pubMsg = it->second->GeneratePubStr();
@@ -1975,6 +1974,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             rLarkMsg.Push(pubMsg);
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
+                            pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                             std::cout << "---unknown order----query error-----" << std::endl;
                         }
                     }
@@ -2006,6 +2006,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
+                        pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                         std::cout << "orderAmount < minSize && allPairOrders.size() == 0" << std::endl;
                     }
 
@@ -2024,6 +2025,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         rLarkMsg.Push(pubMsg);
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
+                        pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                         std::cout << "orderAmount < it->second->activeInfo.minSize && allPairOrders.size() == 0" << std::endl;
                     }    
                 }        
@@ -2087,6 +2089,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 //QuantPub::Instance().Publish(pubMsg);
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
+                pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                 std::cout << "allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_CANCELLING" << std::endl;
             } else if (allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_ERRORCANCELLING) {  //需要考虑下这个状态的定义
                 it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
@@ -2094,6 +2097,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 //QuantPub::Instance().Publish(pubMsg);
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
+                pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                 std::cout << "allPairOrders.size() == 0" << std::endl;
             }
 

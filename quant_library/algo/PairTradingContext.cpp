@@ -11,10 +11,9 @@
  * 3. 周期性 CheckRisk --> 有风险 --》SubmitAlgoOrder (强制平仓)
  * 4. 周期性 SaveToCSV
  * 
- * OnAlgoOrderUpdate (成交回报)
- * 1. 更新持仓均价 (PairInfoManager)
- * 2. 重算 orderParams (信号参数变化)
- * 3. 记录开仓时小周期统计快照 (用于价差不回归判断)
+ * OnAlgoOrderUpdate (算法单回传，执行端同线程直接调用，不走消息队列)
+ * 1. 量/价直接覆盖 PairInfo (执行端是唯一数据源，策略侧不做加权)
+ * 2. 非终态到此为止；终态才: 记录开仓快照 -> OnAlgoFinished -> 重算 orderParams -> 释放对子
  * 
  * ******/
 
@@ -24,6 +23,8 @@
 
 
 namespace pt {
+
+PairTradingContext* PairTradingContext::s_instance = nullptr;
 
 int64_t PairTradingContext::NowUs() {
     using namespace std::chrono;
@@ -38,9 +39,28 @@ int64_t PairTradingContext::GenerateAlgoOrderId() {
 
 PairTradingContext::PairTradingContext() = default;
 
+PairTradingContext::~PairTradingContext() {
+    if (s_instance == this) {
+        s_instance = nullptr;
+    }
+}
+
+PairTradingContext* PairTradingContext::Instance() {
+    return s_instance;
+}
+
+void PairTradingContext::NotifyAlgoOrderUpdate(BaseAlgoOrder* order) {
+    if (s_instance == nullptr) {
+        return;
+    }
+
+    s_instance->OnAlgoOrderUpdate(order);
+}
+
 void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager* s) {
     m_cfg = cfg;
     smc = s;
+    s_instance = this;
 
     auto& pim = PairInfoManager::Instance();
     pim.Init(cfg.pairKeys, cfg.activeAccountId, cfg.passiveAccountId, smc);
@@ -500,34 +520,56 @@ void PairTradingContext::OnTotalAccount(const pubsub::TotalAccount& totalAccount
     PairInfoManager::Instance().UpdateOnTotalAccount(totalAccount);
 }
 
-void PairTradingContext::OnAlgoOrderUpdate(const std::string& pairKey, const std::string& algoOrderId, double volumeFilled, double activePriceFilled, double passivePriceFilled, bool isFinished, bool isFullyFlat) {
+void PairTradingContext::OnAlgoOrderUpdate(BaseAlgoOrder* order) {
+    if (order == nullptr) {
+        return;
+    }
+
     auto& pim = PairInfoManager::Instance();
+    const std::string pairKey(order->pairInstrumentKey);
     PairInfo* pi = pim.GetPairInfo(pairKey);
     if (!pi) {
         return;
     }
 
-    pim.ClearActiveAlgoOrder(pairKey);
+    // 只接受该对子"当前算法单"的回传。算法单终结后仍可能有子单回报走到
+    // OnOrder -> PairOrderTrade；若不校验 ID，既会把已释放的对子重新结算一遍
+    // （OnAlgoFinished 重复调用 -> 风控档位多加），也可能误释放后来新建的算法单。
+    if (std::to_string(order->algoOrderId) != std::string(pi->currentAlgoOrderId)) {
+        return;
+    }
 
-    if (isFinished && std::abs(volumeFilled) > 1e-9) {
-        pim.UpdateOnAlgoOrderFinished(pairKey, activePriceFilled, volumeFilled, passivePriceFilled);
+    // 量 / 价：执行端是唯一数据源，直接覆盖，不在策略侧做加权混合
+    pim.UpdateOnAlgoOrder(pairKey, order->pairTotalVolume, order->pairActiveTotalPrice, order->pairPassiveTotalPrice);
 
-        if (pi->HasPosition()) {
-            if (std::isnan(pi->openSmallSpreadBidBidUQ)) {
-                pi->openSmallSpreadBidBidUQ = pi->smallStats.bidBidUQ;
-            }
+    // 状态：非终态只同步量价，不释放对子、不做结算
+    const bool terminal = (order->algoOrderStatus == stra::ALGO_OS_FILLED ||
+                           order->algoOrderStatus == stra::ALGO_OS_CANCELED ||
+                           order->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED);
+    if (!terminal) {
+        return;
+    }
 
-            if (std::isnan(pi->openSmallSpreadAskAskDQ)) {
-                pi->openSmallSpreadAskAskDQ = pi->smallStats.askAskDQ;
-            }
+    // 开仓时的小周期统计快照：必须在 OnAlgoFinished 之前取，
+    // 因为完全平仓时 OnAlgoFinished 会把 openSmallSpread* 置为 NAN
+    if (pi->HasPosition()) {
+        if (std::isnan(pi->openSmallSpreadBidBidUQ)) {
+            pi->openSmallSpreadBidBidUQ = pi->smallStats.bidBidUQ;
         }
 
-        // 风控状态更新
-        RiskManager::Instance().OnAlgoFinished(*pi, isFullyFlat);
-
-        // 重算 orderParams
-        SignalGenerator::Instance().RecalcOrderParams(*pi);
+        if (std::isnan(pi->openSmallSpreadAskAskDQ)) {
+            pi->openSmallSpreadAskAskDQ = pi->smallStats.askAskDQ;
+        }
     }
+
+    // 风控：fullyFlat 必须在量已覆盖之后计算，不能提前取快照
+    RiskManager::Instance().OnAlgoFinished(*pi, !pi->HasPosition());
+
+    // 重算 orderParams
+    SignalGenerator::Instance().RecalcOrderParams(*pi);
+
+    // 释放对子，允许下一单
+    pim.ClearActiveAlgoOrder(pairKey);
 }
 
 void PairTradingContext::OnTimer(int64_t nowUs) {

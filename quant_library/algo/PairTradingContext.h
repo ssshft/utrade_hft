@@ -59,7 +59,7 @@ using AlgoCommandCallback = std::function<void(BaseAlgoOrder* pAlgoOrder)>;
 class PairTradingContext {
 public:
     PairTradingContext();
-    ~PairTradingContext() = default;
+    ~PairTradingContext();
 
     void Init(const PairTradingConfig& cfg, sm::SecurityManager* s);
 
@@ -75,9 +75,16 @@ public:
 
     void OnTotalAccount(const pubsub::TotalAccount& totalAccount);
 
-    // volumeFilled 实际成交量
-    // isFullyFlat 平仓后是否完全归零
-    void OnAlgoOrderUpdate(const std::string& pairKey, const std::string& algoOrderId, double volumeFilled, double activePriceFilled, double passivePriceFilled, bool isFinished, bool isFullyFlat) ;
+    // 算法单执行端回传：量 / 价 / 状态一次性带入。
+    // 非终态只同步量价（保持 PairInfo 与算法单一致），终态才结算并释放对子。
+    void OnAlgoOrderUpdate(BaseAlgoOrder* order);
+
+    // 单实例入口（方案A）：算法单创建与执行同线程，AlgoContext / BaseAlgoOrder 直接回传，
+    // 不走消息队列。未 Init 时返回 nullptr。
+    static PairTradingContext* Instance();
+
+    // AlgoContext / BaseAlgoOrder 的调用入口；未 Init 时安全跳过
+    static void NotifyAlgoOrderUpdate(BaseAlgoOrder* order);
 
     void OnTimer(int64_t nowUs);
 
@@ -127,6 +134,9 @@ private:
     std::string baseAsset{"USDT"};
 
     sm::SecurityManager* smc{nullptr};
+
+    // 由 Init 注册，析构时注销；供执行端同线程直接回传算法单更新
+    static PairTradingContext* s_instance;
 };
 
 }

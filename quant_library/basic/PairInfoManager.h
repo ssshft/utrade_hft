@@ -53,7 +53,8 @@
 
         void UpdateOnTotalAccount(const pubsub::TotalAccount& totalAccount);
 
-        void UpdateOnAlgoOrderFinished(const std::string& pairKey, double activePriceFilled, double volumeFilled, double passivePriceFilled); // volumeFilled 买主动腿
+        // 算法单同步：执行端是唯一数据源，量 / 价直接覆盖（不做策略侧加权混合）
+        void UpdateOnAlgoOrder(const std::string& pairKey, double volume, double activePrice, double passivePrice);
 
         void SetActiveAlgoOrder(const std::string& pairKey, const char* algoOrderId);
 
