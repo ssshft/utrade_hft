@@ -38,14 +38,16 @@ namespace pt {
 
     // 价差统计快照
     struct SpreadStats {
-        double bidAskUQ; // spreadBidAsk 上分位数
-        double bidAskDQ; // spreadBidAsk 下分位数
-        double bidBidUQ;
-        double bidBidDQ;
-        double askBidUQ;
-        double askBidDQ;
-        double askAskUQ;
-        double askAskDQ;
+        // 默认 NaN 而非 0：统计尚未建立时必须让 IsValid() 为 false。
+        // 若默认 0，会被当成“有效且分位数为 0”，从而在无统计时放出假信号
+        double bidAskUQ{std::nan("")}; // spreadBidAsk 上分位数
+        double bidAskDQ{std::nan("")}; // spreadBidAsk 下分位数
+        double bidBidUQ{std::nan("")};
+        double bidBidDQ{std::nan("")};
+        double askBidUQ{std::nan("")};
+        double askBidDQ{std::nan("")};
+        double askAskUQ{std::nan("")};
+        double askAskDQ{std::nan("")};
         int count{0};
         double avgDepthVolume{0};
         bool valid{false};
@@ -57,28 +59,28 @@ namespace pt {
 
     // 实时价差快照
     struct RealTimeSpread {
-        double spreadBidAsk;
-        double spreadBidBid;
-        double spreadAskBid;
-        double spreadAskAsk;
+        double spreadBidAsk{0.0};
+        double spreadBidBid{0.0};
+        double spreadAskBid{0.0};
+        double spreadAskAsk{0.0};
 
-        double spreadBidAskTema;
-        double spreadBidBidTema;
-        double spreadAskBidTema;
-        double spreadAskAskTema;
+        double spreadBidAskTema{0.0};
+        double spreadBidBidTema{0.0};
+        double spreadAskBidTema{0.0};
+        double spreadAskAskTema{0.0};
 
-        double activeFundingRate;
-        double passiveFundingRate;
+        double activeFundingRate{0.0};
+        double passiveFundingRate{0.0};
         int64_t activeFundingRateTime{0};
         int64_t passiveFundingRateTime{0};
         int activeFundingInterval{8};
         int passiveFundingInterval{8};
 
-        double activePriceTema;
-        double passivePriceTema;
+        double activePriceTema{0.0};
+        double passivePriceTema{0.0};
 
         int64_t lastGenerateTs{0};
-        bool valid;
+        bool valid{false};
     };
 
     // 开平仓触发价差参数

@@ -95,7 +95,6 @@ void PairTradingStrategy::on_command(const std::string& json) {
 }
 
 void PairTradingStrategy::on_timer(const int64_t& utcTime) {
-    /*
     algoContext.OnTimer(utcTime);
     ptContext.OnTimer(utcTime);
 
@@ -112,7 +111,6 @@ void PairTradingStrategy::on_timer(const int64_t& utcTime) {
             createAlgo = true;
         }
     }
-    */
 }
 
 void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum) {

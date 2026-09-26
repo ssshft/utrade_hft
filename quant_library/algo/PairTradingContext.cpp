@@ -2,14 +2,14 @@
  * 核心流程：
  * OnSpread:
  * 1. 更新 pi.rtSpread
- * 2. CheckSignal --》有信号 --》SubmitAlgoOrder
- * 3. 调用RecalcOrderParams
+ * 2. AccumulateSpreadSample --》喂一条价差样本进 24h 滚动窗口（降频）
+ * 3. CheckSignal --》有信号 --》SubmitAlgoOrder
  * 
  * OnTimer:
  * 1. 周期性 RecalcVolumeParams
- * 2. 周期性 CheckRisk --> 有风险 --》SubmitAlgoOrder (强制平仓)
- * 3. 周期性 SaveToCSV
- * 4. 周期性 调用RecalcOrderParams(全量刷新)
+ * 2. 周期性 刷新价差统计 Prune/Build --》UpdateLargeStats --》立即 RecalcOrderParams
+ * 3. 周期性 CheckRisk --> 有风险 --》SubmitAlgoOrder (强制平仓)
+ * 4. 周期性 SaveToCSV
  * 
  * OnAlgoOrderUpdate (成交回报)
  * 1. 更新持仓均价 (PairInfoManager)
@@ -65,7 +65,50 @@ void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData
 
     pim.UpdateRtSpread(pairKey, pdata);
 
+    // 喂一条价差样本进 24h 滚动窗口（内部按 spreadSampleIntervalMs 降频）
+    // 注意：这里只负责“收集”，不负责算分位数；分位数在 OnTimer 里按周期重算
+    AccumulateSpreadSample(pairKey, pdata);
+
     ProcessPairSignal(*pi);
+}
+
+void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, const dbp::DbpData* pdata) {
+    if (!pdata) {
+        return;
+    }
+
+    // generateTs 是价差生成时间，单位 us（dbsnap.h: high_resolution_clock/1000），
+    // 与 crypto::getCurrentTime() 同量纲，可直接和 Prune(nowUs) 比较；
+    // 若上游没填（==0），退回本地时钟，避免 0 值把整窗样本顶掉
+    const int64_t ts = (pdata->generateTs > 0) ? pdata->generateTs : NowUs();
+
+    auto it = m_spreadWindows.find(pairKey);
+    if (it == m_spreadWindows.end()) {
+        SpreadWindow win;
+        win.builder.SetWindowUs(static_cast<int64_t>(m_cfg.spreadStatsWindowSec) * 1000000LL);
+        it = m_spreadWindows.emplace(pairKey, std::move(win)).first;
+    }
+    SpreadWindow& win = it->second;
+
+    // 降频：24h @200ms 约 43 万条/对子（float 结构体，约 10MB/对子）
+    if (m_cfg.spreadSampleIntervalMs > 0 && win.lastSampleTs > 0) {
+        const int64_t minGapUs = static_cast<int64_t>(m_cfg.spreadSampleIntervalMs) * 1000LL;
+        if (ts - win.lastSampleTs < minGapUs) {
+            return;
+        }
+    }
+
+    SpreadSample s;
+    s.ts = ts;
+    s.sba = static_cast<float>(pdata->spreadBidAsk);
+    s.sbb = static_cast<float>(pdata->spreadBidBid);
+    s.sab = static_cast<float>(pdata->spreadAskBid);
+    s.saa = static_cast<float>(pdata->spreadAskAsk);
+    s.abv = static_cast<float>(pdata->activeBidVolume[0]);
+    s.aav = static_cast<float>(pdata->activeAskVolume[0]);
+
+    win.builder.Add(s);
+    win.lastSampleTs = ts;
 }
 
 void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
@@ -497,12 +540,28 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
         m_lastVolumeRecalcUs = nowUs;
     }
 
-    // 2. 全量重算 orderParams (每5分钟)
-    if (nowUs - m_lastSignalRecalcUs > m_cfg.signalRecalcIntervalSec * 1000000LL) {
+    // 2. 刷新价差统计（每 spreadStatsUpdateIntervalSec 秒，默认60s）
+    //    统计一更新就立刻重算 orderParams，保证用到的分位数不是陈旧的
+    if (nowUs - m_lastSpreadStatsUpdateUs > static_cast<int64_t>(m_cfg.spreadStatsUpdateIntervalSec) * 1000000LL) {
         for (PairInfo* pi : pim.GetAllPairInfos()) {
+            const std::string pairKey(pi->pairInstrumentKey);
+
+            auto it = m_spreadWindows.find(pairKey);
+            if (it == m_spreadWindows.end()) {
+                continue;
+            }
+
+            SpreadStatsBuilder& builder = it->second.builder;
+            builder.Prune(nowUs); // 先按 24h 窗口淘汰过期样本
+
+            const SpreadStats stats = builder.Build(m_cfg.quantileUp,
+                                                   m_cfg.quantileDn,
+                                                   static_cast<size_t>(m_cfg.spreadStatsMinSamples));
+            pim.UpdateLargeStats(pairKey, stats);
+
             sg.RecalcOrderParams(*pi);
         }
-        m_lastSignalRecalcUs = nowUs;
+        m_lastSpreadStatsUpdateUs = nowUs;
     }
 
     // 3. 风控检查 (每次定时器触发)

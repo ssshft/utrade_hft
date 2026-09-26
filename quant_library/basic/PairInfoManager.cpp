@@ -358,12 +358,29 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
         }
 
         PairInfo& pi = it->second;
+
+        // 腿价：优先用 K 线统计的日均收盘价。K 线统计尚未接入
+        // （UpdateKlineStats 全仓库无调用者）时退回实时腿价，
+        // 否则这里恒 continue -> ttTargetVolume/maxVolume 恒 0 -> 算法单永远建不出来
         double ap = pi.activeMeanClose;
         double pp = pi.passiveMeanClose;
+        if (std::isnan(ap) || ap <= 0) {
+            ap = pi.rtSpread.activePriceTema;
+        }
+        if (std::isnan(pp) || pp <= 0) {
+            pp = pi.rtSpread.passivePriceTema;
+        }
 
         if (std::isnan(ap) || ap <= 0 || std::isnan(pp) || pp <= 0) {
+            LOG_WARN("skip volume calc, invalid leg price. pairKey:{} ap:{} pp:{}", pk, ap, pp);
             continue;
         }
+
+        // 日成交量上限：缺失时（<=0）不施加「不超过日成交量 2.5%」的约束。
+        // 否则 min(maxAmount, 0) = 0 -> a_max = 0 -> maxVolume = 0
+        auto capByDailyAmount = [](double amount, double dailyAmount) {
+            return (dailyAmount > 0.0) ? std::min(amount, dailyAmount * 0.025) : amount;
+        };
 
         const InstrumentParam& aP = pi.activeParam;
         const InstrumentParam& pP = pi.passiveParam;
@@ -376,11 +393,11 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
             double a_target = ceil2min(targetAmount / ap / aP.multiple, aMinVol);
             double p_target = ceil2min(targetAmount / pp / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
 
-            double a_max = ceil2min(std::min(maxAmount, pi.activeDailyAmount * 0.025) / ap / aP.multiple, aMinVol);
-            double p_max = ceil2min(std::min(maxAmount, pi.passiveDailyAmount * 0.025) / pp / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
+            double a_max = ceil2min(capByDailyAmount(maxAmount, pi.activeDailyAmount) / ap / aP.multiple, aMinVol);
+            double p_max = ceil2min(capByDailyAmount(maxAmount, pi.passiveDailyAmount) / pp / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
 
-            double a_min = ceil2min(std::min(MIN_AMOUNT, pi.activeDailyAmount * 0.025) / ap / aP.multiple, aMinVol);
-            double p_min = ceil2min(std::min(MIN_AMOUNT, pi.passiveDailyAmount * 0.025) / pp / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
+            double a_min = ceil2min(capByDailyAmount(MIN_AMOUNT, pi.activeDailyAmount) / ap / aP.multiple, aMinVol);
+            double p_min = ceil2min(capByDailyAmount(MIN_AMOUNT, pi.passiveDailyAmount) / pp / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
 
             pi.ttTargetVolume = std::max(a_target, p_target);
             pi.mtTargetVolume = pi.ttTargetVolume;
@@ -392,11 +409,11 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
             double a_target = ceil2min(targetAmount / aP.multiple, aMinVol);
             double p_target = ceil2min(targetAmount / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
 
-            double a_max = ceil2min(std::min(maxAmount, pi.activeDailyAmount * 0.025) / aP.multiple, aMinVol);
-            double p_max = ceil2min(std::min(maxAmount, pi.passiveDailyAmount * 0.025) / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
+            double a_max = ceil2min(capByDailyAmount(maxAmount, pi.activeDailyAmount) / aP.multiple, aMinVol);
+            double p_max = ceil2min(capByDailyAmount(maxAmount, pi.passiveDailyAmount) / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
 
-            double a_min = ceil2min(std::min(MIN_AMOUNT, pi.activeDailyAmount * 0.025) / aP.multiple, aMinVol);
-            double p_min = ceil2min(std::min(MIN_AMOUNT, pi.passiveDailyAmount * 0.025) / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
+            double a_min = ceil2min(capByDailyAmount(MIN_AMOUNT, pi.activeDailyAmount) / aP.multiple, aMinVol);
+            double p_min = ceil2min(capByDailyAmount(MIN_AMOUNT, pi.passiveDailyAmount) / pP.multiple, pMinVol) * pP.multiple / aP.multiple;
 
             pi.ttTargetVolume = std::max(a_target, p_target);
             pi.mtTargetVolume = pi.ttTargetVolume;

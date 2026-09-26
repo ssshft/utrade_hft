@@ -12,7 +12,10 @@
 #include "../basic/PairInfoManager.h"
 #include "../basic/BaseAlgoOrder.h"
 #include "../signal/SignalGenerator.h"
+#include "../signal/SpreadStatsBuilder.h"
 #include "../risk/RiskManager.h"
+
+#include <unordered_map>
 
 
 namespace pt {
@@ -33,15 +36,20 @@ struct PairTradingConfig {
     double quantileUp{0.9};
     double quantileDn{0.1};
 
+    // ---- 价差统计生产者（对齐祖先 pair_trading_c_gateio）----
+    int spreadStatsWindowSec{86400};       // 24h 滚动窗口（祖先 spread_df_update_period）
+    int spreadStatsUpdateIntervalSec{60};  // 60s 刷新统计（祖先 spread_df_update_timespan，原值 3600）
+    int spreadStatsMinSamples{8640};       // 样本数门槛（祖先 spread_count > 24*3600/5*0.5）
+    int spreadSampleIntervalMs{200};       // 采样间隔，控制内存；0 = 不降频（逐 tick 全存）
+    int spreadFreshnessSec{30};            // 行情新鲜度门槛（祖先 lastGenerateTs < 30s）
+
     // 算法单超时ms
     int64_t algoOrderTimeoutMs{30000};
 
     std::string csvStatePath{"data/pair_info.csv"};
 
-    int spreadStatsUpdateIntervalSec{3600}; // 1h 更新统计
     int volumeRecalcIntervalSec{60};     // 1min 重算仓位参数
     int csvSaveIntervalSec{300};       // 5min 保存csv
-    int signalRecalcIntervalSec{300};    // 5min 重算orderParams
 };
 
 // 回调直接传递创建好的算法单对象（不再拼 JSON 字符串）
@@ -87,7 +95,17 @@ private:
     int64_t m_lastSpreadStatsUpdateUs{0};
     int64_t m_lastVolumeRecalcUs{0};
     int64_t m_lastCsvSaveUs{0};
-    int64_t m_lastSignalRecalcUs{0};
+
+    // 每个币对一份 24h 滚动价差样本窗口
+    // lastSampleTs 用于按 spreadSampleIntervalMs 降频采样，控制内存
+    struct SpreadWindow {
+        SpreadStatsBuilder builder;
+        int64_t lastSampleTs{0};
+    };
+    std::unordered_map<std::string, SpreadWindow> m_spreadWindows;
+
+    // 从 OnSpread 的原始行情里抽一条价差样本，写入对应币对的滚动窗口
+    void AccumulateSpreadSample(const std::string& pairKey, const dbp::DbpData* pdata);
 
     void ProcessPairSignal(PairInfo& pi);
 
