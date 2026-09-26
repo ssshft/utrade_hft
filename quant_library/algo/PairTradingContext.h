@@ -32,9 +32,10 @@ struct PairTradingConfig {
     double exposureMaxLimit{10}; // 敞口上限
     double exposureMaxLimitCoff{1.0}; // 敞口系数
 
-    // 价差统计分位数
-    double quantileUp{0.9};
-    double quantileDn{0.1};
+    // 价差统计分位数（祖先 quantile_up=0.92 / quantile_dn=1-quantile_up=0.08）
+    // 分位数越极端 -> 分位数边界越靠外 -> 入口阈值越宽 -> 开平机会越多
+    double quantileUp{0.92};
+    double quantileDn{0.08};
 
     // ---- 价差统计生产者（对齐祖先 pair_trading_c_gateio）----
     int spreadStatsWindowSec{86400};       // 24h 滚动窗口（祖先 spread_df_update_period）
