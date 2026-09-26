@@ -862,7 +862,7 @@ void AlgoContext::OnCommand(string s) {
 
     // 原 JSON 建单路径已由 AlgoContext::SubmitAlgoOrder(BaseAlgoOrder*) 取代。
     // 下面这段硬编码的 DOGE 测试单先注释保留，确认新链路跑通后可直接删除。
-    
+    /*
     BaseAlgoOrder* pAlgoOrder = new AlgoPairOrder();
     pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
     pAlgoOrder->commandType = stra::CommandType_NEW;
@@ -1009,7 +1009,8 @@ void AlgoContext::OnCommand(string s) {
         QuantDbp::Instance().Subscribe(pPairOrder->pairInstrumentKey);
     } else {
         LOG_INFO("Not Subscribe pairInstrumentKey:{} already exist!", pPairOrder->pairInstrumentKey);
-    }   
+    } 
+    */
     
 }
 
@@ -1060,6 +1061,11 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
 
 
         auto& allAlgoOrders = alogOrderManager.GetAllAlgoOrders();
+        std::cout << "AlgoContext allAlgoOrders size: " << allAlgoOrders.size() << std::endl;
+        return;
+
+
+
         for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end(); ++it) {
             BaseAlgoOrder* pAlgoOrder = it->second;
 
@@ -1637,6 +1643,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
 }
 
 void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
+    return;
     try {
         int64_t nowTime = crypto::getCurrentTime();
   
@@ -1823,6 +1830,7 @@ void AlgoContext::OnFundingRate() {
 }
 
 void AlgoContext::OnTimer(int64_t eventTime) {
+    return;
     // 延迟检查，订单从发出到回报的延迟时间作为一个变量存起来，超过标准需要报警
     // 杠杆检查，accountMgr杠杆过高检查，超过标准需要报警。未来在极端情况下强制进行自动减仓
     // 订单异常检查

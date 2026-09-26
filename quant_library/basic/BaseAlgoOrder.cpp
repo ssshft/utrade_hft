@@ -876,6 +876,8 @@ void BaseAlgoOrder::SaveToFile() {
 }
 
 string BaseAlgoOrder::GeneratePubStr() {
+
+    return fmt::format("pairInstrumentKey:{} commandType:{} algoOrderId:{} algoType:{} algoOrderStatus:{} pairTotalVolume:{} pairActiveTotalPrice:{} pairPassiveTotalVolume:{} pairPassiveTotalPrice:{}", pairInstrumentKey, stra::CommandTypeEnum2Str[commandType], algoOrderId, stra::AlgoTypeEnum2Str[algoType], stra::AlgoOrderStatusEnum2Str[algoOrderStatus], pairTotalVolume, pairActiveTotalPrice, pairPassiveTotalVolume, pairPassiveTotalPrice);
     /*
     json pub;
     pub["sccId"] = string(sccId);
@@ -1041,7 +1043,6 @@ string BaseAlgoOrder::GeneratePubStr() {
 
     return pub.dump();
     */
-    return "";
 }
 
 string BaseAlgoOrder::GeneratePubStrOnUpdate() {

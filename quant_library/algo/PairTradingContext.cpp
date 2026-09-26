@@ -274,9 +274,9 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->passiveVolumePct = 0.5;
 
     // ---- 撤单参数（默认值，后续从 PairTradingConfig 来）----
-    pAlgoOrder->activeMakerCancelOrderTime = 300LL * 1000 * 1000;
+    pAlgoOrder->activeMakerCancelOrderTime = 5LL * 1000 * 1000;
     pAlgoOrder->activeTakerCancelOrderTime = 5LL * 1000 * 1000;
-    pAlgoOrder->passiveMakerCancelOrderTime = 60LL * 1000 * 1000;
+    pAlgoOrder->passiveMakerCancelOrderTime = 5LL * 1000 * 1000;
     pAlgoOrder->passiveTakerCancelOrderTime = 5LL * 1000 * 1000;
     pAlgoOrder->activePassiveCancelOrderPct = 0.001;
     pAlgoOrder->activeMakerCancelOrderPct = 0.001;

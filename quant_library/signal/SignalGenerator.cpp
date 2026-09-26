@@ -2,11 +2,10 @@
 
 namespace pt {
 
-
 std::pair<double, double> SignalGenerator::CalcExpectSpread(double quantileBound, double activeFee, double passiveFee, bool isTaker, double slippage, double extraBuffer, int direction) const {
     double totalCost = activeFee + passiveFee + slippage + extraBuffer;
     double startSpread = quantileBound * m_cfg.spreadAdjPct - direction * totalCost;
-    double endSpread = startSpread - direction * 0.000005; // 5e-6 缓冲带
+    double endSpread = startSpread + direction * 0.000005; // 5e-6 缓冲带
     return {startSpread, endSpread};
 }
 
@@ -43,18 +42,18 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     double ttExtra = m_cfg.ttAddPercent;
     double openProfit = m_cfg.openProfitPct;
 
-    // TT 开多 Open Long: 价差向下穿，主动腿买入便宜； 触发条件：spreadBidBid < tt_expect_OL_start
+    // TT 开多 Open Long
     {
-        auto [start, end] = CalcExpectSpread(ls.bidBidDQ, ttActiveFee, ttPassiveFee, true, slippage, ttExtra, -1);
+        auto [start, end] = CalcExpectSpread(ls.bidAskDQ, ttActiveFee, ttPassiveFee, true, slippage, ttExtra, -1);
         op.ttOLStartSpread = start;
         op.ttOLEndSpread = end;
         op.ttOLStartVolume = 0.0;
         op.ttOLEndVolume = -pi.maxVolume;
     }
 
-    // TT 开多 Close Long: 价差向上穿，主动腿卖出获利； 触发条件：spreadAskAsk > tt_expect_CL_start
+    // TT 开多 Close Long
     {
-        auto [start, end] = CalcExpectSpread(ls.askAskUQ, ttActiveFee, ttPassiveFee, true, slippage, ttExtra, 1);
+        auto [start, end] = CalcExpectSpread(ls.askBidUQ, ttActiveFee, ttPassiveFee, true, slippage, ttExtra, 1);
         op.ttCLStartSpread = start + (pi.profitSwitch ? pi.profitPct : 0.0);
         op.ttCLEndSpread = op.ttCLStartSpread + 0.000005;
         op.ttCLStartVolume = -pi.maxVolume;
@@ -62,9 +61,9 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     }
 
 
-    // TT 开空 Open Short: 价差向上穿，主动腿卖出获利
+    // TT 开空 Open Short
     {
-        auto [start, end] = CalcExpectSpread(ls.askAskUQ, ttActiveFee, ttPassiveFee, true, slippage, ttExtra, 1);
+        auto [start, end] = CalcExpectSpread(ls.askBidUQ, ttActiveFee, ttPassiveFee, true, slippage, ttExtra, 1);
         op.ttOSStartSpread = start;
         op.ttOSEndSpread = end;
         op.ttOSStartVolume = 0.0;
@@ -72,9 +71,9 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     }
 
 
-    // TT 平空 Close Short: 价差向下穿，主动腿买入
+    // TT 平空 Close Short
     {
-        auto [start, end] = CalcExpectSpread(ls.bidBidDQ, ttActiveFee, ttPassiveFee, true, slippage, ttExtra, -1);
+        auto [start, end] = CalcExpectSpread(ls.bidAskDQ, ttActiveFee, ttPassiveFee, true, slippage, ttExtra, -1);
         op.ttCSStartSpread = start - (pi.profitSwitch ? pi.profitPct : 0.0);
         op.ttCSEndSpread = op.ttCSStartSpread - 0.000005;
         op.ttCSStartVolume = pi.maxVolume;
@@ -82,9 +81,9 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     }
 
 
-    // MT 开多
+    // MT 开多 Open Long
     {
-        auto [start, end] = CalcExpectSpread(ls.bidBidDQ, mtActiveFee, mtPassiveFee, false, slippage, ttExtra, -1);
+        auto [start, end] = CalcExpectSpread(ls.askAskDQ, mtActiveFee, mtPassiveFee, false, slippage, ttExtra, -1);
         op.mtOLStartSpread = start;
         op.mtOLEndSpread = end;
         op.mtOLStartVolume = 0.0;
@@ -93,7 +92,7 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
 
     // TT 平多 Close Long
     {
-        auto [start, end] = CalcExpectSpread(ls.askAskUQ, mtActiveFee, mtPassiveFee, false, slippage, 0.0, 1);
+        auto [start, end] = CalcExpectSpread(ls.bidBidUQ, mtActiveFee, mtPassiveFee, false, slippage, 0.0, 1);
         op.mtCLStartSpread = start + (pi.profitSwitch ? pi.profitPct : 0.0);
         op.mtCLEndSpread = op.mtCLStartSpread + 0.000005;
         op.mtCLStartVolume = -pi.maxVolume;
@@ -103,7 +102,7 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
 
     // TT 开空 Open Short
     {
-        auto [start, end] = CalcExpectSpread(ls.askAskUQ, mtActiveFee, mtPassiveFee, false, slippage, 0.0, 1);
+        auto [start, end] = CalcExpectSpread(ls.bidBidUQ, mtActiveFee, mtPassiveFee, false, slippage, 0.0, 1);
         op.mtOSStartSpread = start;
         op.mtOSEndSpread = end;
         op.mtOSStartVolume = 0.0;
@@ -111,9 +110,9 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     }
 
 
-    // TT 平空 Close Short: 价差向下穿，主动腿买入
+    // TT 平空 Close Short
     {
-        auto [start, end] = CalcExpectSpread(ls.bidBidDQ, mtActiveFee, mtPassiveFee, true, slippage, 0.0, -1);
+        auto [start, end] = CalcExpectSpread(ls.askAskDQ, mtActiveFee, mtPassiveFee, true, slippage, 0.0, -1);
         op.mtCSStartSpread = start - (pi.profitSwitch ? pi.profitPct : 0.0);
         op.mtCSEndSpread = op.mtCSStartSpread - 0.000005;
         op.mtCSStartVolume = pi.maxVolume;
@@ -174,42 +173,42 @@ SignalResult SignalGenerator::CheckSignal(const PairInfo& pi) const {
     const auto& rt = pi.rtSpread;
     double vol = pi.pairTotalVolume;
 
-    if (op.ttOLSwitch && rt.spreadBidBid < op.ttOLStartSpread && vol > op.ttOLEndVolume + 1e-9) {
+    if (op.ttOLSwitch && rt.spreadBidAsk < op.ttOLStartSpread && vol > op.ttOLEndVolume + 1e-9) {
         result.ttOLSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.ttOSSwitch && rt.spreadAskAsk > op.ttOSStartSpread && vol < op.ttOSEndVolume - 1e-9) {
+    if (op.ttOSSwitch && rt.spreadAskBid > op.ttOSStartSpread && vol < op.ttOSEndVolume - 1e-9) {
         result.ttOSSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.ttCLSwitch && pi.IsLong() && rt.spreadAskAsk > op.ttCLStartSpread && vol < op.ttCLStartVolume - 1e-9) {
+    if (op.ttCLSwitch && pi.IsLong() && rt.spreadAskBid > op.ttCLStartSpread && vol < op.ttCLEndVolume - 1e-9) {
         result.ttCLSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.ttCSSwitch && pi.IsShort() && rt.spreadBidBid < op.ttCSStartSpread && vol > op.ttCSStartVolume + 1e-9) {
+    if (op.ttCSSwitch && pi.IsShort() && rt.spreadBidAsk < op.ttCSStartSpread && vol > op.ttCSEndVolume + 1e-9) {
         result.ttCSSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.mtOLSwitch && rt.spreadBidBid < op.mtOLStartSpread && vol > op.mtOLEndVolume + 1e-9) {
+    if (op.mtOLSwitch && rt.spreadAskAsk < op.mtOLStartSpread && vol > op.mtOLEndVolume + 1e-9) {
         result.mtOLSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.mtOSSwitch && rt.spreadAskAsk > op.mtOSStartSpread && vol < op.mtOSEndVolume - 1e-9) {
+    if (op.mtOSSwitch && rt.spreadBidBid > op.mtOSStartSpread && vol < op.mtOSEndVolume - 1e-9) {
         result.mtOSSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.mtCLSwitch && pi.IsLong() && rt.spreadAskAsk > op.mtCLStartSpread && vol < op.mtCLStartVolume - 1e-9) {
+    if (op.mtCLSwitch && pi.IsLong() && rt.spreadBidBid > op.mtCLStartSpread && vol < op.mtCLEndVolume - 1e-9) {
         result.mtCLSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.mtCSSwitch && pi.IsShort() && rt.spreadBidBid < op.mtCSStartSpread && vol > op.mtCSStartVolume + 1e-9) {
+    if (op.mtCSSwitch && pi.IsShort() && rt.spreadAskAsk < op.mtCSStartSpread && vol > op.mtCSEndVolume + 1e-9) {
         result.mtCSSignal = true;
         result.hasSignal = true;
     }
@@ -242,7 +241,8 @@ bool SignalGenerator::CanOpen(const PairInfo& pi, std::string& reason) const {
         return false;
     }
 
-
+    // 暂时注释，等待数据落入持仓量和成交量数据
+    /*
     if (!std::isnan(pi.activeOIUsdt) && pi.activeOIUsdt < 500000) {
         reason = "activeOI too small";
         return false;
@@ -258,6 +258,7 @@ bool SignalGenerator::CanOpen(const PairInfo& pi, std::string& reason) const {
         reason = "active turnover/OI ratio too low";
         return false;
     }
+    */
 
     double s = pi.rtSpread.spreadAskAsk;
     if (!std::isnan(s) && std::abs(s) > 0.1) {

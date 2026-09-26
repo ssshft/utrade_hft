@@ -222,7 +222,7 @@ namespace pt {
         double maxShortVolume{0.0};
 
 
-        bool autoFlag{false}; // true 自动模式
+        bool autoFlag{true}; // true 自动模式
         bool stopFlag{false}; // 停止开仓
         bool closeFlag{false}; // 强制平仓
         bool limitFlag{false}; // 持仓上限已达
