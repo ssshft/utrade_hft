@@ -332,15 +332,17 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->activeTakerFeeRate = fs.activeTakerFeeRate;
     pAlgoOrder->passiveMakerFeeRate = fs.passiveMakerFeeRate;
     pAlgoOrder->passiveTakerFeeRate = fs.passiveTakerFeeRate;
-    // 信号侧 totalCost 只计一次滑点，这里放在主动腿，避免 Fs 中重复计入
+    // 信号侧与算法单侧只计一次滑点，放在主动腿
     pAlgoOrder->activeMakerSlippage = fs.basicSlippage;
     pAlgoOrder->activeTakerSlippage = fs.basicSlippage;
     pAlgoOrder->passiveMakerSlippage = 0.0;
     pAlgoOrder->passiveTakerSlippage = 0.0;
-    pAlgoOrder->takerTakerFs = pAlgoOrder->activeTakerFeeRate + pAlgoOrder->passiveTakerFeeRate
-                             + pAlgoOrder->activeTakerSlippage + pAlgoOrder->passiveTakerSlippage;
-    pAlgoOrder->makerTakerFs = pAlgoOrder->activeMakerFeeRate + pAlgoOrder->passiveTakerFeeRate
-                             + pAlgoOrder->activeMakerSlippage + pAlgoOrder->passiveTakerSlippage;
+    // 必须与 SignalGenerator::CalcExecCost 完全同源：
+    // CheckSignal 与 AlgoPairOrder 阶梯都用 (实时价差 ∓ 这里的 Fs) 去比同一个 StartSpread，
+    // 两侧不同源就会错开一个 F，形成「信号触发但报不出单」的死区
+    const auto& sg = SignalGenerator::Instance();
+    pAlgoOrder->takerTakerFs = sg.CalcExecCost(true);
+    pAlgoOrder->makerTakerFs = sg.CalcExecCost(false);
 
     // ---- 持仓 / 报单量 ----
     pAlgoOrder->pairTotalVolume = pi.pairTotalVolume;
