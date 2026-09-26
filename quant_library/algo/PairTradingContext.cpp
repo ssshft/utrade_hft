@@ -190,8 +190,6 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
         return;
     }
 
-    LOG_INFO("reson: {}");
-
 
     if (pi.IsLong()) {
         std::string mode = pi.autoFlag ? "TT" : "MT";
