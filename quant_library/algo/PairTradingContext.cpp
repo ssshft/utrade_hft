@@ -792,6 +792,31 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->mtCSEndVolume = op.mtCSEndVolume;
     pAlgoOrder->mtCSSwitch = op.mtCSSwitch;
 
+    // 平仓单必须清掉四个开仓开关（2026-09-27）。
+    // 祖先在平仓路径上就是这么做的（create_close_modify_dict :258-263；建单处 :984-988）。
+    // 不清的两个后果：
+    //   ① AlgoContext.cpp:2106 的 FILLED 门槛要求四个开仓开关全 false —— 只要有一个是 true，
+    //      平仓单在持仓归零之后也无法终结，只能靠显式撤单收场；
+    //   ② AlgoPairOrder::CreatePairOrder 在同一侧两个开关都打开时**优先试开仓**
+    //      （:653-661 / :640-648，MT 同构），于是"平仓单"会先挂出 OPEN 子单 ——
+    //      轻则平不掉，重则加仓。
+    // 开仓开关只看价差和 closeFlag（SignalGenerator.cpp:120-126），不判持仓，
+    // 所以持仓期间完全可能是 true，尤其在强平触发时（持仓正亏着，价差朝不利方向走）。
+    //
+    // 只清开仓开关，**不动平仓开关**：C++ 有独立的 TT 平仓路径
+    // （ProcessPairSignal 按 sig.ttCLSignal 派发 "TT","CL"），祖先那套"平仓只走 MT"
+    // （ttCL/ttCS=false、mtCL/mtCS=true）在这里会把 TT 平仓打断，属于另一个设计问题。
+    //
+    // 附带效果：CreatePairOrder 里 -minVolume < expectVolume < minVolume 的中间带分支
+    // （:665-674 / :702-711）只试开仓开关、从不试平仓。清掉之后这里返回空单 ->
+    // 不再挂新子单 -> allPairOrders 归零 -> 正好触发 FILLED，平仓的收尾也就顺了。
+    if (isClose) {
+        pAlgoOrder->ttOLSwitch = false;
+        pAlgoOrder->ttOSSwitch = false;
+        pAlgoOrder->mtOLSwitch = false;
+        pAlgoOrder->mtOSSwitch = false;
+    }
+
     // 5. 本次触发的模式+方向：套用风控价差修正，并确保开关打开
     double* pStartSpread = nullptr;
     double* pEndSpread = nullptr;
