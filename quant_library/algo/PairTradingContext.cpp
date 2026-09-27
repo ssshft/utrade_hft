@@ -889,7 +889,7 @@ void PairTradingContext::OnPosition(const pubsub::Position& position) {
 }
 
 void PairTradingContext::OnBalance(const pubsub::Balance& balance) {
-    PairInfoManager::Instance().UpdateOnBalance(balance, "baseAsset");
+    PairInfoManager::Instance().UpdateOnBalance(balance, baseAsset);
 }
 
 void PairTradingContext::OnTotalAccount(const pubsub::TotalAccount& totalAccount) {

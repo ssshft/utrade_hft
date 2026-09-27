@@ -190,7 +190,7 @@ void PairInfoManager::UpdateSmallStats(const std::string& pairKey, const SpreadS
 
 
 void PairInfoManager::UpdateOnPosition(const pubsub::Position& pos) {
-    std::string instrKey = ExchangeTypeEnum2StrMap[pos.exchangeTypeEnum] + "," + InstTypeEnum2StrMap[pos.instTypeEnum] + "," + std::string(pos.instId);
+    std::string instrKey = ExchangeTypeEnum2StrMap[pos.exchangeTypeEnum] + "." + InstTypeEnum2StrMap[pos.instTypeEnum] + "." + std::string(pos.instId);
 
     const auto* pairs = FindPairsByInstrument(instrKey);
     if (!pairs) {
@@ -266,16 +266,17 @@ void PairInfoManager::UpdateLiquidStatus(PairInfo& pi, bool isActive, const pubs
 }
 
 void PairInfoManager::UpdateOnBalance(const pubsub::Balance& balance, const std::string& baseAsset) {
-    std::string symbol = std::string(balance.currency) + "-" + baseAsset; // 需要加上exchange，insttype
+    std::string symbol = std::string(balance.currency) + "-" + baseAsset;
+    std::string symKey = fmt::format("{}.{}.{}", ExchangeTypeEnum2StrMap[balance.exchangeTypeEnum], InstTypeEnum2StrMap[balance.instTypeEnum], symbol);
 
     for (auto& kv : m_pairInfoMap) {
         PairInfo& pi = kv.second;
-        if (strstr(pi.activeInstrumentKey, symbol.c_str())) {
+        if (strstr(pi.activeInstrumentKey, symKey.c_str())) {
             pi.activeRealPosition = balance.total;
             pi.activeFloatPnl = balance.unrealizedPnl;
         }
 
-        if (strstr(pi.passiveInstrumentKey, symbol.c_str())) {
+        if (strstr(pi.passiveInstrumentKey, symKey.c_str())) {
             pi.passiveRealPosition = balance.total;
             pi.passiveFloatPnl = balance.unrealizedPnl;
         }
@@ -478,6 +479,14 @@ void PairInfoManager::ApplyCommand(const std::string& pairKey, PairCommandType c
             pi->closeFlag = true;
             break;
         case PairCmd_RESUME:
+            // 错误态也在这里复活：errorFlag 的唯一写入方是 CheckExposureAbnormal，
+            // 语义是"该对子判死、停自动、留人工处理"。RESUME = "恢复自动"，
+            // 正是它的对偶操作，否则置位后除了改快照/重启没有第二条路。
+            // 风险自限：敞口若没真正解决，下一轮 CheckExposureAbnormal 会立刻再次置位。
+            if (pi->errorFlag) {
+                LOG_WARN("ApplyCommand RESUME: pairKey:{} clear errorFlag (was set by CheckExposureAbnormal)", pairKey);
+                pi->errorFlag = false;
+            }
             pi->stopFlag = false;
             pi->closeFlag = false;
             pi->autoFlag = true;
