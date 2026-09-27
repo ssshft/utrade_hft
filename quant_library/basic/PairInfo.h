@@ -275,6 +275,13 @@ namespace pt {
         char currentAlgoOrderId[stra::ID_LEN]{""};
         bool hasActiveAlgoOrder{false};
 
+        // ---- 启动对账用：该腿是否已收到过 pubsub::Position 推送 ----
+        // ⚠️ 不能用 avgPrice > 0 当"推送到位"的判据：空仓时交易所给的 avgPrice 就是 0，
+        //    那样空仓的对子会永远等不到推送到位，启动闸门永远打不开。
+        // 运行态标记，不进快照。
+        bool activePushArrived{false};
+        bool passivePushArrived{false};
+
         void SetPairKey(const char* key) {
             strncpy(pairInstrumentKey, key, sizeof(pairInstrumentKey) - 1);
         }

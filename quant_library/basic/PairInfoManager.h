@@ -6,7 +6,8 @@
  * 3. 从实时价差更新 rtSpread 字段
  * 4. 从统计结果更新 largeStats smallStats
  * 5. 计算报单参数 maxVolume/ttTargetVolume等
- * 6. 持久化/加载 csv，支持重启继续运行
+ * 6. 快照 SaveSnapshot / LoadSnapshot，支持重启继续运行
+ *    （只存"无法自己恢复"的字段，账户真值等推送自愈）
  * ***/
 
  #pragma once
@@ -26,9 +27,13 @@
 
         void Init(const std::vector<std::string>& pairKeys, int activeAccountId, int passiveAccountId, sm::SecurityManager* s);
 
-        bool LoadFromCSV(const std::string& csvPath);
+        // 快照：只存"无法自己恢复"的字段（见 docs/restart_recovery_design.md §5.1.1）。
+        // 账户真值（持仓/均价/浮盈/强平价/标记价/ADL/强平状态）一律不存 —— 由推送自愈。
+        // SaveSnapshot 写临时文件 + rename 原子替换，避免崩在写一半留下半截文件。
+        bool SaveSnapshot(const std::string& path);
 
-        bool SaveToCSV(const std::string& csvPath);
+        // 返回实际恢复的对子数；<0 表示失败（文件不存在 / 解析失败）
+        int LoadSnapshot(const std::string& path);
 
         PairInfo* GetPairInfo(const std::string& pairKey);
         PairInfo* GetPairInfo(const char* pairKey);

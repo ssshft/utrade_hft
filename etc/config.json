@@ -22,6 +22,6 @@
         "maxPositionValue": "500000",
         "maxAmount": "1000",
         "targetAmount": "1000",
-        "csvStatePath": "./csv"
+        "csvStatePath": "./data/pair_info.csv"
     }
 }

@@ -15,7 +15,7 @@
  *    CheckAlgoOrderTimeout 对强平单同样生效：长时间不成交就撤掉它、下一轮按新档位重报。
  *    撤单 -> 终结 -> OnAlgoFinished -> tierNTimes++ 正是档位升级的唯一驱动
  * 5. 周期性 改参检查 --》ProcessModify --》SubmitAlgoOrder(CommandType_MODIFY)
- * 6. 周期性 SaveToCSV
+ * 6. 周期性 SaveSnapshot（原子写，默认 10s）
  * 
  * 撤单是异步的两段式：RequestCancelAlgoOrder 只把算法单置成 ALGO_OS_CANCELLING，
  * 之后由执行端的 CancelOrderOnSpread 撤主动腿、等被动腿成交，子单清零后
@@ -32,6 +32,7 @@
 #include "basic/DataStruct.h"
 #include "basic/AlgoPairOrder.h"
 
+#include <algorithm>
 #include <cmath>
 
 
@@ -78,13 +79,56 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     auto& pim = PairInfoManager::Instance();
     pim.Init(cfg.pairKeys, cfg.activeAccountId, cfg.passiveAccountId, smc);
 
+    // 恢复上一轮的"策略自己那本账"。原实现把成功/失败打反了（成功打 WARN、失败打 INFO），
+    // 且 LoadFromCSV 是个一行都不写的坏桩 —— 这里一并修正。
     if (!cfg.csvStatePath.empty()) {
-        if (pim.LoadFromCSV(cfg.csvStatePath)) {
-            LOG_WARN("");
+        const int restored = pim.LoadSnapshot(cfg.csvStatePath);
+        if (restored < 0) {
+            LOG_WARN("LoadSnapshot: {} 不可用（首次启动 / 格式不兼容）-> 按无持仓启动", cfg.csvStatePath);
+        } else {
+            LOG_INFO("LoadSnapshot: {} pair(s) restored from {}", restored, cfg.csvStatePath);
         }
     }
 
+    // ---- 启动闸门：先冻结，等对账 ----
+    // 快照最多是 10s 前的，且 pre_stop 不撤单 —— 直接开跑等于拿一本可能过期的账去下单。
+    // 价差推送通常早于持仓推送，所以这里必须挡住，等 OnPosition 把两腿填上再放行。
+    m_phase = StartupPhase::Reconciling;
+    m_startupTimeUs = NowUs();
+    m_lastReconcileWarnUs = m_startupTimeUs;
+
+    // 上一轮有算法单未终结 -> 交易所侧可能仍有子单在成交，账本不可信（§5.4）
+    HandleOrphanAlgoOrders();
+
+    LOG_WARN("启动闸门: Reconciling —— 交易冻结，等两腿持仓推送到位后对账（pairs:{}）", cfg.pairKeys.size());
+
     LOG_INFO("size: {}", cfg.pairKeys.size());
+}
+
+// 快照里 hasActiveAlgoOrder == true 的启动处理。
+// ⚠️ 必须在这里（Init）做：PairTradingStrategy::ScanFinishedAlgoOrders 第一次跑就会
+//    因为"算法单在 AlgoContext 里找不到"而把 hasActiveAlgoOrder 清掉，之后再也看不出痕迹。
+void PairTradingContext::HandleOrphanAlgoOrders() {
+    auto& pim = PairInfoManager::Instance();
+
+    for (PairInfo* pi : pim.GetAllPairInfos()) {
+        if (!pi->hasActiveAlgoOrder) {
+            continue;
+        }
+
+        // 交易所侧可能残留上一轮的子单，而我们没有"列在途单/全撤"的能力（TradeClient 只有
+        // query_account / add_new_order / cancel_order / query_order）-> 只能告警 + 人工确认。
+        LOG_ERROR("孤儿单告警: pairKey:{} 上一轮算法单未终结 algoOrderId:{} —— "
+                  "交易所侧可能残留子单，账本(pairTotalVolume:{})不可信，请人工确认",
+                  pi->pairInstrumentKey, pi->currentAlgoOrderId, pi->pairTotalVolume);
+
+        if (m_cfg.freezeOnOrphanAlgoOrder) {
+            // 复用 errorFlag 的"判死、停自动、留人工处理"语义（它现在有清除路径：PairCmd_RESUME）
+            pi->errorFlag = true;
+            LOG_ERROR("孤儿单冻结: pairKey:{} errorFlag = true（运维确认交易所已清干净后发 PairCmd_RESUME 复活）",
+                      pi->pairInstrumentKey);
+        }
+    }
 }
 
 void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
@@ -145,6 +189,14 @@ void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, cons
 }
 
 void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
+    // 启动闸门：对账完成前不下任何单。
+    // 价差推送通常早于持仓推送，此时 pairTotalVolume 还是快照值（或 0），照常跑信号会：
+    //   账本 = 0 而交易所有仓  -> 在孤儿仓上再开一笔（CanOpen 没有持仓门槛，CanClose 又平不掉）
+    //   账本 ≠ 0 而交易所为空  -> 平仓单实际是反向开仓
+    if (!IsTradingReady()) {
+        return;
+    }
+
     auto& sg = SignalGenerator::Instance();
 
     std::string reason = "";
@@ -884,6 +936,14 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
 }
 
 void PairTradingContext::OnPosition(const pubsub::Position& position) {
+    // 记下"该账户的持仓批次已完整到达"（isLast = 批次尾）。
+    // 启动对账靠它区分"该腿确实没持仓"和"该腿推送还没到"——
+    // 交易所通常不会为从未持有过的腿推零仓，只等 push 会永远等不到。
+    // Init 之前不记（m_startupTimeUs == 0 时 BatchDoneAfterStart 的语义不成立）。
+    if (position.isLast && m_startupTimeUs > 0) {
+        m_positionBatchDoneUs[position.accountId] = NowUs();
+    }
+
     PairInfoManager::Instance().UpdateOnPosition(position);
     PairInfoManager::Instance().UpdateLiquidStatus(position);
 }
@@ -974,6 +1034,19 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     auto& pim = PairInfoManager::Instance();
     auto& sg = SignalGenerator::Instance();
 
+    // 0. 启动闸门：对账完成前，OnTimer 的一切动作全部跳过
+    //    （ProcessRisk / CheckAlgoOrderTimeout / CheckExposureAbnormal / ProcessModify
+    //     四个入口都只从这里调用，所以在这一处挡住就够了）。
+    //    注意价差统计窗口（下面第 2 步）也一起跳过 —— 但它在 OnSpread 里继续积累样本，
+    //    所以放行后第一轮 Build 就能拿到足够样本，不需要重新等 24h。
+    if (!IsTradingReady()) {
+        if (!TryReconcile(nowUs)) {
+            return;
+        }
+        LOG_WARN("启动闸门: Reconciling -> Trading，交易放行（耗时 {}ms）",
+                 (nowUs - m_startupTimeUs) / 1000);
+    }
+
     // 1. 重算报单量参数（每分钟）
     if (nowUs - m_lastVolumeRecalcUs > m_cfg.volumeRecalcIntervalSec * 1000000LL) {
         pim.RecalcVolumeParams(m_cfg.maxAmount, m_cfg.targetAmount, m_cfg.exposureMaxLimit, m_cfg.exposureMaxLimitCoff);
@@ -1028,12 +1101,110 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
         ProcessModify(*pi, nowUs);
     }
 
-    if (nowUs - m_lastCsvSaveUs > m_cfg.csvSaveIntervalSec * 1000000LL) {
+    // 6. 快照落盘 (原子写)。周期已从 300s 收紧到 10s —— 只有几十行，代价可忽略，
+    //    换来崩溃时最多丢 10s 的账（见 docs/restart_recovery_design.md §5.1）。
+    if (nowUs - m_lastCsvSaveUs > static_cast<int64_t>(m_cfg.csvSaveIntervalSec) * 1000000LL) {
         if (!m_cfg.csvStatePath.empty()) {
-            pim.SaveToCSV(m_cfg.csvStatePath);
+            pim.SaveSnapshot(m_cfg.csvStatePath);
         }
         m_lastCsvSaveUs = nowUs;
     }
+}
+
+// ---------------------------------------------------------------------------
+// 启动对账（docs/restart_recovery_design.md §5.2 / §5.3）
+//
+// 前提：pairTotalVolume 就是主动腿持仓（带符号，负 = 多），所以对账就是与
+// activeRealPosition 直接相等比较，不需要任何换算。被动腿不参与主判据。
+// ---------------------------------------------------------------------------
+
+// 对账单个对子（调用前保证两腿持仓信息都已知）。返回 true 表示该对子已一致。
+// 注意：activeRealPosition 也可能是"账户批次里根本没有这条腿"推出来的默认 0 ——
+// 那正是我们要的语义（该腿空仓）。
+bool PairTradingContext::ReconcilePair(PairInfo& pi) {
+    const double real   = pi.activeRealPosition;  // 主动腿实时持仓（带符号；未推送 = 默认 0 = 空仓）
+    const double ledger = pi.pairTotalVolume;     // 策略自己的账本（算法单回调累积）
+
+    const double tol = std::max(1e-9, std::abs(real) * m_cfg.reconcileTolRatio);
+
+    // 判据：量在容差内 且 符号相同（量级相同但多空翻转必须算不一致）
+    const bool sameSign = (ledger >= 0.0) == (real >= 0.0);
+    if (std::abs(ledger - real) <= tol && sameSign) {
+        LOG_INFO("Reconcile ok: pairKey:{} pairTotalVolume:{} activeRealPosition:{}",
+                 pi.pairInstrumentKey, ledger, real);
+        return true;
+    }
+
+    LOG_ERROR("Reconcile MISMATCH: pairKey:{} 账本 pairTotalVolume:{} vs 实时 activeRealPosition:{} "
+              "(tol:{}) -> 以系统推送为准", pi.pairInstrumentKey, ledger, real, tol);
+
+    if (std::abs(real) <= 1e-9) {
+        // 交易所是空仓 -> 账本作废，并把"持仓期间"的状态一起归零。
+        // 必须和 RiskManager::OnAlgoFinished(fullyFlat == true) 保持同一套不变量
+        // （空仓 ⇒ 风控档位 / 计时起点 / 建仓基准全部复位），否则下一轮建仓会
+        // 从上一轮的 tier 和旧基准接着算。
+        pi.pairTotalVolume       = 0.0;
+        pi.pairActiveTotalPrice  = -1.0;   // -1.0 = "从未建仓"哨兵
+        pi.pairPassiveTotalPrice = -1.0;
+        pi.openSmallSpreadBidBidUQ = std::nan("");
+        pi.openSmallSpreadAskAskDQ = std::nan("");
+        pi.adlClose           = AbnormalCloseState();
+        pi.spreadNoRegression = AbnormalCloseState();
+        pi.fundingAbnormal    = AbnormalCloseState();
+        pi.positionExceedThresholdStartTime = 0;
+        pi.spreadNoRegressionStartTime      = 0;
+        LOG_WARN("Reconcile: pairKey:{} 交易所已空仓 -> 账本清零 + 风控档位/建仓基准复位",
+                 pi.pairInstrumentKey);
+    } else {
+        // 交易所仍持仓 -> 只把量改成实时值。
+        // 记账均价（pairActiveTotalPrice/pairPassiveTotalPrice）与风控档位**保留**：
+        //   均价是建仓基准，交易所的 avgPrice 在部分平仓后不变，快照值仍然是有效的建仓价；
+        //   档位是跨轮次累积的风控耐心，重启不该重置。
+        // ⚠️ 但如果进程宕机期间这个对子被平掉又重开，快照里的均价就是陈旧的
+        //    —— 这是上面这条 LOG_ERROR 要人工看一眼的原因。
+        pi.pairTotalVolume = real;
+    }
+
+    return true;
+}
+
+// 周期尝试对账。返回 true = 可以放行。
+// 策略：**一直等 + 告警，不设超时放行** —— 按"无持仓"放行的后果是在孤儿仓上重复开仓。
+bool PairTradingContext::TryReconcile(int64_t nowUs) {
+    auto& pim = PairInfoManager::Instance();
+
+    for (PairInfo* pi : pim.GetAllPairInfos()) {
+        // 该腿"已知"有两个来源，满足其一即可：
+        //   ① 收到过该腿的持仓推送（activePushArrived / passivePushArrived）；
+        //   ② 该腿所在账户的持仓批次已完整到达过（isLast）—— 批次里没有它 = 它是空仓，
+        //      此时 activeRealPosition / passiveRealPosition 保持默认 0，对账照样成立。
+        // 只等 ① 是不够的：交易所一般不会为"从未持有过"的腿推零仓，会永远等不到。
+        const bool activeKnown  = pi->activePushArrived  || BatchDoneAfterStart(pi->activeAccountId);
+        const bool passiveKnown = pi->passivePushArrived || BatchDoneAfterStart(pi->passiveAccountId);
+
+        if (!activeKnown || !passiveKnown) {
+            // 还没到。超时只告警，**不放行** —— 按"无持仓"放行会在孤儿仓上重复开仓。
+            if (nowUs - m_lastReconcileWarnUs > static_cast<int64_t>(m_cfg.reconcileWarnIntervalSec) * 1000000LL) {
+                LOG_ERROR("启动闸门等待中: pairKey:{} 持仓信息未到位 "
+                          "(activePush:{} activeBatch:{} passivePush:{} passiveBatch:{}) —— "
+                          "已等 {}s，交易保持冻结，请检查持仓订阅",
+                          pi->pairInstrumentKey,
+                          pi->activePushArrived, BatchDoneAfterStart(pi->activeAccountId),
+                          pi->passivePushArrived, BatchDoneAfterStart(pi->passiveAccountId),
+                          (nowUs - m_startupTimeUs) / 1000000);
+                m_lastReconcileWarnUs = nowUs;
+            }
+            return false;
+        }
+    }
+
+    // 所有对子的持仓信息都已知 -> 逐一对账（不一致的当场改成实时值）
+    for (PairInfo* pi : pim.GetAllPairInfos()) {
+        ReconcilePair(*pi);
+    }
+
+    m_phase = StartupPhase::Trading;
+    return true;
 }
 
 

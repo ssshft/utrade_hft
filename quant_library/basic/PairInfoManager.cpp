@@ -2,6 +2,12 @@
 #include "StrategyConfig.h"
 #include "Utility.h"
 
+#include <cerrno>
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <iomanip>
+#include <sys/stat.h>
 
 namespace pt {
 
@@ -62,48 +68,276 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
 }
 
 
-bool PairInfoManager::SaveToCSV(const std::string& csvPath) {
-    std::ofstream ofs(csvPath);
+// ---------------------------------------------------------------------------
+// 快照：只存"无法自己恢复"的字段（docs/restart_recovery_design.md §5.1.1）
+//
+// 账户真值（持仓 / 均价 / 浮盈 / 强平价 / 标记价 / ADL / 强平状态）一律不存 ——
+// 由 pubsub 推送自愈。派生字段（ttTargetVolume / orderParams / *Stats）也不存。
+//
+// 列布局（33 列）。字符串列放最后，避免空字段 / 逗号带来的歧义：
+//   1   pairInstrumentKey                      行键
+//   3   持仓账本   pairTotalVolume / pairActiveTotalPrice / pairPassiveTotalPrice
+//   2   建仓基准   openSmallSpreadBidBidUQ / openSmallSpreadAskAskDQ
+//   18  风控档位   adlClose / spreadNoRegression / fundingAbnormal 各 6 个字段
+//   2   风控计时   positionExceedThresholdStartTime / spreadNoRegressionStartTime
+//   4   运维意图   autoFlag / stopFlag / closeFlag / profitPct
+//   1   错误态     errorFlag
+//   2   残留标记   hasActiveAlgoOrder / currentAlgoOrderId
+// ---------------------------------------------------------------------------
+namespace {
+
+constexpr size_t kSnapshotColumns = 33;
+
+constexpr const char* kSnapshotHeader =
+    "pairInstrumentKey,"
+    "pairTotalVolume,pairActiveTotalPrice,pairPassiveTotalPrice,"
+    "openSmallSpreadBidBidUQ,openSmallSpreadAskAskDQ,"
+    "adlClose.triggered,adlClose.currentTier,adlClose.startTime,"
+    "adlClose.tier1Times,adlClose.tier2Times,adlClose.tier3Times,"
+    "spreadNoRegression.triggered,spreadNoRegression.currentTier,spreadNoRegression.startTime,"
+    "spreadNoRegression.tier1Times,spreadNoRegression.tier2Times,spreadNoRegression.tier3Times,"
+    "fundingAbnormal.triggered,fundingAbnormal.currentTier,fundingAbnormal.startTime,"
+    "fundingAbnormal.tier1Times,fundingAbnormal.tier2Times,fundingAbnormal.tier3Times,"
+    "positionExceedThresholdStartTime,spreadNoRegressionStartTime,"
+    "autoFlag,stopFlag,closeFlag,profitPct,"
+    "errorFlag,"
+    "hasActiveAlgoOrder,"
+    "currentAlgoOrderId";
+
+// 逐级建父目录（POSIX）。已存在时 mkdir 返回 EEXIST，忽略即可；
+// 失败不致命 —— 真打不开文件时 SaveSnapshot 会自己 LOG_ERROR 并返回 false。
+void EnsureParentDir(const std::string& path) {
+    size_t pos = 0;
+    while ((pos = path.find('/', pos)) != std::string::npos) {
+        if (pos > 0) {
+            ::mkdir(path.substr(0, pos).c_str(), 0755);
+        }
+        ++pos;
+    }
+}
+
+std::vector<std::string> SplitCsv(const std::string& line) {
+    std::vector<std::string> out;
+    size_t start = 0;
+    while (true) {
+        size_t comma = line.find(',', start);
+        if (comma == std::string::npos) {
+            out.push_back(line.substr(start));
+            return out;
+        }
+        out.push_back(line.substr(start, comma - start));
+        start = comma + 1;
+    }
+}
+
+// 解析辅助：坏值一律回退到 fallback 并告警 —— 不让一条坏行毁掉整次恢复
+double ParseDouble(const std::string& s, double fallback, const char* field, const std::string& pairKey) {
+    if (s.empty()) {
+        return fallback;
+    }
+    try {
+        // stod 走 strtod，能接受 "nan" / "inf" —— 这是 §5.1.1 要求的往返能力
+        return std::stod(s);
+    } catch (const std::exception&) {
+        LOG_WARN("LoadSnapshot: pairKey:{} field:{} bad double '{}' -> use {}", pairKey, field, s, fallback);
+        return fallback;
+    }
+}
+
+int64_t ParseI64(const std::string& s, int64_t fallback, const char* field, const std::string& pairKey) {
+    if (s.empty()) {
+        return fallback;
+    }
+    try {
+        return static_cast<int64_t>(std::stoll(s));
+    } catch (const std::exception&) {
+        LOG_WARN("LoadSnapshot: pairKey:{} field:{} bad int '{}' -> use {}", pairKey, field, s, fallback);
+        return fallback;
+    }
+}
+
+bool ParseBool(const std::string& s, bool fallback) {
+    if (s.empty()) {
+        return fallback;
+    }
+    return s != "0" && s != "false";
+}
+
+void WriteAbnormalState(std::ostream& os, const AbnormalCloseState& st) {
+    os << (st.triggered ? 1 : 0) << ","
+       << st.currentTier << ","
+       << st.startTime << ","
+       << st.tier1Times << ","
+       << st.tier2Times << ","
+       << st.tier3Times << ",";
+}
+
+// f[off .. off+5] 对应一个 AbnormalCloseState（列序见 kSnapshotHeader）
+void ReadAbnormalState(const std::vector<std::string>& f, size_t off, AbnormalCloseState& st,
+                       const std::string& pairKey, const char* name) {
+    st.triggered   = ParseBool(f[off + 0], st.triggered);
+    st.currentTier = static_cast<int>(ParseI64(f[off + 1], st.currentTier, name, pairKey));
+    st.startTime   = ParseI64(f[off + 2], st.startTime, name, pairKey);
+    st.tier1Times  = static_cast<int>(ParseI64(f[off + 3], st.tier1Times, name, pairKey));
+    st.tier2Times  = static_cast<int>(ParseI64(f[off + 4], st.tier2Times, name, pairKey));
+    st.tier3Times  = static_cast<int>(ParseI64(f[off + 5], st.tier3Times, name, pairKey));
+}
+
+} // namespace
+
+
+bool PairInfoManager::SaveSnapshot(const std::string& path) {
+    EnsureParentDir(path);
+
+    // 写临时文件 + rename 原子替换：崩在写一半时旧快照仍然完好
+    const std::string tmpPath = path + ".tmp";
+    std::ofstream ofs(tmpPath, std::ios::trunc);
     if (!ofs) {
-        LOG_ERROR("");
+        LOG_ERROR("SaveSnapshot: open failed: {}", tmpPath);
         return false;
     }
 
-    ofs << "pair_instrument_key,pairTotalVolume,pairActiveTotalPrice,pairPassiveTotalPrice,pairPassiveTotalVolume,\n";
+    // 17 位有效数字 —— double 无损往返（openSmallSpread* 是 NaN 时打印 "nan"）
+    ofs << std::setprecision(17);
+    ofs << kSnapshotHeader << "\n";
 
-    for (const auto& kv : m_pairInfoMap) {
-        const PairInfo& p = kv.second;
+    for (const auto& pk : m_pairKeys) {
+        auto it = m_pairInfoMap.find(pk);
+        if (it == m_pairInfoMap.end()) {
+            continue;
+        }
+        const PairInfo& p = it->second;
+
         ofs << p.pairInstrumentKey << ","
-          << p.pairTotalVolume << ","
-          << p.pairActiveTotalPrice << ","
-          << p.pairPassiveTotalPrice << ","
-          << p.pairPassiveTotalVolume << ",\n";
+            << p.pairTotalVolume << ","
+            << p.pairActiveTotalPrice << ","
+            << p.pairPassiveTotalPrice << ","
+            << p.openSmallSpreadBidBidUQ << ","
+            << p.openSmallSpreadAskAskDQ << ",";
+
+        WriteAbnormalState(ofs, p.adlClose);
+        WriteAbnormalState(ofs, p.spreadNoRegression);
+        WriteAbnormalState(ofs, p.fundingAbnormal);
+
+        ofs << p.positionExceedThresholdStartTime << ","
+            << p.spreadNoRegressionStartTime << ","
+            << (p.autoFlag ? 1 : 0) << ","
+            << (p.stopFlag ? 1 : 0) << ","
+            << (p.closeFlag ? 1 : 0) << ","
+            << p.profitPct << ","
+            << (p.errorFlag ? 1 : 0) << ","
+            << (p.hasActiveAlgoOrder ? 1 : 0) << ","
+            << p.currentAlgoOrderId << "\n";
     }
+
+    ofs.flush();
+    const bool writeOk = static_cast<bool>(ofs);
+    ofs.close();
+
+    if (!writeOk) {
+        LOG_ERROR("SaveSnapshot: write failed: {}", tmpPath);
+        return false;
+    }
+
+    if (std::rename(tmpPath.c_str(), path.c_str()) != 0) {
+        LOG_ERROR("SaveSnapshot: rename {} -> {} failed: {}", tmpPath, path, std::strerror(errno));
+        return false;
+    }
+
     return true;
 }
 
-bool PairInfoManager::LoadFromCSV(const std::string& csvPath) {
-    std::ifstream ifs(csvPath);
+
+int PairInfoManager::LoadSnapshot(const std::string& path) {
+    std::ifstream ifs(path);
     if (!ifs) {
-        LOG_WARN("");
-        return false;
+        LOG_WARN("LoadSnapshot: no snapshot at {} (首次启动属正常)", path);
+        return -1;
     }
 
     std::string line;
-    std::getline(ifs, line);
-    int loaded = 0;
+    if (!std::getline(ifs, line)) {
+        LOG_WARN("LoadSnapshot: empty snapshot: {}", path);
+        return -1;
+    }
+
+    // 先验表头列数，挡住不兼容的旧格式（例如老的 5 列 CSV）
+    {
+        const auto header = SplitCsv(line);
+        if (header.size() != kSnapshotColumns) {
+            LOG_ERROR("LoadSnapshot: header has {} columns, expected {} -> 忽略该快照（格式不兼容）",
+                      header.size(), kSnapshotColumns);
+            return -1;
+        }
+    }
+
+    int restored = 0;
+    int skipped  = 0;
+    int lineno   = 1;
 
     while (std::getline(ifs, line)) {
-        std::string pk = ""; // line
+        ++lineno;
+        if (line.empty()) {
+            continue;
+        }
+
+        const auto f = SplitCsv(line);
+        if (f.size() != kSnapshotColumns) {
+            LOG_WARN("LoadSnapshot: line:{} has {} columns, expected {} -> skip",
+                     lineno, f.size(), kSnapshotColumns);
+            ++skipped;
+            continue;
+        }
+
+        const std::string& pk = f[0];
         auto it = m_pairInfoMap.find(pk);
         if (it == m_pairInfoMap.end()) {
+            LOG_WARN("LoadSnapshot: line:{} pairKey:{} 不在本次配置里 -> skip", lineno, pk);
+            ++skipped;
             continue;
         }
 
         PairInfo& p = it->second;
 
-        p.pairTotalVolume = 0;
+        // ---- 持仓账本（策略自己的记账，交易所反推不出来）----
+        p.pairTotalVolume       = ParseDouble(f[1], 0.0,  "pairTotalVolume", pk);
+        p.pairActiveTotalPrice  = ParseDouble(f[2], -1.0, "pairActiveTotalPrice", pk);
+        p.pairPassiveTotalPrice = ParseDouble(f[3], -1.0, "pairPassiveTotalPrice", pk);
+
+        // ---- 建仓基准（NaN 必须往返，isnan 是"尚未快照"的哨兵）----
+        p.openSmallSpreadBidBidUQ = ParseDouble(f[4], p.openSmallSpreadBidBidUQ, "openSmallSpreadBidBidUQ", pk);
+        p.openSmallSpreadAskAskDQ = ParseDouble(f[5], p.openSmallSpreadAskAskDQ, "openSmallSpreadAskAskDQ", pk);
+
+        // ---- 风控档位（跨轮次累积，丢了等于重置风控耐心）----
+        ReadAbnormalState(f, 6,  p.adlClose,           pk, "adlClose");
+        ReadAbnormalState(f, 12, p.spreadNoRegression, pk, "spreadNoRegression");
+        ReadAbnormalState(f, 18, p.fundingAbnormal,    pk, "fundingAbnormal");
+
+        // ---- 风控计时起点 ----
+        p.positionExceedThresholdStartTime = ParseI64(f[24], 0, "positionExceedThresholdStartTime", pk);
+        p.spreadNoRegressionStartTime      = ParseI64(f[25], 0, "spreadNoRegressionStartTime", pk);
+
+        // ---- 运维意图（ApplyCommand 写的，没有自愈路径）----
+        p.autoFlag  = ParseBool(f[26], p.autoFlag);
+        p.stopFlag  = ParseBool(f[27], p.stopFlag);
+        p.closeFlag = ParseBool(f[28], p.closeFlag);
+        p.profitPct = ParseDouble(f[29], p.profitPct, "profitPct", pk);
+
+        // ---- 错误态（判死的对子不能静默复活；复活走 PairCmd_RESUME）----
+        p.errorFlag = ParseBool(f[30], p.errorFlag);
+
+        // ---- 上一轮残留标记（只用于启动告警，见 §5.4）----
+        p.hasActiveAlgoOrder = ParseBool(f[31], false);
+        std::strncpy(p.currentAlgoOrderId, f[32].c_str(), sizeof(p.currentAlgoOrderId) - 1);
+        p.currentAlgoOrderId[sizeof(p.currentAlgoOrderId) - 1] = '\0';
+
+        p.modifyTime = crypto::getCurrentTime();
+
+        ++restored;
     }
+
+    LOG_INFO("LoadSnapshot: restored:{} skipped:{} from {}", restored, skipped, path);
+    return restored;
 }
 
 
@@ -218,6 +452,7 @@ void PairInfoManager::UpdateOnPosition(const pubsub::Position& pos) {
             pi->activeLiquidPrice = pos.liquidPrice;
             pi->activeMarkPrice = pos.markPrice;
             pi->activeAdlRank = pos.adlQuantile;
+            pi->activePushArrived = true;   // 启动对账的"推送到位"判据
             UpdateLiquidStatus(*pi, true, pos);
         }
         else if (instrKey == pi->passiveInstrumentKey) {
@@ -227,6 +462,7 @@ void PairInfoManager::UpdateOnPosition(const pubsub::Position& pos) {
             pi->passiveLiquidPrice = pos.liquidPrice;
             pi->passiveMarkPrice = pos.markPrice;
             pi->passiveAdlRank = pos.adlQuantile;
+            pi->passivePushArrived = true;  // 启动对账的"推送到位"判据
             UpdateLiquidStatus(*pi, true, pos);
         }
         pi->modifyTime = crypto::getCurrentTime();

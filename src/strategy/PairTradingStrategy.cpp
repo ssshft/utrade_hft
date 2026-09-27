@@ -78,7 +78,8 @@ void PairTradingStrategy::pre_start(Config* config) {
 
 void PairTradingStrategy::pre_stop() {
     if (!m_ptCfg.csvStatePath.empty()) {
-        pt::PairInfoManager::Instance().SaveToCSV(m_ptCfg.csvStatePath);
+        // 停机前落一次快照（原子写），崩溃/被杀时最坏只丢一个保存周期
+        pt::PairInfoManager::Instance().SaveSnapshot(m_ptCfg.csvStatePath);
     }
 
     // 显式停掉落库线程并 flush 缓冲区。

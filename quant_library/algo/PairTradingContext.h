@@ -63,7 +63,16 @@ struct PairTradingConfig {
     std::string csvStatePath{"data/pair_info.csv"};
 
     int volumeRecalcIntervalSec{60};     // 1min 重算仓位参数
-    int csvSaveIntervalSec{300};       // 5min 保存csv
+    int csvSaveIntervalSec{10};        // 快照落盘周期（原 300s；只有几十行，收紧以缩小崩溃窗口）
+
+    // ---- 启动对账（docs/restart_recovery_design.md §5.2）----
+    // 对账判据容差：|pairTotalVolume - activeRealPosition| <= max(1e-9, |activeRealPosition| * ratio)
+    double reconcileTolRatio{1e-6};
+    // 等持仓推送的超时告警周期。超时只告警、**不放行** —— 按"无持仓"放行的后果是重复开仓
+    int reconcileWarnIntervalSec{30};
+    // 快照里 hasActiveAlgoOrder == true（上一轮有算法单未终结）时，把该对子置 errorFlag 冻结，
+    // 等运维 PairCmd_RESUME 复活。交易所侧可能仍有子单在成交，账本不可信（§5.4）。
+    bool freezeOnOrphanAlgoOrder{true};
 };
 
 // 回调直接传递创建好的算法单对象（不再拼 JSON 字符串）
@@ -124,6 +133,46 @@ private:
     int64_t m_lastSpreadStatsUpdateUs{0};
     int64_t m_lastVolumeRecalcUs{0};
     int64_t m_lastCsvSaveUs{0};
+
+    // ---- 启动闸门（§5.2）----
+    // Init 读完快照后停在 Reconciling：五个交易入口全部直接 return，
+    // 等两腿 pubsub::Position 推送到位、对账通过，才进 Trading。
+    // 之所以需要它：价差推送通常早于持仓推送，而 CanOpen 没有持仓门槛、
+    // CanClose 又要求 HasPosition —— 账本不对就会"在孤儿仓上再开一笔"或"平仓单变反向开仓"。
+    enum class StartupPhase {
+        Reconciling = 0,   // 等推送 + 对账，交易冻结
+        Trading = 1        // 账本可信，放行
+    };
+    StartupPhase m_phase{StartupPhase::Reconciling};
+    int64_t m_startupTimeUs{0};
+    int64_t m_lastReconcileWarnUs{0};
+
+    // 每个账户"最近一次持仓批次结束"的时间（pubsub::Position::isLast == true）。
+    // 用途：区分"该腿确实没持仓"和"该腿的推送还没到"。
+    // ⚠️ 必须按 accountId 分开记：isLast 是**单账户单次应答**的批次尾标记
+    //    （tb 适配器写成 `isLast = (i + 1 == pending.size())`），
+    //    用全局一个标记会把"主动腿账户的批次到了"误当成"被动腿也到了"。
+    // Init 时是空的，所以任何一条记录必然是本次启动之后收到的。
+    std::unordered_map<int, int64_t> m_positionBatchDoneUs;
+
+    // 该账户的持仓批次是否已在本次启动后完整到达过
+    bool BatchDoneAfterStart(int accountId) const {
+        auto it = m_positionBatchDoneUs.find(accountId);
+        return it != m_positionBatchDoneUs.end() && it->second >= m_startupTimeUs;
+    }
+
+    bool IsTradingReady() const {
+        return m_phase == StartupPhase::Trading;
+    }
+
+    // 周期尝试对账；返回 true 表示可以放行
+    bool TryReconcile(int64_t nowUs);
+
+    // 对账单个对子（假定两腿推送都已到位）。返回 true 表示该对子已一致
+    bool ReconcilePair(PairInfo& pi);
+
+    // 快照里 hasActiveAlgoOrder == true 的启动处理（告警 + 可选冻结），§5.4
+    void HandleOrphanAlgoOrders();
 
     // 每个币对一份 24h 滚动价差样本窗口
     // lastSampleTs 用于按 spreadSampleIntervalMs 降频采样，控制内存

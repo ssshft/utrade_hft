@@ -14,25 +14,34 @@
 
 | 问题 | 结论 |
 |---|---|
-| 现在能把 pairinfo 存到 CSV 吗？ | ❌ **不能**。`etc/config.json:25` 的 `csvStatePath` 指向一个**目录**，`SaveToCSV` 打开必然失败；即便修好路径，`LoadFromCSV` 也是个坏桩，一行都读不回来 |
-| 重启后策略知道自己的持仓吗？ | ❌ **不知道**。`pairTotalVolume` 归零 → `HasPosition()` 恒 false → 平仓、四条风控、建仓基准全部失效；同时开仓侧**没有任何持仓门槛**，会在孤儿持仓之上再开一笔 |
+| 现在能把 pairinfo 存到 CSV 吗？ | ✅ **能了**（本次已实现 `SaveSnapshot`/`LoadSnapshot`，33 列 + 原子写）。**修复前**是不能的：`csvStatePath` 指向一个**目录**，`SaveToCSV` 打开必然失败；且 `LoadFromCSV` 是个一行都读不回来的坏桩 |
+| 重启后策略知道自己的持仓吗？ | ✅ **能了**（本次已实现：快照 + 启动对账 + `Reconciling` 闸门，§5.2）。**修复前**是不能的：`pairTotalVolume` 归零 → `HasPosition()` 恒 false → 平仓、四条风控、建仓基准全部失效；同时开仓侧**没有任何持仓门槛**，会在孤儿持仓之上再开一笔 |
 | 该"全撤单"还是"接着做"？ | ⚠️ **两个都做不了**。`TradeClient` 只有 `query_account` / `add_new_order` / `cancel_order` / `query_order`，**没有"列在途单"、没有"全撤"**；算法单侧 `SaveToFile` / `LoadFromFile` 是空桩 |
 | 推荐哪条路？ | ✅ **第三条：接续持仓、放弃算法单** —— 只恢复持仓账本与风控状态，算法单本来就不落盘。与祖先一致（`load_pair_info` 只恢复持仓列），工作量最小，且是另外两条的必经前置 |
-| 交易所侧的旧子单怎么办？ | 今天撤不掉。短期只能**告警 + 人工确认**；要真撤，得先把在途单的 `strategyOrderId` 做成可读快照 |
+| 交易所侧的旧子单怎么办？ | 今天撤不掉。短期只能**告警 + 人工确认**（✅ 已实现：`HandleOrphanAlgoOrders` 告警 + 置 `errorFlag` 冻结，§5.4）；要真撤，得先把在途单的 `strategyOrderId` 做成可读快照 |
 
 一句话：**先把"持仓账本"这一件事做对（写快照 + 启动对账 + 冻结闸门），再谈撤单。**
 
-> **已落地的两处源码改动**（本方案的前置，不改变上面的结论）：
+> **已落地的源码改动**（本方案的前置 + 快照 + 启动闸门）：
 > 1. `UpdateOnPosition:193` 的 key 分隔符 `","` → `"."`（`Position` 路从"整条死"恢复生效，§5.3.4）；
-> 2. `ApplyCommand` 的 `PairCmd_RESUME` 一并清 `errorFlag`（补上原本不存在的清除路径，§5.5）。
+> 2. `ApplyCommand` 的 `PairCmd_RESUME` 一并清 `errorFlag`（补上原本不存在的清除路径，§5.5）；
+> 3. `SaveSnapshot` / `LoadSnapshot` 取代 `SaveToCSV` / `LoadFromCSV`（33 列、原子写、NaN 往返，§5.1.5）；
+> 4. 落盘周期 300s → 10s；`csvStatePath` `"./csv"` → `"./data/pair_info.csv"` + 自动建目录；
+> 5. `PairTradingContext::Init` 的反向日志判断修正；
+> 6. **启动状态机** `Reconciling → Trading` + 五处交易入口早退 + 启动对账 + 孤儿单告警冻结（§5.2）。
 >
-> 两者都**未在部署机上编译验证**（本机缺 `cmake` / `fmt`）。
+> **仍未做**：运行中的定期对账（**决定不做**，见 §5.3.5）、持仓字段收敛到单一来源（§5.6 第 9 项）、
+> 孤儿单的中期动作（在途单持久化 + 启动撤单）。
+> 全部改动都**未在部署机上编译验证**（本机缺 `cmake` / `fmt`）。
 
 ---
 
-## 一、现状：已有的 pairinfo → CSV 接口是断的
+## 一、现状（修复前）：已有的 pairinfo → CSV 接口是断的
 
-### 1.1 写入侧
+> **本节记录的是修复前的状态，用于解释为什么要重做。** 已于本次实现中全部修掉 ——
+> `SaveToCSV`/`LoadFromCSV` 被 `SaveSnapshot`/`LoadSnapshot` 取代，见 §5.1 与 §5.6。
+
+### 1.1 写入侧（修复前）
 
 `PairInfoManager::SaveToCSV`（`PairInfoManager.cpp:65-83`）只写 **5 列**：
 
@@ -47,7 +56,7 @@ pair_instrument_key,pairTotalVolume,pairActiveTotalPrice,pairPassiveTotalPrice,p
 | `PairTradingStrategy::pre_stop`（`PairTradingStrategy.cpp:80-82`） | 优雅停机 |
 | `PairTradingContext::OnTimer`（`PairTradingContext.cpp:1031-1036`） | 每 `csvSaveIntervalSec`，默认 **300s**（`PairTradingContext.h:66`） |
 
-### 1.2 读取侧
+### 1.2 读取侧（修复前）
 
 `PairInfoManager::LoadFromCSV`（`PairInfoManager.cpp:85-107`）是个**坏桩**：
 
@@ -317,46 +326,126 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 （`PairInfoManager.cpp:490-498`），但 `RecalcVolumeParams:386-389/409` 每 60s 覆盖一次
 → **手动改的量最多活 60s**。所以恢复它们没有意义。
 
-写入时机：沿用现有两处（`pre_stop` + `OnTimer` 周期），把周期从 300s **收紧到 5-10s** —— 快照只有几十行，代价可忽略，换来崩溃时最多丢 10s 的账。
+写入时机：沿用现有两处（`pre_stop` + `OnTimer` 周期），把周期从 300s **收紧到 10s** —— 快照只有几十行，代价可忽略，换来崩溃时最多丢 10s 的账。
 
 **必须同时修的两处**：
 
 1. `etc/config.json:25` 的 `"./csv"` 改成文件路径（如 `"./data/pair_info.csv"`）；
 2. 启动时 `mkdir -p` 父目录，否则第一次运行仍会 `LOG_ERROR`。
 
-### 5.2 启动状态机
+#### 5.1.5 实现（已落地）
+
+| 项 | 实现 |
+|---|---|
+| API | `bool SaveSnapshot(path)` / `int LoadSnapshot(path)`（返回恢复的对子数，`<0` = 不可用）。取代 `SaveToCSV` / `LoadFromCSV` |
+| 位置 | `PairInfoManager.cpp` 的匿名 namespace（helper）+ 两个成员函数；声明在 `PairInfoManager.h:29-36` |
+| 原子写 | 写 `path + ".tmp"` → `std::rename` 原子替换；`writeOk` 检查后才 rename |
+| 精度 | `ofs << std::setprecision(17)`，double 无损往返 |
+| NaN 往返 | `openSmallSpread*` 为 NaN 时写出 `nan`，`std::stod`（走 `strtod`）读回 NaN ✓ |
+| 容错 | 空串 → 保留默认值；坏值 → `LOG_WARN` + 回退默认；**列数不符 → 整行 skip**；表头列数不符 → 整个快照拒绝加载（挡住旧的 5 列 CSV） |
+| 建目录 | `EnsureParentDir()` 逐级 `mkdir(..., 0755)`，忽略 `EEXIST` |
+| 行序 | 按 `m_pairKeys`（config 顺序）写，保证输出稳定可比对 |
+| 周期 | `csvSaveIntervalSec` **300 → 10**（`PairTradingContext.h:66`） |
+| 配置 | `etc/config.json` 的 `csvStatePath`：`"./csv"` → `"./data/pair_info.csv"` |
+| 启动日志 | `PairTradingContext::Init` 原来把成功/失败打反（成功 `WARN`、失败 `INFO`），已修正 |
+
+列布局（33 列，字符串列放最后）：
 
 ```
-① Init ──────── PairInfo 建好，账本全 0（当前就是这个状态）
+pairInstrumentKey,
+pairTotalVolume,pairActiveTotalPrice,pairPassiveTotalPrice,
+openSmallSpreadBidBidUQ,openSmallSpreadAskAskDQ,
+adlClose.{triggered,currentTier,startTime,tier1Times,tier2Times,tier3Times},
+spreadNoRegression.{同上 6},
+fundingAbnormal.{同上 6},
+positionExceedThresholdStartTime,spreadNoRegressionStartTime,
+autoFlag,stopFlag,closeFlag,profitPct,
+errorFlag,
+hasActiveAlgoOrder,
+currentAlgoOrderId
+```
+
+**已验证**：用独立 harness 复刻同一套序列化逻辑做了 35 项往返断言（NaN 性、double 位精确、int64、列数 33、空字符串列），全部通过。
+**未验证**：真实工程编译 —— 本机缺 `cmake` / `fmt`，需在部署机上 `make`。
+
+### 5.2 启动状态机（✅ 已实现）
+
+```
+① Init ──────── PairInfo 建好 → LoadSnapshot 填账本 → 孤儿单告警 → 进入 Reconciling
    │
    ▼
-② Reconcile ─── 读快照 → 等真实持仓推送到位 → 对账 pairTotalVolume
-   │              ├─ 快照缺失      → 按实时分腿持仓重建 + WARN
-   │              ├─ 两者一致      → 用快照（保住均价/基准/档位）
-   │              └─ 两者不一致    → 以实时持仓为准 + WARN + 飞书
+② Reconciling ─ OnTimer 每 tick 尝试对账；未完成前**交易入口全部 return**
+   │              ├─ 该腿的持仓信息已知？（推送 or 账户批次已完整到达）
+   │              ├─ 一致      → 保留快照值（保住均价/基准/档位）
+   │              └─ 不一致    → 以实时持仓为准
    ▼
-③ Armed ─────── 对账完成前，交易逻辑全部冻结
-   │
-   ▼
-④ Trading ───── 放开，OnTimer / OnSpread 正常跑
+③ Trading ───── 放行，OnTimer / OnSpread 正常跑
 ```
 
-**① → ② 在 `PairTradingContext::Init`（`PairTradingContext.cpp:73-88`）里做**，位置在 `pim.Init(...)` 之后、`LoadSnapshot` 之后。
+**为什么必须有这一步**：价差推送通常**早于**持仓推送，而 `CanOpen`（`SignalGenerator.cpp:231-278`）
+**没有持仓门槛**、`CanClose`（`:280-285`）反而要求 `HasPosition()`。所以拿一本不可信的账开跑会：
 
-**③ Armed 是新加的闸门，今天完全没有。** 现在的代码：
+| 账本 | 交易所 | 后果 |
+|---|---|---|
+| 0 | 有仓 | 开仓照开（在孤儿仓上再开一笔，敞口翻倍）、平仓被挡（平不掉） |
+| ≠0 | 空仓 | `canClose = true` → 发 CLOSE_LONG → `activeDirection = DT_LONG`（`AlgoPairOrder.cpp:491`）→ **实际是反向裸开** |
 
-- `PairTradingContext::OnSpread`（`:90-106`）收到第一条价差就 `ProcessPairSignal`；
-- `PairTradingContext::OnTimer`（`:973-1037`）第一次触发就跑全套风控 + 撤单检查 + 改参。
+#### 5.2.1 实现
 
-而价差推送通常**早于**持仓推送 → 现在重启后的头几十毫秒，策略是拿着 `pairTotalVolume = 0` 在跑的。必须加：
+| 项 | 实现 |
+|---|---|
+| 状态 | `PairTradingContext::StartupPhase{Reconciling, Trading}`（`PairTradingContext.h:142-152`），默认 `Reconciling` |
+| 冻结范围 | `OnTimer` 顶部一处早退 → 覆盖 `ProcessRisk` / `CheckAlgoOrderTimeout` / `CheckExposureAbnormal` / `ProcessModify`（这四个**只**从 `OnTimer` 调用）；`ProcessPairSignal` 顶部单独一处早退 |
+| 对账时机 | 只在 `OnTimer` 里试（tick 默认 1s）→ 放行延迟最多 1s。`OnSpread` 里的 `UpdateRtSpread` / `AccumulateSpreadSample` **不挡**，价差样本继续积累 |
+| 放行条件 | 每个对子的**两条腿**都要"持仓信息已知"（见下），任一不满足则整体不放行 |
+| 超时策略 | **一直等 + 每 30s 告警，绝不超时放行**（按"无持仓"放行 = 重复开仓） |
+| 对账容差 | `max(1e-9, |activeRealPosition| × reconcileTolRatio)`，`reconcileTolRatio` 默认 `1e-6` |
+| 新增字段 | `PairInfo::activePushArrived` / `passivePushArrived`（`UpdateOnPosition` 里置位，不进快照） |
 
-```cpp
-// 未完成对账时，以下入口全部直接 return
-//   ProcessPairSignal / ProcessRisk / CheckAlgoOrderTimeout
-//   / CheckExposureAbnormal / ProcessModify
-```
+#### 5.2.2 "持仓信息已知"的判据 —— 为什么要两个来源
 
-**④ 的放行条件**：对账完成（即 `activeRealPosition` / `passiveRealPosition` 都已到位）。若长时间不到位，**不能**按"无持仓"放行 —— 那等于放它去重复开仓，只能一直等 + 告警。
+只等 `pubsub::Position` 推送是**不够**的：交易所一般不会为"从未持有过"的腿推零仓
+（`tb/src/oms/AccountManager.cpp:109-144` 只在**曾经有过**的仓位上合成零仓推送），
+那样空仓的对子会永远等不到"推送到位"，启动闸门永远打不开。
+
+所以用两个来源，满足其一即可：
+
+1. **该腿的持仓推送到达过**（`activePushArrived` / `passivePushArrived`）；
+2. **该腿所在账户的持仓批次已完整到达过**（`pubsub::Position::isLast == true`）
+   —— 批次里没有这条腿，就说明它是空仓，此时 `activeRealPosition` 保持默认 0，对账照样成立。
+
+> ⚠️ 批次必须**按 `accountId` 分开记**（`m_positionBatchDoneUs`）：`isLast` 是
+> **单账户单次应答**的批次尾标记（适配器写成 `isLast = (i + 1 == pending.size())`），
+> 用一个全局标记会把"主动腿账户的批次到了"误判成"被动腿也到了"。
+
+#### 5.2.3 对账规则（`ReconcilePair`）
+
+主判据：`|pairTotalVolume - activeRealPosition| <= tol` **且符号相同**
+（量级相同但多空翻转必须算不一致）。被动腿不参与主判据。
+
+| 情形 | 处理 |
+|---|---|
+| 一致 | 保留快照值（保住记账均价、建仓分位数基准、风控档位） |
+| 不一致 + 交易所**空仓** | 账本清零；`pairActiveTotalPrice`/`pairPassiveTotalPrice` 复位 `-1.0`；`openSmallSpread*` 复位 `NaN`；三个风控档位与两个计时起点复位 —— 与 `RiskManager::OnAlgoFinished(fullyFlat == true)` 保持同一套不变量 |
+| 不一致 + 交易所**仍持仓** | 只把 `pairTotalVolume` 改成实时值；**保留**记账均价与风控档位（均价是建仓基准、部分平仓后不变；档位是跨轮次累积的风控耐心） |
+
+> ⚠️ "仍持仓"那一支有个残余风险：若进程宕机期间该对子被**平掉又重开**，快照里的均价就是陈旧的。
+> 这正是每次不一致都打 `LOG_ERROR` 的原因 —— 需要人工看一眼（对应 §6 待决策第 4 条）。
+
+#### 5.2.4 孤儿单（§5.4 的短期动作，一起做了）
+
+`HandleOrphanAlgoOrders()` 在 `Init` 里、`LoadSnapshot` 之后立刻跑：
+
+- 若快照里 `hasActiveAlgoOrder == true` → `LOG_ERROR` 告警（带 `algoOrderId`）；
+- 且 `freezeOnOrphanAlgoOrder`（默认 `true`）→ 置 `errorFlag = true`，复用"判死、停自动、留人工处理"
+  语义，等运维 `PairCmd_RESUME` 复活（§5.5 已给它加了清除路径）。
+
+⚠️ **必须在这里做**：`PairTradingStrategy::ScanFinishedAlgoOrders` 第一次跑就会因为
+"算法单在 `AlgoContext` 里找不到"而把 `hasActiveAlgoOrder` 清掉，之后再也看不出痕迹。
+
+**验证状态**：对账状态机与判据已用独立 harness 验过（31 项断言全过：一致 / 容差边界 / 符号翻转 /
+空仓复位 / 首次启动重建 / 批次放行 / 陈旧批次不算数 / 多对子整体冻结 / 不超时放行）。
+**整个工程仍未编译**（本机缺 `cmake` / `fmt`），需在部署机 `make`。
 
 ### 5.3 `pairTotalVolume` 的恢复规则（本方案的核心）
 
@@ -468,14 +557,29 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 3. **`SignalGenerator:139`（流动性风险禁开仓）与 `ProcessModify:545`（`aggressiveClose`）恢复生效** ——
    依赖的 `*LiquidStatus` 现在有值了。
 
-顺带把 §5.5 的定期对账一起做掉：在 `OnTimer` 里周期性地用 `activeRealPosition` 校正 `pairTotalVolume`。这样下面这两个场景也能自愈：
+#### 5.3.5 为什么**没有**做"运行中的定期对账"
+
+原计划里还有一条"在 `OnTimer` 里周期性地用 `activeRealPosition` 校正 `pairTotalVolume`"（自愈下面两个场景）：
 
 - 算法单在策略看到终态之前就被 `AlgoContext` 删掉（`AlgoContext.cpp:1906-1915` 那一支）；
 - 交易所侧被人工平仓。
 
-> 注意：定期对账有一个语义边界 —— 主动腿**成交到一半**时（主动腿成了、被动腿还挂着），
+**本次没有实现，因为它会是一次降级而不是修复**：
+
+| | 新鲜度 | 来源 |
+|---|---|---|
+| `pairTotalVolume` | **更快** | 算法单回调，同线程直接调用（`PairTradingContext.cpp:944` → `UpdateOnAlgoOrder`） |
+| `activeRealPosition` | 更慢 | pubsub 持仓推送，跨进程 |
+
+也就是说**运行期间 `pairTotalVolume` 比 `activeRealPosition` 更新**。拿后者去覆盖前者，等于在每次成交后
+用一拍之前的旧值把账本往回推 —— 不但没修好，还会引入抖动。启动时之所以反过来（以推送为准），
+是因为那一刻**账本是陈旧的**（最多 10s 前 + 进程停机期间无人记账），而推送才是新的。
+
+> 还要叠加一个语义边界：主动腿**成交到一半**时（主动腿成了、被动腿还挂着），
 > `pairTotalVolume` 与 `activeRealPosition` 都在动但可能差一拍，属于合法的中间态。
-> 对账最好在**没有在途算法单**时做，否则会把中间态当成偏差纠偏。
+
+**要真做自愈，触发条件得比"定期"更严**：`!hasActiveAlgoOrder`（无在途单）**且**该对子已静默 N 秒
+**且**偏差持续存在（不是单次采样），才允许覆盖。这是独立任务。
 
 ### 5.4 交易所侧的旧子单（孤儿单）
 
@@ -488,7 +592,11 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 
 今天**撤不掉**（见 §3.1）。分两步：
 
-- **短期（随本方案一起做）**：加启动告警 —— 若快照里 `hasActiveAlgoOrder == true`，飞书播报"上一轮有算法单未终结，交易所侧可能残留子单，请人工确认"。
+- **短期（✅ 已实现）**：`HandleOrphanAlgoOrders()` —— 启动时若快照里 `hasActiveAlgoOrder == true`，
+  `LOG_ERROR` 告警（带 `algoOrderId`），并置 `errorFlag = true` 冻结该对子（`freezeOnOrphanAlgoOrder` 默认 true），
+  等运维 `PairCmd_RESUME` 复活。见 §5.2.4。
+  > 告警里的"飞书播报"部分**没做** —— 仓库里 `rLarkMsg.Push` 的调用点在别处（`docs/thread_split_design.md:162` 提到），
+  > 这里只落了 `LOG_ERROR`。要接飞书需要补一次调用。
 - **中期（独立任务）**：把逐单 CSV 从"事件流"改成"当前在途清单"，启动时对每张在途单走一次 `QuantTrade::QueryOrder` → 若仍 `OS_NEW` / `OS_PARTFILLED` 就 `CancelOrder`。这条路能落地，但依赖 §3.2 说的 id 持久化。
 
 ### 5.5 `errorFlag`：实测语义与修法
@@ -572,14 +680,20 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 |---|---|---|---|
 | 0 | **前置**：修 `UpdateOnPosition` 的 key 分隔符（`","` → `"."`），否则 `Position` 路整条是死的（§5.3.4） | `PairInfoManager.cpp:193` | ✅ **已完成** |
 | 1 | 加 `PairCmd_RESUME` 清 `errorFlag`（§5.5 问题 1），这是 `errorFlag` 进快照的前提 | `PairInfoManager.cpp:481-490` | ✅ **已完成**（未编译验证） |
-| 2 | 修 `LoadFromCSV`（或换成 `LoadSnapshot`）：解析 `line`、按 `pairInstrumentKey` 查表、写回、补 `return` | `PairInfoManager.cpp:85-107` | ⬜ |
-| 3 | 修 `Init` 里的反向判断（成功打 INFO、失败打 WARN） | `PairTradingContext.cpp:81-85` | ⬜ |
-| 4 | 修配置路径 + 启动建目录 | `etc/config.json:25` | ⬜ |
-| 5 | 加 `SaveSnapshot`（原子写），在 `pre_stop` / `OnTimer` 调用，周期收紧到 5-10s | `PairInfoManager.cpp`、`PairTradingStrategy.cpp:80`、`PairTradingContext.cpp:1031` | ⬜ |
-| 6 | 加启动状态机（Reconcile / Armed / Trading 三个闸门） | `PairTradingContext.cpp:73-88`、`:90-106`、`:973-1037` | ⬜ |
-| 7 | 加 `pairTotalVolume` 对账（启动一次 + `OnTimer` 周期一次） | `PairTradingContext.cpp:973-1037` | ⬜ |
-| 8 | 加孤儿单启动告警 | `PairTradingContext.cpp` | ⬜ |
+| 2 | 把 `LoadFromCSV` 换成 `LoadSnapshot`：真解析 line、按 `pairInstrumentKey` 查表、写回、返回恢复数 | `PairInfoManager.cpp` | ✅ **已完成**（未编译验证） |
+| 3 | 修 `Init` 里的反向判断（成功打 INFO、失败打 WARN） | `PairTradingContext.cpp:81-90` | ✅ **已完成** |
+| 4 | 修配置路径 + 启动建目录 | `etc/config.json:25`、`EnsureParentDir` | ✅ **已完成** |
+| 5 | 加 `SaveSnapshot`（原子写），在 `pre_stop` / `OnTimer` 调用，周期收紧到 10s | `PairInfoManager.cpp`、`PairTradingStrategy.cpp:80-82`、`PairTradingContext.cpp:1037-1043`、`PairTradingContext.h:66` | ✅ **已完成**（未编译验证） |
+| 6 | 加启动状态机（Reconciling / Trading 两态闸门 + 五处入口早退） | `PairTradingContext.h:137-176`、`.cpp:93-106`、`:152-161`、`:1029-1040` | ✅ **已完成**（未编译验证） |
+| 7 | 加 `pairTotalVolume` 启动对账 | `PairTradingContext.cpp:1113-1187`（`ReconcilePair` / `TryReconcile`） | ✅ **已完成**（未编译验证） |
+| 7b | 运行中的**定期**对账 | — | ❌ **决定不做**，见 §5.3.5（会是用更旧的推送覆盖更新的账本） |
+| 8 | 孤儿单启动告警 + 冻结 | `PairTradingContext.cpp:108-132`（`HandleOrphanAlgoOrders`） | ✅ **已完成**（飞书播报未接，只落 `LOG_ERROR`） |
 | 9 | （可选）把持仓字段收敛到单一来源：让 `UpdateOnBalance` 只写余额类字段，不再写 `activeRealPosition`/`passiveRealPosition`（§5.3.4 变化 1） | `PairInfoManager.cpp:268-283` | ⬜ |
+
+> **第 2-5 项的验证状态**：序列化往返已用独立 harness 验过（35 项断言全过，§5.1.5）；
+> 但**整个工程还没编译过** —— 本机没有 `cmake`，也没有 `fmt`（`DataStruct.h:9` 依赖 `fmt/core.h`），
+> 且 `build/CMakeFiles/utrade_hft.dir/flags.make` 里的 include 路径是部署机的 `/workspace/...`。
+> 请在部署机上 `make` 一次再上线。
 
 ---
 
@@ -595,6 +709,14 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 - **`UpdateOnPosition` 的 key 分隔符**已修（`","` → `"."`），`Position` 路恢复生效（§5.3.4）。✅ 已改
 - **`balance.total` 是有符号净持仓**（已确认）→ `UpdateOnBalance` 不会把两条腿写成同号（§5.5 问题 2）。
 - **`errorFlag` 的清除路径**：`PairCmd_RESUME` 已一并清 `errorFlag`（§5.5 问题 1）。✅ 已改（未编译验证）
+- **快照格式与落地**：`SaveSnapshot`/`LoadSnapshot` 已实现，33 列、原子写、NaN 往返（§5.1.5）。✅ 已改（未编译验证）
+- **快照周期 = 10s**（原 300s，`PairTradingContext.h:66`）。✅ 已改
+- **快照路径**：`etc/config.json` 的 `csvStatePath` 从 `"./csv"`（是个目录）改为 `"./data/pair_info.csv"`，并由 `EnsureParentDir` 自动建目录。✅ 已改
+- **启动状态机**：`Reconciling → Trading` 两态闸门 + 五处入口早退 + 启动对账（§5.2）。✅ 已改（未编译验证）
+- **等待上限 = 一直等 + 每 30s 告警，不超时放行**（原待决策第 2 条）。✅ 已定
+- **对账容差** `reconcileTolRatio = 1e-6`（相对），另加符号必须相同。✅ 已定
+- **孤儿单短期动作**：启动告警 + `errorFlag` 冻结（`freezeOnOrphanAlgoOrder` 默认 true），§5.4。✅ 已改
+- **运行中的定期对账**：**决定不做**（会是用更旧的推送覆盖更新的账本，§5.3.5）。要做得用更严的触发条件，属独立任务。
 
 仍需拍板：
 
@@ -602,12 +724,16 @@ pairId, algoPairId, isActiveOrder, reduceOnly
    带 `avgPrice`/`liquidPrice`/`markPrice`/`adlQuantile`）与 `UpdateOnBalance`（`pubsub::Balance`，
    只给合成净额 `total`）**都写** `activeRealPosition`/`passiveRealPosition`，后到覆盖先到。
    建议**以 `pubsub::Position` 为准**，让 `UpdateOnBalance` 只写余额类字段（§5.3.4 变化 1、§5.6 第 9 项）。
-2. **快照周期取多少？** 建议 5-10s（现在 300s）。
-3. **`Armed` 的等待上限？** 建议**一直等 + 告警**，不设超时放行（按无持仓放行的后果是重复开仓）。
-4. **孤儿单**：本期只告警，还是现在就把在途单 id 持久化 + 启动撤单一起做（§5.4）？
-5. **`pairActiveTotalPrice` / `pairPassiveTotalPrice` 保不保？** 对账不一致时以推送为准，
-   会丢掉这两个策略自己的记账价。它们除了对账还有别的用途吗？
-6. **`errorFlag` 进快照**（§5.5 问题 3）—— 建议进；清除路径已就绪，不再阻塞。
-7. **上线回归重点**：`Position` 路修好后，`CheckExposureAbnormal` / `SignalGenerator:139` /
+2. **孤儿单冻结会不会误杀？** `freezeOnOrphanAlgoOrder` 默认 `true`：快照说"有单未终结"就置 `errorFlag`。
+   如果那张单其实在崩溃前已经正常终结（只是快照没来得及更新），就会误冻一个健康对子 ——
+   代价是人工发一次 `PairCmd_RESUME`。要不要接受这个偏保守的默认值？
+3. **孤儿单中期动作**：在途单 id 持久化 + 启动撤单，什么时候做（§5.4）？
+4. **`pairActiveTotalPrice` / `pairPassiveTotalPrice` 保不保？** 本次实现的选择是：
+   **交易所空仓时复位成 `-1.0`；仍持仓时保留快照值**（§5.2.3）。这个取舍你认可吗？
+   —— 残余风险是"宕机期间被平掉又重开"时均价陈旧，需要人工看一眼 `LOG_ERROR`。
+5. **`errorFlag` 进快照**（§5.5 问题 3）—— 建议进；清除路径已就绪，不再阻塞。
+6. **上线回归重点**：`Position` 路修好后，`CheckExposureAbnormal` / `SignalGenerator:139` /
    `ProcessModify:545` 三条**原本不可达**的路径同时变活（§5.3.4）。需要确认它们的阈值在真实
    行情下不会误触发 —— 尤其 `errorFlag` 的 `4 × ttTargetVolume`。
+7. **启动闸门的实际延迟**：对账只在 `OnTimer` 里试（tick 默认 1s），所以放行最坏要等 1s。
+   够不够快？要更快可以在 `OnPosition` 里补一次尝试（但会把状态转移分散到两处）。
