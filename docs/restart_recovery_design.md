@@ -33,6 +33,16 @@
 > **仍未做**：运行中的定期对账（**决定不做**，见 §5.3.5）、持仓字段收敛到单一来源（§5.6 第 9 项）、
 > 孤儿单的中期动作（在途单持久化 + 启动撤单）。
 > 全部改动都**未在部署机上编译验证**（本机缺 `cmake` / `fmt`）。
+>
+> ⚠️ **复查新发现（§6.1）：`errorFlag` 没有可达的清除路径。**
+> `ApplyCommand` 零调用点，`AlgoContext::OnCommand`（`AlgoContext.cpp:233`）函数体全被注释掉
+> → `PairCmd_RESUME` 发不出去 → 我这次加的清除分支**走不到**。
+> 目前唯一解冻手段是**删快照 + 重启**（安全但未文档化）。
+> 这同时意味着 `freezeOnOrphanAlgoOrder` 的默认值应先改成 `false`（§5.6 第 10b 项）。
+>
+> **接入点已定（§6.1.1）**：`OnCommand` 那条路确认**不再使用**；改为在 `OnTimer` 顶部
+> （启动闸门之前）**轮询指令文件** —— 对齐祖先 `load_manual_pair_info`
+> （`cc_pricespread_gb_ltp.py:1094-1098`）。文件格式与语义见 §6.1.1。
 
 ---
 
@@ -625,9 +635,15 @@ currentAlgoOrderId
 > **`UpdateOnPosition` 的分隔符已修，这条路活了 → `errorFlag` 从此可以被置位。**
 > 所以下面三条现在是**真实生效**的路径，不再是纸面分析。
 
-**问题 1（必要）：没有清除路径 —— ✅ 已实现。**
-`ApplyCommand`（`PairInfoManager.cpp:466-506`）原来四个分支都不碰 `errorFlag`，
+**问题 1（必要）：没有清除路径 —— ⚠️ 代码已加，但当前不可达。**
+`ApplyCommand`（`PairInfoManager.cpp:703-750`）原来四个分支都不碰 `errorFlag`，
 连 `PairCmd_RESUME` 也不清。置位后只能重启进程 —— 而快照若又把它恢复了，连重启都救不回来。
+
+> ⚠️ **2026-09-27 复查结论：`ApplyCommand` 零调用点，所以下面的分支走不到。**
+> `PairTradingStrategy::on_command`（`:102-104`）只转发给 `algoContext.OnCommand`，
+> 而后者（`AlgoContext.cpp:233`）**整个函数体被 `/* */` 注释掉** —— 是空函数。
+> → `PairCmd_RESUME` 发不出去 → **`errorFlag` 目前没有可达的清除路径**。
+> 唯一出路是删快照 + 重启（安全，但未文档化）。详见 §6.1。
 
 > **改动**（`PairInfoManager.cpp:481-490`，`PairCmd_RESUME` 分支）：
 >
@@ -655,24 +671,30 @@ currentAlgoOrderId
 > **状态**：源码已改，但**未编译验证** —— 本机无 `fmt`、构建树配在部署机 `/workspace`，
 > 需在部署机上 `make` 确认。
 
-**问题 2（重要）：触发条件在 `Position` 路修好后可能误报 —— 已部分澄清。**
-`netExposure` 的判据依赖两条腿**符号相反**。`balance.total` **已确认是有符号净持仓**
-（你确认的），所以 `UpdateOnBalance` 这条路不会把两条腿写成同号，
-原先担心的"净敞口退化成总持仓（≈2V）"**不成立**。
-剩下的风险是**两个写入方抢同一字段**（后到覆盖先到）：
-`UpdateOnPosition` 写的是分腿真实持仓，`UpdateOnBalance` 写的是**合成净额**，
-若 `total` 的口径（是否含被动腿折算、是否含未成交）与分腿口径有细微差异，
-`errorFlag` 的阈值判断就会在两次推送之间**抖动**。
-→ 建议收敛到单一来源（以 `pubsub::Position` 为准），见 §5.3.4 变化 1。
+**问题 2（已澄清）：触发条件不会误报 —— 因为 `UpdateOnBalance` 那两条写入其实是空转。**
 
-**问题 3（设计）：要不要进快照？**
+> **2026-09-27 更正**：上一版这里写"`balance.total` 已确认是有符号净持仓"，**这个前提是错的**。
+> 查 tb 侧的生产方：两条腿的余额推送里 `total` 都是**账户权益**，不是持仓 ——
+> Binance USDT 本位是 `B.a` 的 `wb`（walletBalance，`BinanceUFWsTrade.cpp:616-617`），
+> Gateio US 是 futures account 的 `balance`（`GateioUSWsTrade.cpp:625-626`）。
+> 而 `currency` 是**保证金资产**（两条腿都是 `"USDT"`），
+> 于是 `symKey = "BINANCE.USDT_SWAP.USDT-USDT"` 与 `activeInstrumentKey = "…DOGE-USDT"`
+> **匹配不上** → `PairInfoManager.cpp:510-518` 那两行写入**从来没执行过**。
+>
+> 所以"两个写入方抢同一字段"**当前不成立** —— 实际只有 `UpdateOnPosition` 一个写入方，
+> `activeRealPosition` / `passiveRealPosition` 的口径是干净的。
+> 但 `UpdateOnBalance` 是一颗**地雷**（`total` 是上万量级的权益，一旦匹配上会连环炸
+> 对账 → `pairTotalVolume` → `errorFlag`），**修法是删掉这两行写入**，见 §6.2 ①。
+
+**问题 3（设计）：要不要进快照？—— ✅ 已实现，保持"进"。**
 
 | 选择 | 后果 |
 |---|---|
-| 进快照 | 重启后该对子仍判死，需运维 `RESUME` 复活。安全，且**清除路径已就绪**（问题 1） |
+| 进快照 | 重启后该对子仍判死，需运维复活。安全。**但注意 §6.1：清除路径当前不可达，实际要靠删快照 + 重启** |
 | 不进快照 | 重启后自动复活，带着未解决的敞口继续交易。危险 |
 
-→ 建议**进快照**；"问题 1"这个前置**已经完成**，不再阻塞。
+→ 保持**进快照**（已在第 30 列实现）。它是"更保守"的那一侧，而保守方向的问题只是
+"需要人工介入"，激进方向的问题是"带敞口裸奔"。
 
 ### 5.6 落地清单（按依赖顺序）
 
@@ -687,8 +709,11 @@ currentAlgoOrderId
 | 6 | 加启动状态机（Reconciling / Trading 两态闸门 + 五处入口早退） | `PairTradingContext.h:137-176`、`.cpp:93-106`、`:152-161`、`:1029-1040` | ✅ **已完成**（未编译验证） |
 | 7 | 加 `pairTotalVolume` 启动对账 | `PairTradingContext.cpp:1113-1187`（`ReconcilePair` / `TryReconcile`） | ✅ **已完成**（未编译验证） |
 | 7b | 运行中的**定期**对账 | — | ❌ **决定不做**，见 §5.3.5（会是用更旧的推送覆盖更新的账本） |
-| 8 | 孤儿单启动告警 + 冻结 | `PairTradingContext.cpp:108-132`（`HandleOrphanAlgoOrders`） | ✅ **已完成**（飞书播报未接，只落 `LOG_ERROR`） |
-| 9 | （可选）把持仓字段收敛到单一来源：让 `UpdateOnBalance` 只写余额类字段，不再写 `activeRealPosition`/`passiveRealPosition`（§5.3.4 变化 1） | `PairInfoManager.cpp:268-283` | ⬜ |
+| 8 | 孤儿单启动告警 + 冻结 | `PairTradingContext.cpp:108-132`（`HandleOrphanAlgoOrders`） | ✅ **已完成**（飞书播报未接，只落 `LOG_ERROR`）；⚠️ 冻结默认值建议改 `false`，见 10b |
+| 9 | **删掉** `UpdateOnBalance` 里对 `activeRealPosition`/`passiveRealPosition` 的写入（§6.2 ① —— 是删写入，不是让它匹配上） | `PairInfoManager.cpp:510-518` | ⬜ **建议修**（当前是空转，无害但危险） |
+| 10 | **接通 `ApplyCommand` 的调用点**：在 `OnTimer` 顶部（启动闸门之前）轮询指令文件 —— 对齐祖先 `load_manual_pair_info`（§6.1.1）。**不用 `OnCommand`**（已废弃） | `PairTradingContext.cpp:1033`、`PairInfoManager` 新增 `LoadCommands`、`etc/config.json` 新增 `commandPath` | ⬜ **建议做** —— 没有它，`errorFlag` 无法清除 |
+| 10b | 在 10 接通之前，把 `freezeOnOrphanAlgoOrder` 默认值改成 `false`（只告警不冻结，§6.2 ②） | `PairTradingContext.h:75` | ⬜ **建议修** |
+| 11 | 把启动闸门的 `LOG_ERROR`（每 30s，`PairTradingContext.cpp:1188`）接飞书 —— 闸门不设超时，只能靠告警兜底（§6.2 ④） | `PairTradingContext.cpp:1188` | ⬜ |
 
 > **第 2-5 项的验证状态**：序列化往返已用独立 harness 验过（35 项断言全过，§5.1.5）；
 > 但**整个工程还没编译过** —— 本机没有 `cmake`，也没有 `fmt`（`DataStruct.h:9` 依赖 `fmt/core.h`），
@@ -718,22 +743,163 @@ currentAlgoOrderId
 - **孤儿单短期动作**：启动告警 + `errorFlag` 冻结（`freezeOnOrphanAlgoOrder` 默认 true），§5.4。✅ 已改
 - **运行中的定期对账**：**决定不做**（会是用更旧的推送覆盖更新的账本，§5.3.5）。要做得用更严的触发条件，属独立任务。
 
-仍需拍板：
+### 6.1 ⚠️ 先看这一条：`errorFlag` 目前没有**可达**的清除路径
 
-1. **持仓字段要不要收敛到单一来源？** 现在 `UpdateOnPosition`（`pubsub::Position`，分腿、带 `direction`、
-   带 `avgPrice`/`liquidPrice`/`markPrice`/`adlQuantile`）与 `UpdateOnBalance`（`pubsub::Balance`，
-   只给合成净额 `total`）**都写** `activeRealPosition`/`passiveRealPosition`，后到覆盖先到。
-   建议**以 `pubsub::Position` 为准**，让 `UpdateOnBalance` 只写余额类字段（§5.3.4 变化 1、§5.6 第 9 项）。
-2. **孤儿单冻结会不会误杀？** `freezeOnOrphanAlgoOrder` 默认 `true`：快照说"有单未终结"就置 `errorFlag`。
-   如果那张单其实在崩溃前已经正常终结（只是快照没来得及更新），就会误冻一个健康对子 ——
-   代价是人工发一次 `PairCmd_RESUME`。要不要接受这个偏保守的默认值？
-3. **孤儿单中期动作**：在途单 id 持久化 + 启动撤单，什么时候做（§5.4）？
-4. **`pairActiveTotalPrice` / `pairPassiveTotalPrice` 保不保？** 本次实现的选择是：
-   **交易所空仓时复位成 `-1.0`；仍持仓时保留快照值**（§5.2.3）。这个取舍你认可吗？
+这是本次排查中新发现的、优先级最高的一条 —— 它同时改写了"孤儿单冻结"和"`errorFlag` 进快照"的结论。
+
+```
+置位：CheckExposureAbnormal（PairTradingContext.cpp:468）
+      孤儿单冻结      （PairTradingContext.cpp:127）
+清除：ApplyCommand 的 PairCmd_RESUME（PairInfoManager.cpp:722-725）  ← 唯一一处
+恢复：LoadSnapshot（PairInfoManager.cpp:327）                          ← 只是从文件读回
+```
+
+而 **`ApplyCommand` 在整个工程里零调用点**（只有 `PairInfoManager.h:82` 的声明和 `.cpp:703` 的定义）：
+
+```
+PairTradingStrategy::on_command(json)   （PairTradingStrategy.cpp:102-104）
+  └─> algoContext.OnCommand(json)        （AlgoContext.cpp:233）
+        └─> 整个函数体被 /* */ 注释掉 —— 空函数
+```
+
+（`PairTradingStrategy.cpp:118` 那处 `OnCommand("")` 同理，且它自己就是死代码。）
+
+**后果**：`PairCmd_RESUME` **发不出去** → 我这次加的清除分支**不可达** →
+`errorFlag` 一旦置位（无论来自敞口异常还是孤儿单冻结），**唯一出路是删掉快照文件 + 重启**。
+
+删快照这条路本身是安全的（快照没了 → `hasActiveAlgoOrder` 读不到 → 不冻结；
+`pairTotalVolume` 归 0 → 启动对账会用实时持仓重建），但它是**未文档化、靠人猜**的操作。
+
+### 6.1.1 `ApplyCommand` 的接入点：轮询指令文件（对齐祖先）
+
+`OnCommand` 这条路已确认**不再使用**（`AlgoContext.cpp:233` 的函数体全被注释）。
+查框架后可以确定：**没有任何现成的"策略指令"入站通道** ——
+`BaseStrategy::heavy_work`（`base_strategy.h:80-111`）是唯一入口，它只按
+`crypto::convert_rcmd_2_{ordertrade,balance,position,total_account}` 分派，
+而 `RCommand` 的 `cmdTypeEnum`（`pubsub_protocol.h:8-23`）里**没有**策略指令类型；
+`rLarkMsg` 是**纯出站**。所以要自己接一条。
+
+**祖先的做法就是答案。** `cc_pricespread_gb_ltp.py:1094-1098`，在 `on_timer` 每个 tick 里：
+
+```python
+# 定期读取手动指令文件,按照指令进行同步pair_info
+load_manual_pair_info(self)
+# 存储pair_info
+self.pair_info.to_csv(f"./pair_info/{self.strategy_name}.csv", index=True)
+```
+
+`load_manual_pair_info`（`utility/pair_info_manager.py:315-341`）读的是
+**`./pair_command/{strategy_name}_command.csv`** —— 运维写文件，策略轮询应用。
+
+→ **建议接入点：`PairTradingContext::OnTimer` 顶部（`PairTradingContext.cpp:1033`），
+启动闸门之前，周期轮询一个指令文件。**
+
+| 祖先 | C++ 侧对应 |
+|---|---|
+| `on_timer` 里 `load_manual_pair_info(self)` | `OnTimer` 顶部 `pim.LoadCommands(cfg.commandPath)` |
+| 紧随其后的 `pair_info.to_csv(...)` | 第 6 步 `pim.SaveSnapshot(cfg.csvStatePath)`（`:1106-1111`） |
+| `./pair_command/{strategy_name}_command.csv` | `etc/config.json` 新增 `commandPath`（与 `csvStatePath` 同目录） |
+
+**为什么必须放在启动闸门之前**：闸门**不设超时**（§6.2 ④）。若某个对子因为持仓订阅挂掉
+而卡在 `Reconciling`，把命令轮询放在闸门之后就等于**连 `RESUME` 都发不进来** —— 死锁。
+放在闸门之前，`RESUME` / `STOP` / `CLOSE` 始终可达。
+
+**文件格式**（一行一条指令，直接映射到 `ApplyCommand(pairKey, cmd, params)`）：
+
+```
+pairInstrumentKey,command,param,value
+BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT,RESUME,,
+BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT,STOP,,
+BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT,MODIFY,profit,0.001
+```
+
+- `pairInstrumentKey` = config 里那条 `A|B` 全串（`PairInfoManager.cpp:61` 的 `m_pairInfoMap` 键，
+  也是 `SaveSnapshot` 的第 0 列），运维可以直接从快照文件复制。
+- `command` ∈ `STOP` / `CLOSE` / `RESUME` / `MODIFY`（`PairInfo.h:16-22`）。
+- ⚠️ `MODIFY` 目前**实际只有 `profit` 生效**：`maxVolume` / `ttTargetVolume` / `mtTargetVolume`
+  会被 `RecalcVolumeParams` 在 60s 内覆盖（§5.1.3），所以别把它们写进指令文件当长期配置。
+
+**一次性 vs 声明式 —— 建议一次性（应用后删文件）**
+
+祖先那句 `os.remove(f"./pair_command/{ctx.strategy_name}.csv")`（`:341`）路径**少了 `_command`**，
+与它检查/读取的 `{name}_command.csv` 不是同一个文件 → 实际是**声明式**：文件一直在，每 tick 重放。
+（祖先的 `update_columns` 是 40 列宽表，声明式当"参数面板"用是合理的。）
+
+C++ 侧建议改成**一次性**：
+
+- 只有 4 个输入位（`autoFlag`/`stopFlag`/`closeFlag`/`profitPct`），没有宽表要维护；
+- 声明式会让"文件永远赢" —— 运维改完忘删，之后连**快照恢复的 `autoFlag`** 都会被文件覆盖回去；
+- 一次性天然去重，一条 `RESUME` 不会被每 tick 重放（虽幂等，但日志会刷屏）。
+
+**防半截文件**：与 `SaveSnapshot` 同一套 —— 读失败（或列数不符）就**跳过本轮且不删文件**，
+让运维有机会修正；只有成功应用后才 `std::remove`。
+
+> 备选方案（不推荐）：走 `rcmdQueue`。需要新增 `cmdTypeEnum` 值 + `convert_rcmd_2_*` +
+> 在 `BaseStrategy::heavy_work` 里加分支 —— 而 `base_strategy.h` 是**所有策略共享**的基类，
+> 且 `on_*` 全是纯虚函数（加一个就要所有子类实现）；还要 tb 侧能发出这个新类型。
+> 换来的是"推送无轮询延迟"，但轮询延迟本来就 ≤ `timerInterval`（1s），不值这个改动面。
+
+### 6.2 剩余四条：不修会不会出问题
+
+| # | 项 | 不修的后果 | 建议 |
+|---|---|---|---|
+| 1 | **持仓字段收敛到单一来源** | **当前无害**，但留着是地雷 —— 见下 | **修（删写入），优先级中** |
+| 2 | **孤儿单冻结默认 `true`** | 误判一次 = 删快照 + 重启（因为 §6.1） | **改默认 `false`（只告警）** |
+| 3 | **`errorFlag` 进快照** | 不进 = 已判死的对子静默复活（更危险） | **保持"进"**，已实现 |
+| 4 | **放行延迟最多 1s** | 1s 内不报单、不做风控；强平也晚 1s | **不改**，但要保证告警有人看 |
+
+**① 为什么 `UpdateOnBalance` 当前无害，却是地雷**
+
+它拼 key 的方式是 `currency + "-" + baseAsset`，而 `baseAsset` 是**硬编码** `"USDT"`
+（`PairTradingContext.h:255`，不从 config 读）。而两条腿的余额推送里 `currency` 都是**保证金资产**：
+
+| 交易所 | `currency` 来源 | `total` 来源 |
+|---|---|---|
+| Binance USDT 本位 | `ACCOUNT_UPDATE` 的 `B.a`（asset）= `"USDT"`（`BinanceUFWsTrade.cpp:616`） | `B.wb` = **walletBalance**（`:617`） |
+| Gateio US 本位 | futures account 的 `currency` = `"USDT"`（`GateioUSWsTrade.cpp:625`） | `balance` = **账户余额**（`:626`） |
+
+→ `symKey = "BINANCE.USDT_SWAP.USDT-USDT"`，而 `activeInstrumentKey = "BINANCE.USDT_SWAP.DOGE-USDT"`
+→ `strstr` **匹配不上** → 这两行写入实际是**空转**（`PairInfoManager.cpp:510-518`）。
+
+**地雷在于**：`balance.total` 是**账户权益**（正数、USDT 计价、量级上万），**不是持仓**。
+一旦有人为了"让它生效"去调整拼接顺序（`symbol` 应为 `baseAsset + "-" + currency` 才可能匹配 DOGE-USDT），
+`activeRealPosition` 会被写成几万 → 启动对账当场判为不一致 → `pairTotalVolume` 被改成几万 →
+`CheckExposureAbnormal` 的净敞口立刻爆表 → `errorFlag`。**三处连环炸。**
+
+所以第 9 项的修法**不是"让它匹配上"，而是删掉这两行写入**（`UpdateOnBalance` 只管余额类字段；
+`PairInfo` 目前也没有余额字段，等于整段可以先只留告警或直接空掉）。
+
+**② 为什么建议把 `freezeOnOrphanAlgoOrder` 改成 `false`**
+
+误判窗口本身很窄：`pre_stop` 是优雅停机，快照记的就是停机瞬间的真值；若那时真有在途单，
+交易所侧确实可能有活着的子单，冻结是**对的**。真正的误判只发生在
+"单已终态、但 `ClearActiveAlgoOrder` 还没跑"（`ScanFinishedAlgoOrders` 每 200ms 一次）——
+窗口 ≤200ms。
+
+但**代价**因为 §6.1 从"发一条 RESUME"放大成"删快照 + 重启"。在命令链路接通前，
+建议先只告警（`LOG_ERROR` 已经打全了 `pairKey` / `algoOrderId` / `pairTotalVolume`），
+把"要不要冻结"交给人工判断。
+
+**④ 真正的风险不是那 1s，而是"一直等"**
+
+`TryReconcile` 只在 `OnTimer` 里试（tick 默认 1s），所以放行最坏晚 1s —— 这个无所谓。
+要紧的是**闸门不设超时**：如果持仓推送和批次标记一直不到（比如持仓订阅挂了），
+闸门**永远不开** → 该对子彻底停摆，**连风控强平也不执行**。
+
+这是刻意的取舍（按"无持仓"放行的后果是在孤儿仓上重复开仓，更糟），但要保证
+`PairTradingContext.cpp:1188` 那条每 30s 的 `LOG_ERROR` **有人看**（接飞书）。
+
+### 6.3 仍需拍板（重排后）
+
+1. **接通 `ApplyCommand` 的调用点**（§6.1.1）—— 建议在 `OnTimer` 顶部轮询指令文件（对齐祖先
+   `load_manual_pair_info`），**不用**已废弃的 `OnCommand`。这是下面 2、3 的前提。
+2. **`freezeOnOrphanAlgoOrder` 默认值**改成 `false`（只告警）？（§6.2 ②）
+3. **删掉 `UpdateOnBalance` 里对 `activeRealPosition`/`passiveRealPosition` 的写入**（§6.2 ①）
+   —— 注意：是**删写入**，不是让它匹配上。
+4. **孤儿单中期动作**：在途单 id 持久化 + 启动撤单，什么时候做（§5.4）？
+5. **`pairActiveTotalPrice` / `pairPassiveTotalPrice` 保不保？** 本次实现的选择是：
+   **交易所空仓时复位成 `-1.0`；仍持仓时保留快照值**（§5.2.3）。认可吗？
    —— 残余风险是"宕机期间被平掉又重开"时均价陈旧，需要人工看一眼 `LOG_ERROR`。
-5. **`errorFlag` 进快照**（§5.5 问题 3）—— 建议进；清除路径已就绪，不再阻塞。
 6. **上线回归重点**：`Position` 路修好后，`CheckExposureAbnormal` / `SignalGenerator:139` /
    `ProcessModify:545` 三条**原本不可达**的路径同时变活（§5.3.4）。需要确认它们的阈值在真实
    行情下不会误触发 —— 尤其 `errorFlag` 的 `4 × ttTargetVolume`。
-7. **启动闸门的实际延迟**：对账只在 `OnTimer` 里试（tick 默认 1s），所以放行最坏要等 1s。
-   够不够快？要更快可以在 `OnPosition` 里补一次尝试（但会把状态转移分散到两处）。
