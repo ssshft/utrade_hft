@@ -10,7 +10,10 @@
  * 1. 周期性 RecalcVolumeParams
  * 2. 周期性 刷新价差统计 Prune/Build --》UpdateLargeStats --》立即 RecalcOrderParams
  * 3. 周期性 CheckRisk --> 有风险 --》SubmitAlgoOrder (强制平仓)
+ *    强平单在途期间 ProcessRisk 不撤它（pi.riskCloseOrderInFlight），否则会被自己的撤单逻辑撤掉
  * 4. 周期性 撤单触发检查 --》CheckAlgoOrderTimeout / CheckExposureAbnormal --》RequestCancelAlgoOrder
+ *    CheckAlgoOrderTimeout 对强平单同样生效：长时间不成交就撤掉它、下一轮按新档位重报。
+ *    撤单 -> 终结 -> OnAlgoFinished -> tierNTimes++ 正是档位升级的唯一驱动
  * 5. 周期性 改参检查 --》ProcessModify --》SubmitAlgoOrder(CommandType_MODIFY)
  * 6. 周期性 SaveToCSV
  * 
@@ -20,7 +23,8 @@
  * 
  * OnAlgoOrderUpdate (算法单回传，执行端同线程直接调用，不走消息队列)
  * 1. 量/价直接覆盖 PairInfo (执行端是唯一数据源，策略侧不做加权)
- * 2. 非终态到此为止；终态才: 记录开仓快照 -> OnAlgoFinished -> 重算 orderParams -> 释放对子
+ * 2. 场外->场内 的那一次事件记录开仓快照 (openSmallSpread*)
+ * 3. 非终态到此为止；终态才: OnAlgoFinished -> 重算 orderParams -> 释放对子
  * 
  * ******/
 
@@ -143,14 +147,19 @@ void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, cons
 void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
     auto& sg = SignalGenerator::Instance();
 
-    // 机会条件快照必须放在 hasActiveAlgoOrder 早退**之前**：祖先是在整个 pair_info
-    // DataFrame 上整列赋值 satisfy_time（:922/:930/:936），不区分有没有在跑的单。
-    // 若挪到早退之后，有单在跑的对子就永远不刷新 satisfy_time，
-    // CheckAlgoOrderTimeout 会在第一轮把所有在跑的算法单全部撤掉。
     std::string reason = "";
     const bool canOpen = sg.CanOpen(pi, reason);
     const bool canClose = sg.CanClose(pi, reason);
-    const SignalResult sig = sg.CheckSignal(pi);
+
+    // ⚠️ 这里必须用 CheckSignalForSatisfy（不看 hasActiveAlgoOrder 的那版），
+    // 不能用 CheckSignal：后者对"已有算法单在跑"的对子直接返回空信号，于是
+    // UpdateSatisfyTime 永远刷不到 satisfyTime，CheckAlgoOrderTimeout 会把每一个
+    // 算法单都在 150s 后撤掉（包括刚发出去的风控强平单）。
+    // 祖先是在整个 pair_info 上整列算 open_satisfy_index / close_satisfy_index
+    // （:900-919/:922/:930/:936），与有没有在跑的单无关，所以这里也不能早退。
+    // 派发侧不受影响：下面 hasActiveAlgoOrder 的早退保证走到派发时它必然为 false，
+    // 此时 CheckSignalForSatisfy 与 CheckSignal 完全等价。
+    const SignalResult sig = sg.CheckSignalForSatisfy(pi);
 
     UpdateSatisfyTime(pi, sig, canOpen, canClose, NowUs());
 
@@ -226,7 +235,17 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
         return;
     }
 
-    // 对子被算法单占着时，先请求撤掉它。撤单是异步的：要等它终结、回传、释放对子之后，
+    // ⚠️ 占着对子的就是上一轮自己发出去的风控强平单：这里不撤，让它跑完。
+    // 强平期间 needForceClose 一直为 true（档位要靠算法单终结后的 OnAlgoFinished 才推进），
+    // 所以下面那个 RequestCancelAlgoOrder 每一轮都会命中，把刚报出去的强平单撤掉 ——
+    // 表现为"报单 -> 下个 tick 撤单 -> 再报 -> 再撤"，强平永远发不出去。
+    // 注意这里只是**不提前撤**，不是给强平单豁免：它跑满 algoOrderTimeoutMs 之后
+    // 照样由 CheckAlgoOrderTimeout 撤掉，再按新档位重报（见该函数注释）。
+    if (pi.hasActiveAlgoOrder && pi.riskCloseOrderInFlight) {
+        return;
+    }
+
+    // 对子被（非强平的）算法单占着时，先请求撤掉它。撤单是异步的：要等它终结、回传、释放对子之后，
     // 下一轮才会走到下面的 SubmitAlgoOrder。这里必须 return，不能继续报单 ——
     // 否则 SetActiveAlgoOrder 会把 currentAlgoOrderId 换成新单，旧单的后续回传会因为
     // id 对不上被 OnAlgoOrderUpdate 丢掉，两个算法单的状态彻底错位。
@@ -255,6 +274,12 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     else if (pi.IsShort()) {
         std::string mode = pi.autoFlag ? "TT" : "MT";
         SubmitAlgoOrder(pi, mode, "CS", risk.forgoProfit);    
+    }
+
+    // SubmitAlgoOrder 只在真正报出单时才把 hasActiveAlgoOrder 置 true
+    // （BuildAlgoOrderJson 返回 nullptr 时不会置），所以报完再判一次即可。
+    if (pi.hasActiveAlgoOrder) {
+        pi.riskCloseOrderInFlight = true;
     }
 }
 
@@ -318,6 +343,21 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
     if (!pi.hasActiveAlgoOrder) {
         return;
     }
+
+    // 风控强平单**不豁免**（2026-09-27 确认）。
+    // 曾经在这里加过 `if (pi.riskCloseOrderInFlight) return;`，理由是"强平是在平仓条件
+    // 不成立的时候才发的，satisfyTime 天然刷不动，不豁免的话每次只有 150s 窗口"。这个理由
+    // 两头都站不住：
+    //   ① 算法单自身的 active*CancelOrderTime = 5s 只撤**子单**（BaseAlgoOrder::
+    //      CancelOrderOnSpread 的 else 分支），算法单会换个价继续追，不会被终结 ——
+    //      所以既不存在"不豁免就会被撤掉"，也不存在"豁免了就会自然结束"；
+    //   ② 撤单恰恰是**档位升级的唯一驱动**：撤单 -> CANCELED -> OnAlgoFinished ->
+    //      tierNTimes++ -> GetCurrentTier 才可能升到下一档。豁免之后强平单永不终结，
+    //      tier1Times 恒为 0，档位永远停在 tier1 用最温和的让利追价，升不上去。
+    // 所以强平单和普通单走同一套规则：长时间不成交就撤掉、下一轮按新档位重报。
+    // 注意 ProcessRisk 里仍保留 riskCloseOrderInFlight 的早退 —— 那是为了不让 ProcessRisk
+    // 在报单后的下一个 tick 就把强平单撤掉（needForceClose 全程为 true），
+    // 好让它完整跑完这里的 150s 窗口。
 
     // 手动单不撤（祖先 :1018-1020：auto_flag == False 直接 continue）
     if (!pi.autoFlag) {
@@ -831,6 +871,25 @@ void PairTradingContext::OnTotalAccount(const pubsub::TotalAccount& totalAccount
     PairInfoManager::Instance().UpdateOnTotalAccount(totalAccount);
 }
 
+// 建仓瞬间的小周期分位数快照（价差不回归风控的基准，祖先的 *_q_open）。
+// 只取一次：字段从 NAN 变成有效值之后不再覆盖；完全平仓时由
+// RiskManager::OnAlgoFinished 复位成 NAN，下一轮建仓重新取。
+// 统计尚未建立（smallStats 无效）时不写，留 NAN 给后续事件补 ——
+// 不能用"写入 NaN 也算写过"的写法，否则哨兵会失效。
+static void CaptureOpenSpreadSnapshot(PairInfo& pi) {
+    if (!pi.HasPosition() || !pi.smallStats.IsValid()) {
+        return;
+    }
+
+    if (std::isnan(pi.openSmallSpreadBidBidUQ)) {
+        pi.openSmallSpreadBidBidUQ = pi.smallStats.bidBidUQ;
+    }
+
+    if (std::isnan(pi.openSmallSpreadAskAskDQ)) {
+        pi.openSmallSpreadAskAskDQ = pi.smallStats.askAskDQ;
+    }
+}
+
 void PairTradingContext::OnAlgoOrderUpdate(BaseAlgoOrder* order) {
     if (order == nullptr) {
         return;
@@ -851,7 +910,16 @@ void PairTradingContext::OnAlgoOrderUpdate(BaseAlgoOrder* order) {
     }
 
     // 量 / 价：执行端是唯一数据源，直接覆盖，不在策略侧做加权混合
+    const bool wasFlat = !pi->HasPosition();
     pim.UpdateOnAlgoOrder(pairKey, order->pairTotalVolume, order->pairActiveTotalPrice, order->pairPassiveTotalPrice);
+
+    // 建仓瞬间的小周期统计快照：只在"场外 -> 场内"的那一次事件上取，
+    // 这样基准就是刚建仓时的分位数，而不是建仓之后任意时刻的。
+    // 必须放在下面 terminal 早退**之前** —— 量的变化在非终态事件里就发生了，
+    // 等到终态事件时 wasFlat 已经是 false，就永远取不到建仓瞬间。
+    if (wasFlat && pi->HasPosition()) {
+        CaptureOpenSpreadSnapshot(*pi);
+    }
 
     // 状态：非终态只同步量价，不释放对子、不做结算
     const bool terminal = (order->algoOrderStatus == stra::ALGO_OS_FILLED ||
@@ -861,16 +929,10 @@ void PairTradingContext::OnAlgoOrderUpdate(BaseAlgoOrder* order) {
         return;
     }
 
-    // 开仓时的小周期统计快照：必须在 OnAlgoFinished 之前取，
-    // 因为完全平仓时 OnAlgoFinished 会把 openSmallSpread* 置为 NAN
+    // 兜底：建仓那一刻统计还没建立（smallStats 无效）时上面会跳过，终态事件上再补一次。
+    // 必须在 OnAlgoFinished 之前取，因为完全平仓时 OnAlgoFinished 会把 openSmallSpread* 复位成 NAN
     if (pi->HasPosition()) {
-        if (std::isnan(pi->openSmallSpreadBidBidUQ)) {
-            pi->openSmallSpreadBidBidUQ = pi->smallStats.bidBidUQ;
-        }
-
-        if (std::isnan(pi->openSmallSpreadAskAskDQ)) {
-            pi->openSmallSpreadAskAskDQ = pi->smallStats.askAskDQ;
-        }
+        CaptureOpenSpreadSnapshot(*pi);
     }
 
     // 风控：fullyFlat 必须在量已覆盖之后计算，不能提前取快照

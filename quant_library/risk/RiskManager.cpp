@@ -27,7 +27,12 @@ namespace pt {
             return {2, true};
         }
 
-        if (tier == 3 && state.tier3Times == 0) {
+        // tier3 是最后一档：不再升级，也不再停手。
+        // 这里刻意**不**判 tier3Times —— 原来的 `tier == 3 && state.tier3Times == 0`
+        // 会让 tier3 尝试过一次之后恒落到末尾的 return {tier, false}，
+        // needForceClose 恒 false，强平彻底停止，直到持仓归零才由
+        // OnAlgoFinished(fullyFlat=true) 复位；若 tier3 也没成交就永久卡住。
+        if (tier == 3) {
             return {3, true};
         }
 
@@ -56,8 +61,12 @@ namespace pt {
 
 
     // 对于持有多头仓位：平仓条件为spreadAskAsk > ttCLStartSpread
-    // 让步：降低ttCLStartSptred(接受更低的价差也平仓)，返回的forgoSpread > 0表示让步幅度，调用方自行决定
+    // 让步：降低ttCLStartSptred(接受更低的价差也平仓)。
+    // 返回值是**绝对价差**让利幅度（量纲与 orderParams 里的 StartSpread 一致，
+    // 调用方直接做 *pStartSpread -= forgoProfit），不是利润比例。
+    // 注：pi 目前未参与计算，保留形参是为了后续按持仓/波动缩放让利幅度。
     double RiskManager::CalcForgoSpread(const PairInfo& pi, int tier) const {
+        (void)pi; // 当前未参与计算，保留形参以便后续按持仓/波动缩放让利幅度
         switch (tier) {
             case 1: 
                 return m_cfg.tier1ForgoProfit;
@@ -96,7 +105,11 @@ namespace pt {
             return r;
         }
 
-        if (pi.positionExceedThresholdStartTime = 0) {
+        // 注意这里是 == 不是 =：写成赋值会恒为 0（恒 false），
+        // positionExceedThresholdStartTime 永不初始化，于是
+        // holdDuration = nowUs - 0 是天文数字，恒大于 positionExceedDuration(4天)，
+        // "持仓超阈值持续 4 天"这个前置条件会完全失效。
+        if (pi.positionExceedThresholdStartTime == 0) {
             pi.positionExceedThresholdStartTime = nowUs;
             return r;
         }
@@ -126,7 +139,24 @@ namespace pt {
 
 
     // 持仓后价差持续未回归1天-》渐进式平仓
-    // 回归判断：当前实时价差未超过小周期分位数（开仓方向反转）
+    // 回归判断：当前实时价差越过建仓时的小周期分位数（说明价差已经回到开仓时的有利侧）
+    //
+    // ⚠️ 与祖先的差异（有意保留，2026-09-26 确认）：
+    //   祖先 cc_pricespread_gb_ltp.py:896-898 的 unqualified_spread_flag 用的是
+    //   **腿价比偏离**（|positionValue| > target_amount*5 且
+    //   pairPassiveTotalPrice/pairActiveTotalPrice - 1 偏离 ∓0.0003），
+    //   而且它的用途是"禁止开仓 + 压掉开仓开关"（:906/:966/:1069），**不是强平**。
+    //   这里保留分位数判据、并把它用作 1 天后的强平触发，是 C++ 侧的设计。
+    //
+    // ⚠️ 依赖 openSmallSpread* 两个字段：
+    //   它们是建仓瞬间的快照，由 PairTradingContext::CaptureOpenSpreadSnapshot 写、
+    //   完全平仓时由 OnAlgoFinished 复位成 NAN。这两个字段原先在 PairInfo 里没有初值
+    //   （栈上垃圾），垃圾只要不是 NaN 就会让下面的 isnan 哨兵失效 ——
+    //   快照永不写入，且拿垃圾基准判"是否回归"。已在 PairInfo.h 里显式初始化为 NAN。
+    //
+    // ⚠️ 已知口径问题（未改）：这里的轴是 spreadAskAsk / spreadBidBid，
+    //   而平仓触发价差用的轴是 ttCL=spreadAskBid、mtCL=spreadBidBid、ttCS=spreadBidAsk、
+    //   mtCS=spreadAskAsk —— 与 ttCL/ttCS 并不同轴，只是近似。
     RiskCheckResult RiskManager::CheckSpreadNoRegression(PairInfo& pi, int64_t nowUs) const {
         RiskCheckResult r;
         if (!pi.HasPosition()) {
@@ -186,31 +216,32 @@ namespace pt {
     }
 
 
-    // 当前周期资金费率 * 持仓量的预期费用超过阈值（即当前资金费用过大）
+    // 下一个结算期的资金费亏损超过阈值（即当前资金费率对持仓明显不利）
     RiskCheckResult RiskManager::CheckFundingAbnormal(PairInfo& pi, int64_t nowUs) const {
         RiskCheckResult r;
         if (!pi.HasPosition()) {
             return r;
         }
 
-        double aFR = std::isnan(pi.rtSpread.activeFundingRate) ? 0.0 : pi.rtSpread.activeFundingRate;
-        double pFR = std::isnan(pi.rtSpread.passiveFundingRate) ? 0.0 : pi.rtSpread.passiveFundingRate;
+        // RealTimeSpread 的这两个字段默认 0.0（不是 NaN），isnan 只是防御性写法
+        const double aFR = std::isnan(pi.rtSpread.activeFundingRate) ? 0.0 : pi.rtSpread.activeFundingRate;
+        const double pFR = std::isnan(pi.rtSpread.passiveFundingRate) ? 0.0 : pi.rtSpread.passiveFundingRate;
 
+        // 照搬祖先 report_helper.py:107-109 的公式：
+        //     funding_risk = positionValue * (passiveFundingRate - activeFundingRate)
+        // positionValue 是**带符号**的（祖先 :790/793），方向完全由它的符号承载，
+        // 所以既不能取绝对值，也不能再对结果取负。
+        // 与祖先 :664 的 open_long_funding_profit = aFR - pFR 同向：
+        //   positionValue < 0（多）-> funding_risk = |pv| * (aFR - pFR)
+        // 符号约定：> 0 为收取（盈利），< 0 为支付（亏损）。
+        //
+        // 原实现有两个错：① `aFR - (-pFR)` 把 pFR 的符号写反（应为 -pFR）；
+        // ② 空头分支的 `netFundingCost = -netFundingCost` 自我抵消，两分支结果相同，
+        // 多空方向被抹平；再叠加 CalcPositionValue() 的 std::abs，方向信息彻底丢失。
+        const double fundingRisk = pi.CalcSignedPositionValue() * (pFR - aFR);
 
-        // 净资金费用 正值=亏损
-        double netFundingCost = 0.0;
-        if (pi.IsLong()) {
-            netFundingCost = aFR - (-pFR); // active支付，passive收取
-        } else if (pi.IsShort()) {
-            netFundingCost = (-aFR) - pFR; // active收取，passive支付
-            netFundingCost = -netFundingCost;
-        }
-
-        double posVal = pi.CalcPositionValue();
-        double fundingLoss = netFundingCost * posVal;
-        double threshold = m_cfg.fundingAbnormalThreshold * m_cfg.fundingMaxAmount;
-
-        if (fundingLoss < threshold) {
+        // 阈值对齐祖先 report_helper.py:111 的固定 30 USDT
+        if (fundingRisk > -m_cfg.fundingAbnormalUsdt) {
             return r;
         }
 

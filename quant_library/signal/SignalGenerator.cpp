@@ -152,6 +152,15 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
 
 // 用实时价差与orderParams比较，生成信号
 SignalResult SignalGenerator::CheckSignal(const PairInfo& pi) const {
+    if (pi.hasActiveAlgoOrder) {
+        return SignalResult{};
+    }
+
+    return CheckSignalForSatisfy(pi);
+}
+
+// 不带"对子已被占用"早退的版本，见头文件注释
+SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
     SignalResult result;
 
     if (!pi.rtSpread.valid) {
@@ -159,10 +168,6 @@ SignalResult SignalGenerator::CheckSignal(const PairInfo& pi) const {
     }
 
     if (pi.stopFlag && !pi.HasPosition()) {
-        return result;
-    }
-
-    if (pi.hasActiveAlgoOrder) {
         return result;
     }
 

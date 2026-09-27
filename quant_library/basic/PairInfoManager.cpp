@@ -319,6 +319,8 @@ void PairInfoManager::ClearActiveAlgoOrder(const std::string& pairKey) {
 
     memset(pi->currentAlgoOrderId, 0, 128);
     pi->hasActiveAlgoOrder = false;
+    // 算法单已终结，风控强平单的"在途"标记随之失效（ProcessRisk 会重新判断）
+    pi->riskCloseOrderInFlight = false;
 }
 
 double PairInfoManager::ceil2min(double val, double minUnit) {

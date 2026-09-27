@@ -147,7 +147,11 @@ private:
     void UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose, int64_t nowUs) const;
 
     // 撤单触发①：机会超时（祖先 :1021）。
-    // nowUs - satisfyTime > algoOrderTimeoutMs 时请求撤单。手动单（autoFlag == false）不撤。
+    // nowUs - satisfyTime > algoOrderTimeoutMs 时请求撤单。
+    // 只有手动单不撤（autoFlag == false，祖先 :1018-1020）。
+    // 风控强平单**同样受这条约束**（2026-09-27 确认）：强平单长时间不成交也要撤掉、
+    // 下一轮按新档位重报 —— 撤单 -> OnAlgoFinished -> tierNTimes++ 是档位升级的唯一驱动，
+    // 豁免它等于把档位永远锁在 tier1。
     void CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs) const;
 
     // 撤单触发⑤：敞口异常（祖先 :1081-1092）。
@@ -183,8 +187,9 @@ private:
     // direction : OL/OS/CL/CS;   algoMode: TT/MT
     // 报单成功时会把 pi.satisfyTime 与 pi.algoModifyTime 一起刷成当前时刻（所以形参是非 const 引用）：
     //   satisfyTime    —— 机会超时（CheckAlgoOrderTimeout）从报单起算。祖先的报单只可能发生在
-    //       机会成立的那一 tick，所以刷新它不改变语义；不刷的话，风控强平单（没有信号路径
-    //       刷新 satisfyTime）会因为时间戳陈旧被"机会超时"立刻撤掉。
+    //       机会成立的那一 tick，所以刷新它不改变语义；不刷的话算法单会因为时间戳陈旧
+    //       被"机会超时"立刻撤掉。风控强平单的 150s 窗口也靠这里起算：强平是在机会不成立时
+    //       发出去的，之后 satisfyTime 刷不动，正好 150s 后超时撤单、下一轮按新档位重报。
     //   algoModifyTime —— 改参（ProcessModify）从报单起算。报单时参数已经推给算法单了，
     //       字段语义就是"最后一次把参数推给这个对子"。
     void SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;

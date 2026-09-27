@@ -201,8 +201,14 @@ namespace pt {
         // 实时价差
         RealTimeSpread rtSpread;
 
-        double openSmallSpreadBidBidUQ;
-        double openSmallSpreadAskAskDQ;
+        // 建仓瞬间的小周期分位数快照（价差不回归风控的基准）。
+        // 必须显式初始化成 NaN：PairInfo 是默认初始化的（PairInfoManager.cpp:12），
+        // 没有初值拿到的就是栈上垃圾。而两个读取方都把 std::isnan 当"尚未快照"的哨兵
+        // （RiskManager::CheckSpreadNoRegression 与 OnAlgoOrderUpdate 的快照判断），
+        // 一个非 NaN 的垃圾值会让哨兵失效 —— 快照永不写入，且用垃圾基准去判"是否回归"。
+        // 这两个字段是 PairInfo 里唯二原先没有初值的字段。
+        double openSmallSpreadBidBidUQ{std::nan("")};
+        double openSmallSpreadAskAskDQ{std::nan("")};
 
         // k线统计
         double activeDailyAmount{0.0};
@@ -256,6 +262,16 @@ namespace pt {
         int64_t positionExceedThresholdStartTime{0}; // 持仓阈值开始时间
         int64_t spreadNoRegressionStartTime{0};    // 价差不会归开始时间
 
+        // 当前在跑的算法单是不是 ProcessRisk 发出去的风控强平单。
+        // 用途只有一个：让 ProcessRisk 别在报单后的下一个 tick 就把自己刚发的强平单撤掉。
+        // ProcessRisk 的写法是"对子被算法单占着就先撤掉它、下一轮再报强平单"，
+        // 而强平期间 needForceClose 会一直为 true —— 如果占着它的正是上一轮刚报出去的
+        // 那张强平单，这个撤单就把强平单自己撤掉了，强平永远发不出去。
+        // ⚠️ 这个标记**不是**强平单的免死金牌：CheckAlgoOrderTimeout 对它照常生效，
+        //    长时间不成交一样会被撤掉、再按新档位重报（2026-09-27 确认）。
+        // 由 ProcessRisk 在报单成功后置位，PairInfoManager::ClearActiveAlgoOrder 清除。
+        bool riskCloseOrderInFlight{false};
+
         char currentAlgoOrderId[stra::ID_LEN]{""};
         bool hasActiveAlgoOrder{false};
 
@@ -283,17 +299,37 @@ namespace pt {
             return pairTotalVolume > 1e-9;
         }
 
-        double CalcPositionValue() const {
-            if (activeMeanClose <= 0 || std::isnan(activeMeanClose)) {
+        // 腿价：与 PairInfoManager::RecalcVolumeParams(:347-354) 用同一套兜底。
+        // K 线统计（activeMeanClose）目前没有写入方（UpdateKlineStats 全仓库无调用者），
+        // 不退回实时腿价的话本函数恒返回 0 —— CheckTinyClose / CheckADLRisk /
+        // CheckFundingAbnormal 三个风控检查会全部失效（风控链路整条是死的）。
+        double LegPrice() const {
+            double p = activeMeanClose;
+            if (std::isnan(p) || p <= 0.0) {
+                p = rtSpread.activePriceTema;
+            }
+            return (std::isnan(p) || p <= 0.0) ? 0.0 : p;
+        }
+
+        // 带符号的持仓市值（祖先 cc_pricespread_gb_ltp.py:790/793 的 positionValue）。
+        // 符号由 pairTotalVolume 承载（负 = 多，见 IsLong），祖先的资金费公式
+        // （report_helper.py:107-109）正是靠这个符号区分多空的，所以不能取绝对值。
+        double CalcSignedPositionValue() const {
+            if (activeParam.calcType != 0) {
+                return pairTotalVolume * activeParam.multiple;
+            }
+
+            const double px = LegPrice();
+            if (px <= 0.0) {
                 return 0.0;
             }
 
-            if (activeParam.calcType == 0) {
-                return std::abs(pairTotalVolume) * activeMeanClose * activeParam.multiple;
-            }
-            else {
-                return std::abs(pairTotalVolume) * activeParam.multiple;
-            }
+            return pairTotalVolume * px * activeParam.multiple;
+        }
+
+        // 市值（无方向）：只用于"金额大小"类门槛（碎单、ADL 持仓阈值）
+        double CalcPositionValue() const {
+            return std::abs(CalcSignedPositionValue());
         }
 
     };

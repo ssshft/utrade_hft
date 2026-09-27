@@ -82,8 +82,19 @@ public:
     // 根据价差统计计算对子的期望价差参数，填充pi.orderParams中的StartSpread/EndSpread以及OL/OS/CL/CS Switch, 在每次largeStats/smallStats更新后调用
     void RecalcOrderParams(PairInfo& pi) const;
 
-    // 根据实时价差与orderParams判断当前时刻是否有信号，在每个价差tick到来时调用
+    // 根据实时价差与orderParams判断当前时刻是否有信号，在每个价差tick到来时调用。
+    // 对子已被算法单占用时返回空（不允许同一对子并发两个算法单）。
     SignalResult CheckSignal(const PairInfo& pi) const;
+
+    // 与 CheckSignal 同源，但**不因对子已被算法单占用而早退**。
+    // 供 PairTradingContext::UpdateSatisfyTime 使用：祖先的 open_satisfy_index /
+    // close_satisfy_index（cc_pricespread_gb_ltp.py:900-919）是在整个 pair_info 上算的，
+    // 与有没有在跑的单无关，所以 satisfy_time 在报单期间仍会被刷新。
+    // 若这里跟着 CheckSignal 一起早退，有单在跑的对子 satisfyTime 永不刷新，
+    // CheckAlgoOrderTimeout 会把**每个**算法单都在 150s 后撤掉（包括刚发的风控强平单）。
+    // 派发侧不需要这个版本：走到派发时 hasActiveAlgoOrder 必然为 false，
+    // 此时两者完全等价。
+    SignalResult CheckSignalForSatisfy(const PairInfo& pi) const;
 
     bool CanOpen(const PairInfo& pi, std::string& reason) const;
 
