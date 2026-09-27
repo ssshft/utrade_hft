@@ -242,6 +242,11 @@ namespace pt {
         // 状态时间戳
         int64_t satisfyTime{0}; // 最后满足开仓条件的时间
         int64_t modifyTime{0};  // 最后更新时间
+        // 最后一次"把参数推给算法单"的时间，等价于祖先的 pair_info['modify_time']，
+        // 供 ProcessModify 算改参周期。**不能复用上面的 modifyTime**：
+        // PairInfoManager 在 UpdateRtSpread / UpdateOnPosition / UpdateOnAlgoOrder 等
+        // 七处都会刷 modifyTime，等于每个价差 tick 刷一次，改参周期永远到不了。
+        int64_t algoModifyTime{0};
         int64_t lastTinyCloseOnlyScanTime{0}; // 碎单扫描时间
 
         // 风控状态

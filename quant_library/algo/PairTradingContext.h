@@ -53,6 +53,13 @@ struct PairTradingConfig {
     // 双腿净敞口 / activeMultiple 超过 exposureCancelTimes * ttTargetVolume 即视为敞口失控
     double exposureCancelTimes{4.0};
 
+    // 改参周期（祖先 modify_timespan = 60s）：每隔这么久把 pair_info 的最新参数推给在跑的算法单
+    int64_t modifyTimespanSec{60};
+
+    // 流动性危险时的平仓让利（祖先 modify_shift_pct = 0.0002）：
+    // CL 的起止价差各减这么多、CS 的各加这么多，让平仓更容易成交
+    double modifyShiftPct{0.0002};
+
     std::string csvStatePath{"data/pair_info.csv"};
 
     int volumeRecalcIntervalSec{60};     // 1min 重算仓位参数
@@ -148,17 +155,39 @@ private:
     // 置 pi.errorFlag 停止该对子的一切报单，并撤掉在跑的算法单（祖先置 status=ERROR，留人工处理）。
     void CheckExposureAbnormal(PairInfo& pi) const;
 
+    // 改参触发（祖先 :1059-1078）：每 modifyTimespanSec 秒把最新参数推给在跑的算法单。
+    // 流动性危险（liquid_status == 2）时用 BuildCloseModify（更激进的平仓），否则用 BuildNormalModify。
+    // 计时靠 pi.algoModifyTime，由 SubmitAlgoOrder 在报单时重置。
+    // ⚠️ 不能用 PairInfo::modifyTime：那个字段被 PairInfoManager 在 UpdateRtSpread 等七处
+    //    刷新（每个价差 tick 一次），拿它计时这个判断永远不成立。
+    void ProcessModify(PairInfo& pi, int64_t nowUs) const;
+
+    // 祖先 algo_order_manager.py:211-252 create_modify_dict 的等价物：
+    // 按 pair_info 的最新参数生成整份 42 字段快照。
+    // ⚠️ 祖先那个函数**只带 6 个开关**（profitSwitch/profitPct/ttOL/ttOS/mtOL/mtOS），
+    //    故意不带 ttCL/ttCS/mtCL/mtCS —— 因为 AEC 侧是"缺字段就保持原值"的部分更新。
+    //    C++ 的 MODIFY 分支是整份覆盖，所以这里必须把 8 个开关**全部**带上，
+    //    否则平仓开关会被默认值 false 清零，等于关掉平仓能力。
+    static stra::AlgoOrderModify BuildNormalModify(const PairInfo& pi);
+
+    // 祖先 algo_order_manager.py:254-298 create_close_modify_dict 的等价物：
+    // 流动性危险时"更激进的平仓"——关掉全部开仓开关、关掉盈利保护，
+    // 平仓价差朝更容易成交的方向让 shiftPct。
+    static stra::AlgoOrderModify BuildCloseModify(const PairInfo& pi, double shiftPct);
+
     // 请求执行端撤销该对子当前的算法单。幂等：对子没有活跃算法单、或算法单已在撤单流程里，
     // 都会被忽略。撤单是异步的（撤主动腿报价 -> 等被动腿成交把敞口平掉 -> 子单清零
     // -> ALGO_OS_CANCELED -> 回传释放对子），调用方不能假设它同步生效。
     void RequestCancelAlgoOrder(const PairInfo& pi) const;
 
     // direction : OL/OS/CL/CS;   algoMode: TT/MT
-    // ⚠️ 调用方必须在报单前保证 pi.satisfyTime 是新鲜的（见 CheckAlgoOrderTimeout）：
-    //    信号驱动的报单已被 ProcessPairSignal 里的 UpdateSatisfyTime 覆盖；
-    //    风控驱动的强平报单没有信号，必须在 ProcessRisk 里显式刷新，
-    //    否则刚报出的强平单会因为 satisfyTime 陈旧被"机会超时"立刻撤掉。
-    void SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;
+    // 报单成功时会把 pi.satisfyTime 与 pi.algoModifyTime 一起刷成当前时刻（所以形参是非 const 引用）：
+    //   satisfyTime    —— 机会超时（CheckAlgoOrderTimeout）从报单起算。祖先的报单只可能发生在
+    //       机会成立的那一 tick，所以刷新它不改变语义；不刷的话，风控强平单（没有信号路径
+    //       刷新 satisfyTime）会因为时间戳陈旧被"机会超时"立刻撤掉。
+    //   algoModifyTime —— 改参（ProcessModify）从报单起算。报单时参数已经推给算法单了，
+    //       字段语义就是"最后一次把参数推给这个对子"。
+    void SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;
 
     // 函数名沿用旧名，但已不再拼 JSON：直接创建算法单对象并返回，创建失败（开关关闭/报单量非法）返回 nullptr
     BaseAlgoOrder* BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;

@@ -11,7 +11,8 @@
  * 2. 周期性 刷新价差统计 Prune/Build --》UpdateLargeStats --》立即 RecalcOrderParams
  * 3. 周期性 CheckRisk --> 有风险 --》SubmitAlgoOrder (强制平仓)
  * 4. 周期性 撤单触发检查 --》CheckAlgoOrderTimeout / CheckExposureAbnormal --》RequestCancelAlgoOrder
- * 5. 周期性 SaveToCSV
+ * 5. 周期性 改参检查 --》ProcessModify --》SubmitAlgoOrder(CommandType_MODIFY)
+ * 6. 周期性 SaveToCSV
  * 
  * 撤单是异步的两段式：RequestCancelAlgoOrder 只把算法单置成 ALGO_OS_CANCELLING，
  * 之后由执行端的 CancelOrderOnSpread 撤主动腿、等被动腿成交，子单清零后
@@ -245,12 +246,8 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
         return;
     }
 
-    // 风控强平不是信号驱动的（CheckRisk 不看 CheckSignal），所以这里必须显式把 satisfyTime
-    // 刷成当前时刻：否则一个陈旧了 30 分钟的 satisfyTime 会让刚报出的强平单在
-    // 下一次 CheckAlgoOrderTimeout 里被立刻撤掉，强平永远执行不了。
-    // 信号驱动的报单不用管，ProcessPairSignal 里的 UpdateSatisfyTime 已经覆盖。
-    pi.satisfyTime = nowUs;
-
+    // satisfyTime / algoModifyTime 由 SubmitAlgoOrder 在报单成功时一起归零，
+    // 所以这里不需要再显式刷新（风控强平没有信号路径，靠 SubmitAlgoOrder 兜住）。
     if (pi.IsLong()) {
         std::string mode = pi.autoFlag ? "TT" : "MT";
         SubmitAlgoOrder(pi, mode, "CL", risk.forgoProfit);
@@ -386,7 +383,150 @@ void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
     }
 }
 
-void PairTradingContext::SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
+// ---- 改参（祖先 cc_pricespread_gb_ltp.py:1059-1078）----
+
+stra::AlgoOrderModify PairTradingContext::BuildNormalModify(const PairInfo& pi) {
+    const auto& op = pi.orderParams;
+    stra::AlgoOrderModify m;
+
+    m.profitSwitch = pi.profitSwitch;
+    m.profitPct = pi.profitPct;
+
+    // 8 个开关必须全部带上。祖先的 create_modify_dict 只带 6 个（不带 ttCL/ttCS/mtCL/mtCS），
+    // 因为 AEC 侧是"缺字段保持原值"；C++ 是整份覆盖，漏掉就会把平仓开关清零。见头文件注释。
+    m.ttOLSwitch = op.ttOLSwitch;
+    m.ttOSSwitch = op.ttOSSwitch;
+    m.ttCLSwitch = op.ttCLSwitch;
+    m.ttCSSwitch = op.ttCSSwitch;
+    m.mtOLSwitch = op.mtOLSwitch;
+    m.mtOSSwitch = op.mtOSSwitch;
+    m.mtCLSwitch = op.mtCLSwitch;
+    m.mtCSSwitch = op.mtCSSwitch;
+
+    // 32 个起止价差 / 起止量：整份照搬 pi.orderParams
+    m.ttOLStartSpread = op.ttOLStartSpread;
+    m.ttOLEndSpread = op.ttOLEndSpread;
+    m.ttOLStartVolume = op.ttOLStartVolume;
+    m.ttOLEndVolume = op.ttOLEndVolume;
+    m.ttCLStartSpread = op.ttCLStartSpread;
+    m.ttCLEndSpread = op.ttCLEndSpread;
+    m.ttCLStartVolume = op.ttCLStartVolume;
+    m.ttCLEndVolume = op.ttCLEndVolume;
+    m.ttOSStartSpread = op.ttOSStartSpread;
+    m.ttOSEndSpread = op.ttOSEndSpread;
+    m.ttOSStartVolume = op.ttOSStartVolume;
+    m.ttOSEndVolume = op.ttOSEndVolume;
+    m.ttCSStartSpread = op.ttCSStartSpread;
+    m.ttCSEndSpread = op.ttCSEndSpread;
+    m.ttCSStartVolume = op.ttCSStartVolume;
+    m.ttCSEndVolume = op.ttCSEndVolume;
+    m.mtOLStartSpread = op.mtOLStartSpread;
+    m.mtOLEndSpread = op.mtOLEndSpread;
+    m.mtOLStartVolume = op.mtOLStartVolume;
+    m.mtOLEndVolume = op.mtOLEndVolume;
+    m.mtCLStartSpread = op.mtCLStartSpread;
+    m.mtCLEndSpread = op.mtCLEndSpread;
+    m.mtCLStartVolume = op.mtCLStartVolume;
+    m.mtCLEndVolume = op.mtCLEndVolume;
+    m.mtOSStartSpread = op.mtOSStartSpread;
+    m.mtOSEndSpread = op.mtOSEndSpread;
+    m.mtOSStartVolume = op.mtOSStartVolume;
+    m.mtOSEndVolume = op.mtOSEndVolume;
+    m.mtCSStartSpread = op.mtCSStartSpread;
+    m.mtCSEndSpread = op.mtCSEndSpread;
+    m.mtCSStartVolume = op.mtCSStartVolume;
+    m.mtCSEndVolume = op.mtCSEndVolume;
+
+    return m;
+}
+
+stra::AlgoOrderModify PairTradingContext::BuildCloseModify(const PairInfo& pi, double shiftPct) {
+    // 先取整份快照，再按"更激进的平仓"覆盖少数几个字段
+    stra::AlgoOrderModify m = BuildNormalModify(pi);
+
+    m.profitSwitch = false;
+    m.profitPct = 0.0;
+
+    // 开仓四个开关全关
+    m.ttOLSwitch = false;
+    m.ttOSSwitch = false;
+    m.mtOLSwitch = false;
+    m.mtOSSwitch = false;
+
+    // 祖先把 tt 的平仓开关也关掉，只留 mt 的平仓开关（:260-265）。
+    // 注意它仍然对 ttCL/ttCS 的价差做了让利（:270-271 / :278-279），这里照做 ——
+    // 将来若把 tt 平仓开关打开，行为才与祖先一致。
+    m.ttCLSwitch = false;
+    m.ttCSSwitch = false;
+    m.mtCLSwitch = true;
+    m.mtCSSwitch = true;
+
+    // 平仓让利：CL 的起止价差各减 shiftPct，CS 的各加 shiftPct，让平仓更容易成交。
+    // 注意这里的基准是 pi.orderParams（不是刚才那份快照），与祖先读 pair_info 一致。
+    m.ttCLStartSpread = pi.orderParams.ttCLStartSpread - shiftPct;
+    m.ttCLEndSpread = pi.orderParams.ttCLEndSpread - shiftPct;
+    m.ttCSStartSpread = pi.orderParams.ttCSStartSpread + shiftPct;
+    m.ttCSEndSpread = pi.orderParams.ttCSEndSpread + shiftPct;
+    m.mtCLStartSpread = pi.orderParams.mtCLStartSpread - shiftPct;
+    m.mtCLEndSpread = pi.orderParams.mtCLEndSpread - shiftPct;
+    m.mtCSStartSpread = pi.orderParams.mtCSStartSpread + shiftPct;
+    m.mtCSEndSpread = pi.orderParams.mtCSEndSpread + shiftPct;
+
+    return m;
+}
+
+void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
+    if (!m_algoOrderModifyCb) {
+        return;
+    }
+
+    // 祖先 :1059 只遍历在跑的算法单
+    if (!pi.hasActiveAlgoOrder) {
+        return;
+    }
+
+    // 祖先 :1060：按 modify_time 计时。
+    // 用 algoModifyTime 而不是 PairInfo::modifyTime —— 后者被 PairInfoManager 在
+    // UpdateRtSpread 等七处刷新，等于每个价差 tick 刷一次，用它这个判断永远不成立。
+    if (nowUs - pi.algoModifyTime < m_cfg.modifyTimespanSec * 1000000LL) {
+        return;
+    }
+
+    int64_t algoOrderId = 0;
+    try {
+        algoOrderId = std::stoll(pi.currentAlgoOrderId);
+    } catch (...) {
+        LOG_ERROR("ProcessModify: bad currentAlgoOrderId:{} pairKey:{}",
+                  pi.currentAlgoOrderId, pi.pairInstrumentKey);
+        return;
+    }
+
+    // 祖先 :1063-1068：流动性危险时改用更激进的平仓参数，否则按最新行情重算
+    const bool aggressiveClose = (pi.activeLiquidStatus == 2 || pi.passiveLiquidStatus == 2);
+    stra::AlgoOrderModify mod = aggressiveClose ? BuildCloseModify(pi, m_cfg.modifyShiftPct)
+                                                : BuildNormalModify(pi);
+
+    // 祖先 :1069-1073：满足 just_close_flag / 资金费不合格 / 价差不合格时，把开仓开关压掉。
+    // C++ 侧只有 stopFlag（停止开仓）和 closeFlag（强制平仓）这两个等价输入；
+    // 祖先那三个 flag（just_close_flag / funding_time_qualified / unqualified_spread_flag）
+    // 目前没有对应物，属于待补项。
+    if (pi.stopFlag || pi.closeFlag) {
+        mod.ttOLSwitch = false;
+        mod.ttOSSwitch = false;
+        mod.mtOLSwitch = false;
+        mod.mtOSSwitch = false;
+    }
+
+    // 先归零计时再回调：即使执行端因为算法单已在撤单流程里而跳过本次改参，
+    // 也不要在 60s 内反复重试（祖先 :1077 同样是无条件重置）
+    pi.algoModifyTime = nowUs;
+
+    LOG_INFO("ProcessModify: pairKey:{} algoOrderId:{} aggressiveClose:{} stopFlag:{} closeFlag:{} -> CommandType_MODIFY",
+             pi.pairInstrumentKey, pi.currentAlgoOrderId, aggressiveClose, pi.stopFlag, pi.closeFlag);
+    m_algoOrderModifyCb(algoOrderId, stra::CommandType_MODIFY, &mod);
+}
+
+void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
     if (!m_algoCommandCb) {
         return;
     }
@@ -402,6 +542,12 @@ void PairTradingContext::SubmitAlgoOrder(const PairInfo& pi, const std::string& 
     //      会用 stoll(currentAlgoOrderId) 去 AlgoContext 里查这个算法单）
     auto& pim = PairInfoManager::Instance();
     pim.SetActiveAlgoOrder(pi.pairInstrumentKey, std::to_string(pAlgoOrder->algoOrderId).c_str());
+
+    // 报单即"参数已经推给算法单了"，把两个计时起点一起归零（详见头文件注释）：
+    //   satisfyTime    供 CheckAlgoOrderTimeout 算"机会连续不成立"的时长
+    //   algoModifyTime 供 ProcessModify 算"距上次推参数多久"
+    pi.satisfyTime = NowUs();
+    pi.algoModifyTime = pi.satisfyTime;
 
     // 交给 AlgoContext 注册：Init / 插入 algoOrderManager / 落库 / 订阅价差
     m_algoCommandCb(pAlgoOrder);
@@ -785,6 +931,14 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     for (PairInfo* pi : pim.GetAllPairInfos()) {
         CheckAlgoOrderTimeout(*pi, nowUs);
         CheckExposureAbnormal(*pi);
+    }
+
+    // 5. 改参检查 (每次定时器触发)
+    //    祖先 :1059-1078：每 modifyTimespanSec 秒把 pair_info 的最新参数推给在跑的算法单。
+    //    顺序上放在撤单之后（祖先也是先撤后改），且 AlgoContext 的 MODIFY 分支会跳过
+    //    已在撤单流程里的算法单，所以不会出现"刚请求撤单又去改它"的竞争。
+    for (PairInfo* pi : pim.GetAllPairInfos()) {
+        ProcessModify(*pi, nowUs);
     }
 
     if (nowUs - m_lastCsvSaveUs > m_cfg.csvSaveIntervalSec * 1000000LL) {
