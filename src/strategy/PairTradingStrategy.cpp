@@ -69,6 +69,10 @@ void PairTradingStrategy::pre_start(Config* config) {
         SubmitAlgoCommand(pAlgoOrder); 
     });
 
+    ptContext.SetAlgoOrderModifyCallback([this](int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify) {
+        SubmitAlgoOrderChange(algoOrderId, cmd, modify);
+    });
+
     ptContext.Init(m_ptCfg, smc);
 }
 
@@ -88,6 +92,10 @@ void PairTradingStrategy::pre_stop() {
 
 void PairTradingStrategy::SubmitAlgoCommand(BaseAlgoOrder* pAlgoOrder) {
     algoContext.SubmitAlgoOrder(pAlgoOrder);
+}
+
+void PairTradingStrategy::SubmitAlgoOrderChange(int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify) {
+    algoContext.SubmitAlgoOrder(algoOrderId, cmd, modify);
 }
 
 void PairTradingStrategy::on_command(const std::string& json) {

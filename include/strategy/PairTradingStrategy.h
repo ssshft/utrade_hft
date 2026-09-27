@@ -40,6 +40,9 @@ private:
 
     void SubmitAlgoCommand(BaseAlgoOrder* pAlgoOrder); // 策略层创建好的算法单对象转发给AlgoContext
 
+    // 算法单变更（撤单 / 改参）转发给AlgoContext，按 id 定位已在册的算法单
+    void SubmitAlgoOrderChange(int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify);
+
     void ScanFinishedAlgoOrders(int64_t nowUs);
 
     pt::PairTradingConfig m_ptCfg;

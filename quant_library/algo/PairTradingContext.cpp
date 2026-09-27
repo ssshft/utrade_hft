@@ -3,13 +3,19 @@
  * OnSpread:
  * 1. 更新 pi.rtSpread
  * 2. AccumulateSpreadSample --》喂一条价差样本进 24h 滚动窗口（降频）
- * 3. CheckSignal --》有信号 --》SubmitAlgoOrder
+ * 3. 机会条件快照 --》UpdateSatisfyTime（对每个对子都算，与有没有在跑的单无关）
+ * 4. CheckSignal --》有信号 --》SubmitAlgoOrder
  * 
  * OnTimer:
  * 1. 周期性 RecalcVolumeParams
  * 2. 周期性 刷新价差统计 Prune/Build --》UpdateLargeStats --》立即 RecalcOrderParams
  * 3. 周期性 CheckRisk --> 有风险 --》SubmitAlgoOrder (强制平仓)
- * 4. 周期性 SaveToCSV
+ * 4. 周期性 撤单触发检查 --》CheckAlgoOrderTimeout / CheckExposureAbnormal --》RequestCancelAlgoOrder
+ * 5. 周期性 SaveToCSV
+ * 
+ * 撤单是异步的两段式：RequestCancelAlgoOrder 只把算法单置成 ALGO_OS_CANCELLING，
+ * 之后由执行端的 CancelOrderOnSpread 撤主动腿、等被动腿成交，子单清零后
+ * OnAlgoOrderUpdate 收到终态才释放对子。调用方不能假设它同步生效。
  * 
  * OnAlgoOrderUpdate (算法单回传，执行端同线程直接调用，不走消息队列)
  * 1. 量/价直接覆盖 PairInfo (执行端是唯一数据源，策略侧不做加权)
@@ -20,6 +26,8 @@
 #include "PairTradingContext.h"
 #include "basic/DataStruct.h"
 #include "basic/AlgoPairOrder.h"
+
+#include <cmath>
 
 
 namespace pt {
@@ -132,18 +140,29 @@ void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, cons
 }
 
 void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
+    auto& sg = SignalGenerator::Instance();
+
+    // 机会条件快照必须放在 hasActiveAlgoOrder 早退**之前**：祖先是在整个 pair_info
+    // DataFrame 上整列赋值 satisfy_time（:922/:930/:936），不区分有没有在跑的单。
+    // 若挪到早退之后，有单在跑的对子就永远不刷新 satisfy_time，
+    // CheckAlgoOrderTimeout 会在第一轮把所有在跑的算法单全部撤掉。
+    std::string reason = "";
+    const bool canOpen = sg.CanOpen(pi, reason);
+    const bool canClose = sg.CanClose(pi, reason);
+    const SignalResult sig = sg.CheckSignal(pi);
+
+    UpdateSatisfyTime(pi, sig, canOpen, canClose, NowUs());
+
     if (pi.hasActiveAlgoOrder) {
         return;
     }
 
+    // 敞口异常（CheckExposureAbnormal 打的 errorFlag）：祖先把该对子 status 打成 ERROR 之后
+    // 既不开也不平，留人工处理。CanOpen 内部已经挡了 errorFlag，这里补上平仓侧。
+    if (pi.errorFlag) {
+        return;
+    }
 
-    auto& sg = SignalGenerator::Instance();
-
-    std::string reason = "";
-    bool canOpen = sg.CanOpen(pi, reason);
-    bool canClose = sg.CanClose(pi, reason);
-
-    SignalResult sig = sg.CheckSignal(pi);
     if (!sig.hasSignal) {
         return;
     }
@@ -195,14 +214,10 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
 
 
 void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
-    if (!pi.HasPosition()) {
-        return;
-    }
-
-    if (pi.hasActiveAlgoOrder) {
-        return;
-    }
-
+    // 这里刻意不判 HasPosition：风控要对每个对子每 tick 都跑一遍，因为
+    // CheckADLRisk / CheckSpreadNoRegression 内部依赖这个时机清理自己的计时起点
+    // （无持仓时把 positionExceedThresholdStartTime / spreadNoRegressionStartTime 归零）。
+    // 一旦加了早退，这两个归零就永远跑不到，下次开仓会带着上一轮的陈旧时间戳。
     auto& rm = RiskManager::Instance();
     RiskCheckResult risk = rm.CheckRisk(pi, nowUs);
 
@@ -210,6 +225,31 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
         return;
     }
 
+    // 对子被算法单占着时，先请求撤掉它。撤单是异步的：要等它终结、回传、释放对子之后，
+    // 下一轮才会走到下面的 SubmitAlgoOrder。这里必须 return，不能继续报单 ——
+    // 否则 SetActiveAlgoOrder 会把 currentAlgoOrderId 换成新单，旧单的后续回传会因为
+    // id 对不上被 OnAlgoOrderUpdate 丢掉，两个算法单的状态彻底错位。
+    //
+    // 注意 CANCELLING 的语义是"撤掉主动腿的报价、等被动腿成交把敞口平掉"，
+    // 不是"立刻中止、宁可留敞口"（2026-09-23 确认过的刻意设计）：
+    //   - OnSpread 里"只有 NEW/PARTFILLED 才继续报单"那道判断拦住报新的 pairOrder（不再开新仓）；
+    //   - CancelOrderOnSpread 的 CANCELLING 分支只撤主动腿，门槛 1000*10 微秒（=10ms，
+    //     crypto::getCurrentTime 是微秒，所以基本是下一个 tick 就撤）；
+    //     被动腿留着等成交 —— 被动腿挂着就说明主动腿已成交、场上存在单边敞口；
+    //   - OnTimer 仍会每 tick 调 PairOrderTrade 给"尚未对冲完"的 pairOrder 续报被动腿；
+    //   - pairOrder 全部删掉后 allPairOrders.size() 归零 -> ALGO_OS_CANCELED -> 回传释放对子。
+    // 已知残余风险（未兜底）：被动腿长期不成交时算法单会一直停在 CANCELLING，
+    // 见 memory 2026-09-23「唯一残余风险：这个"等待"没有上界」。
+    if (pi.hasActiveAlgoOrder) {
+        RequestCancelAlgoOrder(pi);
+        return;
+    }
+
+    // 风控强平不是信号驱动的（CheckRisk 不看 CheckSignal），所以这里必须显式把 satisfyTime
+    // 刷成当前时刻：否则一个陈旧了 30 分钟的 satisfyTime 会让刚报出的强平单在
+    // 下一次 CheckAlgoOrderTimeout 里被立刻撤掉，强平永远执行不了。
+    // 信号驱动的报单不用管，ProcessPairSignal 里的 UpdateSatisfyTime 已经覆盖。
+    pi.satisfyTime = nowUs;
 
     if (pi.IsLong()) {
         std::string mode = pi.autoFlag ? "TT" : "MT";
@@ -218,6 +258,131 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     else if (pi.IsShort()) {
         std::string mode = pi.autoFlag ? "TT" : "MT";
         SubmitAlgoOrder(pi, mode, "CS", risk.forgoProfit);    
+    }
+}
+
+void PairTradingContext::RequestCancelAlgoOrder(const PairInfo& pi) const {
+    if (!m_algoOrderModifyCb) {
+        return;
+    }
+
+    if (!pi.hasActiveAlgoOrder) {
+        return;
+    }
+
+    // currentAlgoOrderId 由 SetActiveAlgoOrder 写入，内容必须能还原成 int64
+    // （GenerateAlgoOrderId 生成的就是纯数字），这里和 ScanFinishedAlgoOrders 一样用 stoll
+    int64_t algoOrderId = 0;
+    try {
+        algoOrderId = std::stoll(pi.currentAlgoOrderId);
+    } catch (...) {
+        LOG_ERROR("RequestCancelAlgoOrder: bad currentAlgoOrderId:{} pairKey:{}",
+                  pi.currentAlgoOrderId, pi.pairInstrumentKey);
+        return;
+    }
+
+    // 这里不打日志：ProcessRisk 每个 tick 都会走到这里，直到算法单终结、对子被释放为止，
+    // 打日志会刷屏。真正发生状态跃迁的地方（AlgoContext::SubmitAlgoOrder 的 CANCEL 分支）
+    // 已经有一条日志。
+    m_algoOrderModifyCb(algoOrderId, stra::CommandType_CANCEL, nullptr);
+}
+
+// ---- 撤单触发条件（对齐祖先 cc_pricespread_gb_ltp.py:1015-1092）----
+
+namespace {
+    bool HasOpenSignal(const SignalResult& sig) {
+        return sig.ttOLSignal || sig.ttOSSignal || sig.mtOLSignal || sig.mtOSSignal;
+    }
+
+    bool HasCloseSignal(const SignalResult& sig) {
+        return sig.ttCLSignal || sig.ttCSSignal || sig.mtCLSignal || sig.mtCSSignal;
+    }
+}
+
+void PairTradingContext::UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose, int64_t nowUs) const {
+    // 祖先的三个 satisfy_time 写入点：
+    //   open_satisfy_index（:922）  = 一大串开仓前置条件同时成立
+    //   manual_index（:930）        = status==READY & auto_flag==False & !stop_flag
+    //   close_satisfy_index（:936） = (except_close_long|except_close_short) & 价差合格 & !stop_flag & 敞口合格
+    // C++ 侧用 CanOpen/CanClose 承担那串前置条件，用 CheckSignal 承担"价差已穿越入口阈值"。
+    const bool openSatisfied = canOpen && HasOpenSignal(sig);
+    const bool closeSatisfied = canClose && HasCloseSignal(sig);
+
+    // 手动对子（autoFlag == false）没有信号也要续命，否则 CheckAlgoOrderTimeout 会撤它的单。
+    // 祖先 :930 就是干这个的；虽然 :1018-1020 已经跳过手动单，这里是双保险，保持与祖先一致。
+    const bool manualReady = !pi.autoFlag && !pi.stopFlag;
+
+    if (openSatisfied || closeSatisfied || manualReady) {
+        pi.satisfyTime = nowUs;
+    }
+}
+
+void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs) const {
+    if (!pi.hasActiveAlgoOrder) {
+        return;
+    }
+
+    // 手动单不撤（祖先 :1018-1020：auto_flag == False 直接 continue）
+    if (!pi.autoFlag) {
+        return;
+    }
+
+    // satisfyTime 默认 0，语义与祖先把 satisfy_time 初始化成 1 天前等价（都是"很久以前"）。
+    // 正常路径下它每次机会成立都会被刷新，而算法单只可能在机会成立之后才报出，
+    // 所以这里不会误撤；真走到 0 说明 satisfyTime 没被写过，撤单是安全侧的选择。
+    const int64_t idleUs = nowUs - pi.satisfyTime;
+    if (idleUs <= m_cfg.algoOrderTimeoutMs * 1000LL) {
+        return;
+    }
+
+    LOG_INFO("CheckAlgoOrderTimeout: pairKey:{} algoOrderId:{} idleSec:{} > {}s -> cancel",
+             pi.pairInstrumentKey, pi.currentAlgoOrderId,
+             static_cast<double>(idleUs) / 1000000.0,
+             static_cast<double>(m_cfg.algoOrderTimeoutMs) / 1000.0);
+    RequestCancelAlgoOrder(pi);
+}
+
+void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
+    // 祖先 :1081 的 status != ERROR 门槛：已经打过标记的对子不再重复处理
+    if (pi.errorFlag) {
+        return;
+    }
+
+    // 两条腿都必须有实盘持仓，且都有实盘均价 —— 只有单边有仓属于正常的开仓中间态
+    if (std::abs(pi.activeRealPosition) <= 1e-9 || std::abs(pi.passiveRealPosition) <= 1e-9) {
+        return;
+    }
+    if (pi.activeAvgPrice <= 0 || pi.passiveAvgPrice <= 0) {
+        return;
+    }
+
+    const double activeMultiple = pi.activeParam.multiple;
+    if (activeMultiple <= 0) {
+        return;
+    }
+    // 阈值本身要有效，否则 exposureCancelTimes * 0 = 0 会让任何一点敞口都判成异常
+    if (std::isnan(pi.ttTargetVolume) || pi.ttTargetVolume <= 0) {
+        return;
+    }
+
+    // 祖先 :1081：(activeRealPosition*active_multiple + passiveRealPosition*passive_multiple).abs()
+    //              / active_multiple > 4 * ttTargetVolume
+    const double netExposure = std::abs(pi.activeRealPosition * activeMultiple +
+                                        pi.passiveRealPosition * pi.passiveParam.multiple) / activeMultiple;
+    const double threshold = m_cfg.exposureCancelTimes * pi.ttTargetVolume;
+    if (netExposure <= threshold) {
+        return;
+    }
+
+    // 敞口失控：置 errorFlag（= 祖先的 status = ERROR），该对子此后既不开也不平，留人工处理。
+    // 祖先 :1083 只打标记、:1090 才撤单；这里先停单再撤，避免中间再报出新单。
+    pi.errorFlag = true;
+    LOG_ERROR("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (ttTargetVolume:{} activePos:{} passivePos:{}) -> errorFlag + cancel",
+              pi.pairInstrumentKey, netExposure, threshold, pi.ttTargetVolume,
+              pi.activeRealPosition, pi.passiveRealPosition);
+
+    if (pi.hasActiveAlgoOrder) {
+        RequestCancelAlgoOrder(pi);
     }
 }
 
@@ -609,6 +774,17 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     // 3. 风控检查 (每次定时器触发)
     for (PairInfo* pi : pim.GetAllPairInfos()) {
         ProcessRisk(*pi, nowUs);
+    }
+
+    // 4. 撤单触发检查 (每次定时器触发)
+    //    祖先 on_timer 的五条撤单触发里已落地的两条：
+    //      ① 机会超时（:1021-1026）—— satisfyTime 连续 algoOrderTimeoutMs 不成立
+    //      ⑤ 敞口异常（:1081-1092）—— 净敞口超阈值，置 errorFlag 并撤单
+    //    敞口检查不判 autoFlag（祖先 :1081 那一段没有 auto_flag 门槛）；
+    //    超时检查自带 autoFlag 门槛（祖先 :1018-1020）。
+    for (PairInfo* pi : pim.GetAllPairInfos()) {
+        CheckAlgoOrderTimeout(*pi, nowUs);
+        CheckExposureAbnormal(*pi);
     }
 
     if (nowUs - m_lastCsvSaveUs > m_cfg.csvSaveIntervalSec * 1000000LL) {

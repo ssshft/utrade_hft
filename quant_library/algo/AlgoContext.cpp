@@ -108,6 +108,128 @@ void AlgoContext::SubmitAlgoOrder(BaseAlgoOrder* pAlgoOrder) {
 }
 
 
+void AlgoContext::SubmitAlgoOrder(int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify) {
+    // 变更路径：只操作"已经在册"的算法单。这里刻意不做上面那个重载里的任何一件事
+    // （不 new、不 Init、不 InsertAlgoOrderByAlgoOrder、不订阅），否则会把在途子单、
+    // 订单管理器、持仓管理器一起丢掉，还会把 mAlgoOrder 里的指针换成另一个对象。
+    BaseAlgoOrder* pAlgoOrder = alogOrderManager.SeletAlgoOrderByAlgoOrderId(algoOrderId);
+    if (pAlgoOrder == nullptr) {
+        LOG_ERROR("SubmitAlgoOrder(change): algo order not found, algoOrderId:{} cmd:{}", algoOrderId, int(cmd));
+        return;
+    }
+
+    // 已经终结的算法单不再接受任何变更
+    if (pAlgoOrder->algoOrderStatus == stra::ALGO_OS_FILLED ||
+        pAlgoOrder->algoOrderStatus == stra::ALGO_OS_CANCELED ||
+        pAlgoOrder->algoOrderStatus == stra::ALGO_OS_ERRORCANCELED) {
+        LOG_INFO("SubmitAlgoOrder(change): skip terminal algo order, algoOrderId:{} status:{}",
+                 algoOrderId, stra::AlgoOrderStatusEnum2Str[pAlgoOrder->algoOrderStatus]);
+        return;
+    }
+
+    if (cmd == stra::CommandType_CANCEL) {
+        // 已经在撤单流程里，重复请求幂等返回
+        if (pAlgoOrder->algoOrderStatus == stra::ALGO_OS_CANCELLING) {
+            return;
+        }
+
+        // 只撤"活着"的算法单。ERRORCANCELLING 是 OnTimer 里"行情断 30s"打上的滞留态
+        // （那段只改 algoOrderStatus、不撤子单），允许它转入正常撤单流程，
+        // 否则这类单子会一直占住对子。
+        if (pAlgoOrder->algoOrderStatus != stra::ALGO_OS_NEW &&
+            pAlgoOrder->algoOrderStatus != stra::ALGO_OS_PARTFILLED &&
+            pAlgoOrder->algoOrderStatus != stra::ALGO_OS_ERRORCANCELLING) {
+            LOG_INFO("SubmitAlgoOrder(CANCEL): skip, not cancellable, algoOrderId:{} status:{}",
+                     algoOrderId, stra::AlgoOrderStatusEnum2Str[pAlgoOrder->algoOrderStatus]);
+            return;
+        }
+
+        // 本地发起撤单（对齐祖先 update_order_at_cancel 就地改同一个算法单的状态）。
+        // commandType 只用于报表，真正起作用的是 algoOrderStatus。
+        pAlgoOrder->commandType = stra::CommandType_UCANCELLING;
+        pAlgoOrder->algoOrderStatus = stra::ALGO_OS_CANCELLING;
+        pAlgoOrder->cancelOrderTime = crypto::getCurrentTime();
+        pAlgoOrder->updateTime = crypto::getCurrentTime();
+
+        rLarkMsg.Push(pAlgoOrder->GeneratePubStr());
+        WriteAlgoOrder(pAlgoOrder);
+        LOG_INFO("SubmitAlgoOrder(CANCEL): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELLING",
+                 algoOrderId, pAlgoOrder->pairInstrumentKey);
+        return;
+    }
+
+    if (cmd == stra::CommandType_MODIFY) {
+        if (modify == nullptr) {
+            LOG_ERROR("SubmitAlgoOrder(MODIFY): modify is null, algoOrderId:{}", algoOrderId);
+            return;
+        }
+        // 正在撤单的单子不再改参，避免和撤单流程互相覆盖
+        if (pAlgoOrder->algoOrderStatus == stra::ALGO_OS_CANCELLING) {
+            LOG_INFO("SubmitAlgoOrder(MODIFY): skip, algo order is cancelling, algoOrderId:{}", algoOrderId);
+            return;
+        }
+
+        // 整份快照覆盖（祖先 create_modify_dict / create_close_modify_dict 的语义）
+        pAlgoOrder->profitSwitch = modify->profitSwitch;
+        pAlgoOrder->profitPct = modify->profitPct;
+
+        pAlgoOrder->ttOLSwitch = modify->ttOLSwitch;
+        pAlgoOrder->ttOSSwitch = modify->ttOSSwitch;
+        pAlgoOrder->ttCLSwitch = modify->ttCLSwitch;
+        pAlgoOrder->ttCSSwitch = modify->ttCSSwitch;
+        pAlgoOrder->mtOLSwitch = modify->mtOLSwitch;
+        pAlgoOrder->mtOSSwitch = modify->mtOSSwitch;
+        pAlgoOrder->mtCLSwitch = modify->mtCLSwitch;
+        pAlgoOrder->mtCSSwitch = modify->mtCSSwitch;
+
+        pAlgoOrder->ttOLStartSpread = modify->ttOLStartSpread;
+        pAlgoOrder->ttOLEndSpread = modify->ttOLEndSpread;
+        pAlgoOrder->ttOLStartVolume = modify->ttOLStartVolume;
+        pAlgoOrder->ttOLEndVolume = modify->ttOLEndVolume;
+        pAlgoOrder->ttCLStartSpread = modify->ttCLStartSpread;
+        pAlgoOrder->ttCLEndSpread = modify->ttCLEndSpread;
+        pAlgoOrder->ttCLStartVolume = modify->ttCLStartVolume;
+        pAlgoOrder->ttCLEndVolume = modify->ttCLEndVolume;
+        pAlgoOrder->ttOSStartSpread = modify->ttOSStartSpread;
+        pAlgoOrder->ttOSEndSpread = modify->ttOSEndSpread;
+        pAlgoOrder->ttOSStartVolume = modify->ttOSStartVolume;
+        pAlgoOrder->ttOSEndVolume = modify->ttOSEndVolume;
+        pAlgoOrder->ttCSStartSpread = modify->ttCSStartSpread;
+        pAlgoOrder->ttCSEndSpread = modify->ttCSEndSpread;
+        pAlgoOrder->ttCSStartVolume = modify->ttCSStartVolume;
+        pAlgoOrder->ttCSEndVolume = modify->ttCSEndVolume;
+
+        pAlgoOrder->mtOLStartSpread = modify->mtOLStartSpread;
+        pAlgoOrder->mtOLEndSpread = modify->mtOLEndSpread;
+        pAlgoOrder->mtOLStartVolume = modify->mtOLStartVolume;
+        pAlgoOrder->mtOLEndVolume = modify->mtOLEndVolume;
+        pAlgoOrder->mtCLStartSpread = modify->mtCLStartSpread;
+        pAlgoOrder->mtCLEndSpread = modify->mtCLEndSpread;
+        pAlgoOrder->mtCLStartVolume = modify->mtCLStartVolume;
+        pAlgoOrder->mtCLEndVolume = modify->mtCLEndVolume;
+        pAlgoOrder->mtOSStartSpread = modify->mtOSStartSpread;
+        pAlgoOrder->mtOSEndSpread = modify->mtOSEndSpread;
+        pAlgoOrder->mtOSStartVolume = modify->mtOSStartVolume;
+        pAlgoOrder->mtOSEndVolume = modify->mtOSEndVolume;
+        pAlgoOrder->mtCSStartSpread = modify->mtCSStartSpread;
+        pAlgoOrder->mtCSEndSpread = modify->mtCSEndSpread;
+        pAlgoOrder->mtCSStartVolume = modify->mtCSStartVolume;
+        pAlgoOrder->mtCSEndVolume = modify->mtCSEndVolume;
+
+        pAlgoOrder->commandType = stra::CommandType_MODIFIED;
+        pAlgoOrder->updateTime = crypto::getCurrentTime();
+
+        rLarkMsg.Push(pAlgoOrder->GeneratePubStr());
+        WriteAlgoOrder(pAlgoOrder);
+        LOG_INFO("SubmitAlgoOrder(MODIFY): algoOrderId:{} pairInstrumentKey:{} profitSwitch:{} profitPct:{}",
+                 algoOrderId, pAlgoOrder->pairInstrumentKey, pAlgoOrder->profitSwitch, pAlgoOrder->profitPct);
+        return;
+    }
+
+    LOG_ERROR("SubmitAlgoOrder(change): unsupported cmd:{}, algoOrderId:{}", int(cmd), algoOrderId);
+}
+
+
 void AlgoContext::OnCommand(string s) {
     // rLarkMsg.Push(s);
     /*

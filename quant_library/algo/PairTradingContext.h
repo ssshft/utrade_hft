@@ -44,8 +44,14 @@ struct PairTradingConfig {
     int spreadSampleIntervalMs{200};       // 采样间隔，控制内存；0 = 不降频（逐 tick 全存）
     int spreadFreshnessSec{30};            // 行情新鲜度门槛（祖先 lastGenerateTs < 30s）
 
-    // 算法单超时ms
-    int64_t algoOrderTimeoutMs{30000};
+    // 算法单机会超时ms（祖先 algo_order_cancel_time = 150s）。
+    // 语义是"机会连续不成立的时长"，不是订单年龄：机会条件一成立就刷新 satisfyTime，
+    // 所以只有连续不成立超过这个时长才会撤单。见 UpdateSatisfyTime / CheckAlgoOrderTimeout
+    int64_t algoOrderTimeoutMs{150000};
+
+    // 敞口异常倍数（祖先 :1081 的 4 * ttTargetVolume）：
+    // 双腿净敞口 / activeMultiple 超过 exposureCancelTimes * ttTargetVolume 即视为敞口失控
+    double exposureCancelTimes{4.0};
 
     std::string csvStatePath{"data/pair_info.csv"};
 
@@ -56,6 +62,9 @@ struct PairTradingConfig {
 // 回调直接传递创建好的算法单对象（不再拼 JSON 字符串）
 using AlgoCommandCallback = std::function<void(BaseAlgoOrder* pAlgoOrder)>;
 
+// 算法单变更回调（撤单 / 改参）：按 id 指回已在册的算法单，与 AlgoContext 的变更重载一一对应
+using AlgoOrderModifyCallback = std::function<void(int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify)>;
+
 class PairTradingContext {
 public:
     PairTradingContext();
@@ -65,6 +74,10 @@ public:
 
     void SetAlgoCommandCallback(AlgoCommandCallback cb) {
         m_algoCommandCb = std::move(cb);
+    }
+
+    void SetAlgoOrderModifyCallback(AlgoOrderModifyCallback cb) {
+        m_algoOrderModifyCb = std::move(cb);
     }
 
     void OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata);
@@ -99,6 +112,7 @@ public:
 private:
     PairTradingConfig m_cfg;
     AlgoCommandCallback m_algoCommandCb;
+    AlgoOrderModifyCallback m_algoOrderModifyCb;
 
     int64_t m_lastSpreadStatsUpdateUs{0};
     int64_t m_lastVolumeRecalcUs{0};
@@ -119,7 +133,31 @@ private:
 
     void ProcessRisk(PairInfo& pi, int64_t nowUs);
 
+    // 机会条件快照（祖先 cc_pricespread_gb_ltp.py:922/930/936）：
+    // 每 tick 对**每个**对子都算一次，与是否已有算法单无关；条件成立就把 pi.satisfyTime 刷成 nowUs。
+    // 于是 satisfyTime 的含义是"最后一次机会成立的时间"，CheckAlgoOrderTimeout 用它算"连续不成立"的时长。
+    // 祖先是在 pair_info 整个 DataFrame 上整列赋值，所以这里也不能只对有单的对子算。
+    void UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose, int64_t nowUs) const;
+
+    // 撤单触发①：机会超时（祖先 :1021）。
+    // nowUs - satisfyTime > algoOrderTimeoutMs 时请求撤单。手动单（autoFlag == false）不撤。
+    void CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs) const;
+
+    // 撤单触发⑤：敞口异常（祖先 :1081-1092）。
+    // 双腿都有实盘持仓、且净敞口超过 exposureCancelTimes * ttTargetVolume 时，
+    // 置 pi.errorFlag 停止该对子的一切报单，并撤掉在跑的算法单（祖先置 status=ERROR，留人工处理）。
+    void CheckExposureAbnormal(PairInfo& pi) const;
+
+    // 请求执行端撤销该对子当前的算法单。幂等：对子没有活跃算法单、或算法单已在撤单流程里，
+    // 都会被忽略。撤单是异步的（撤主动腿报价 -> 等被动腿成交把敞口平掉 -> 子单清零
+    // -> ALGO_OS_CANCELED -> 回传释放对子），调用方不能假设它同步生效。
+    void RequestCancelAlgoOrder(const PairInfo& pi) const;
+
     // direction : OL/OS/CL/CS;   algoMode: TT/MT
+    // ⚠️ 调用方必须在报单前保证 pi.satisfyTime 是新鲜的（见 CheckAlgoOrderTimeout）：
+    //    信号驱动的报单已被 ProcessPairSignal 里的 UpdateSatisfyTime 覆盖；
+    //    风控驱动的强平报单没有信号，必须在 ProcessRisk 里显式刷新，
+    //    否则刚报出的强平单会因为 satisfyTime 陈旧被"机会超时"立刻撤掉。
     void SubmitAlgoOrder(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;
 
     // 函数名沿用旧名，但已不再拼 JSON：直接创建算法单对象并返回，创建失败（开关关闭/报单量非法）返回 nullptr

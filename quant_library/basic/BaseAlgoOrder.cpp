@@ -413,6 +413,13 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                 continue;
             }
 
+            // 撤单时两条腿的处置是刻意不对称的（2026-09-23 已确认，勿"顺手修"）：
+            //   主动腿有在途单 -> 说明还没成交、场上没有敞口 -> 直接撤掉；
+            //   被动腿有在途单 -> 说明主动腿已经成交了、存在单边敞口 ->
+            //       必须先等被动腿成交把敞口平掉，才能收尾，所以这里不撤被动腿。
+            // Rebalance 是单腿流程，没有这个前提，任意腿都撤。
+            // 注：CANCELLING 状态下被动腿的 passiveMaker/TakerCancelOrderTime 会被绕过，
+            //     这是"等成交"的必然结果，不是漏写。
             bool cancelFlag = false;
             if (algoType == stra::AlgoType_Rebalance) {
                 cancelFlag = (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED);

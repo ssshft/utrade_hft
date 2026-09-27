@@ -140,6 +140,59 @@ namespace stra {
         {"ALGO_OS_MAX", ALGO_OS_MAX}
     };
 
+    // 算法单改参载荷：对齐祖先 algo_order_manager.py 的 create_modify_dict / create_close_modify_dict。
+    // 语义是"整份快照"，不是增量 —— 执行端会把这里每个字段整体覆盖到算法单上，
+    // 所以生产方必须像祖先那样从完整的参数集构造成整份，只填一部分会把没填的字段清零。
+    struct AlgoOrderModify {
+        bool profitSwitch{false};
+        double profitPct{0.0};
+
+        // 开/平仓开关。祖先的普通改参只带 OL/OS 四个，close 版会把 8 个都带上
+        bool ttOLSwitch{false};
+        bool ttOSSwitch{false};
+        bool ttCLSwitch{false};
+        bool ttCSSwitch{false};
+        bool mtOLSwitch{false};
+        bool mtOSSwitch{false};
+        bool mtCLSwitch{false};
+        bool mtCSSwitch{false};
+
+        // {tt,mt} x {OL,CL,OS,CS} 的起止价差 / 起止量
+        double ttOLStartSpread{0.0};
+        double ttOLEndSpread{0.0};
+        double ttOLStartVolume{0.0};
+        double ttOLEndVolume{0.0};
+        double ttCLStartSpread{0.0};
+        double ttCLEndSpread{0.0};
+        double ttCLStartVolume{0.0};
+        double ttCLEndVolume{0.0};
+        double ttOSStartSpread{0.0};
+        double ttOSEndSpread{0.0};
+        double ttOSStartVolume{0.0};
+        double ttOSEndVolume{0.0};
+        double ttCSStartSpread{0.0};
+        double ttCSEndSpread{0.0};
+        double ttCSStartVolume{0.0};
+        double ttCSEndVolume{0.0};
+
+        double mtOLStartSpread{0.0};
+        double mtOLEndSpread{0.0};
+        double mtOLStartVolume{0.0};
+        double mtOLEndVolume{0.0};
+        double mtCLStartSpread{0.0};
+        double mtCLEndSpread{0.0};
+        double mtCLStartVolume{0.0};
+        double mtCLEndVolume{0.0};
+        double mtOSStartSpread{0.0};
+        double mtOSEndSpread{0.0};
+        double mtOSStartVolume{0.0};
+        double mtOSEndVolume{0.0};
+        double mtCSStartSpread{0.0};
+        double mtCSEndSpread{0.0};
+        double mtCSStartVolume{0.0};
+        double mtCSEndVolume{0.0};
+    };
+
     enum PriceType {
         PriceType_MIN = 0,
         PriceType_LIMIT,
