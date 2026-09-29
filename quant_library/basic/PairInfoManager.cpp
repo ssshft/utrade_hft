@@ -693,7 +693,7 @@ void PairInfoManager::ResetAbnormalCloseState(const std::string& pairKey, Abnorm
         st = &pi->fundingAbnormal;
     }
 
-    if (!st) {
+    if (st) {
         *st = AbnormalCloseState();
     }
 }

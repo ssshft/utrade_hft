@@ -937,7 +937,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                 else {
                                                     pAlgoOrder->fundVerifyFailedFlag = true;
                                                     char msg[stra::MSG_LEN];
-                                                    sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);                                                  sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
+                                                    sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);      
                                                     rLarkMsg.Push(msg);  
                                                 }
                                             }
@@ -984,7 +984,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                 else {
                                                     pAlgoOrder->fundVerifyFailedFlag = true;
                                                     char msg[stra::MSG_LEN];
-                                                    sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);                                                  sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
+                                                    sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);  
                                                     rLarkMsg.Push(msg);  
                                                 }
                                             }
@@ -1001,12 +1001,12 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
     } catch(StraException& e) {
         LOG_INFO("StraException, in AlgoContext::OnSpread error msg:{}", e.what());
         char msg[stra::MSG_LEN];
-        sprintf(msg, "StraException, in AlgoContext::OnSpread error msg:{}", e.what());
+        sprintf(msg, "StraException, in AlgoContext::OnSpread error msg:%s", e.what());
         rLarkMsg.Push(msg);
     } catch (exception& e) {
         LOG_INFO("some errors has happened in AlgoContext::OnSpread, errormsg:{}", e.what());
         char msg[stra::MSG_LEN];
-        sprintf(msg, "some errors has happened in AlgoContext::OnSpread, errormsg:{}", e.what());
+        sprintf(msg, "some errors has happened in AlgoContext::OnSpread, errormsg:%s", e.what());
         rLarkMsg.Push(msg);
     }
 }
@@ -1179,12 +1179,12 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
     } catch(StraException& e) {
         LOG_INFO("StraException in AlgoContext::OnOrder, error msg:{}", e.what());
         char msg[stra::MSG_LEN];
-        sprintf(msg, "StraException in AlgoContext::OnOrder, error msg:{}", e.what());
+        sprintf(msg, "StraException in AlgoContext::OnOrder, error msg:%s", e.what());
         rLarkMsg.Push(msg);
     } catch (exception& e) {
         LOG_INFO("some errors has happened in AlgoContext::OnOrder, errormsg:{}", e.what());
         char msg[stra::MSG_LEN];
-        sprintf(msg, "some errors has happened in AlgoContext::OnOrder, errormsg:{}", e.what());
+        sprintf(msg, "some errors has happened in AlgoContext::OnOrder, errormsg:%s", e.what());
         rLarkMsg.Push(msg);
     }
 }
