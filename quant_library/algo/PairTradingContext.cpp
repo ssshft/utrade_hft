@@ -956,6 +956,13 @@ void PairTradingContext::OnTotalAccount(const pubsub::TotalAccount& totalAccount
     PairInfoManager::Instance().UpdateOnTotalAccount(totalAccount);
 }
 
+// ⚠️ 已废弃（2026-09-29）：本函数现在**没有任何读取方**。
+//   "价差不回归"风控已改用 SignalGenerator::CloseSpreadReached（与执行端平仓阈值同源同轴），
+//   不再依赖 openSmallSpread* / smallStats。而 smallStats 全工程本来就没有生产者
+//   （PairInfoManager::UpdateSmallStats 零调用者），所以本函数的 IsValid() 守卫从来
+//   没通过过 —— 两个字段恒为 NaN。保留函数 + 快照两列只是为了不改动 CSV 列布局，
+//   待快照格式统一迁移时连同 smallStats / UpdateSmallStats 一起删除。
+//
 // 建仓瞬间的小周期分位数快照（价差不回归风控的基准，祖先的 *_q_open）。
 // 只取一次：字段从 NAN 变成有效值之后不再覆盖；完全平仓时由
 // RiskManager::OnAlgoFinished 复位成 NAN，下一轮建仓重新取。
@@ -1150,6 +1157,7 @@ bool PairTradingContext::ReconcilePair(PairInfo& pi) {
         pi.fundingAbnormal    = AbnormalCloseState();
         pi.positionExceedThresholdStartTime = 0;
         pi.spreadNoRegressionStartTime      = 0;
+        pi.positionStartTime                = 0;
         LOG_WARN("Reconcile: pairKey:{} 交易所已空仓 -> 账本清零 + 风控档位/建仓基准复位",
                  pi.pairInstrumentKey);
     } else {

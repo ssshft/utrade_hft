@@ -100,6 +100,19 @@ public:
 
     bool CanClose(const PairInfo& pi, std::string& reason) const;
 
+    // 当前是否已经满足"按价差平仓"的条件 —— 即 CheckSignalForSatisfy 里
+    // ttCL / mtCL / ttCS / mtCS 四个平仓分支中的任意一个已经成立。
+    //
+    // 存在的意义是把"价差回归了没有"这个判断**唯一化**：RiskManager 的
+    // "价差不回归"风控必须与执行端用同一个轴、同一个成本口径，否则会出现
+    // "风控认为没回归、算法单认为该平了"（或反过来）的错位。
+    // 轴的对应关系（与 CheckSignalForSatisfy 逐字一致）：
+    //   多头持仓 -> ttCL 用 spreadAskBid、mtCL 用 spreadBidBid
+    //   空头持仓 -> ttCS 用 spreadBidAsk、mtCS 用 spreadAskAsk
+    // 注意 ttCLSwitch/ttCSSwitch/mtCLSwitch/mtCSSwitch 恒为 true
+    // （RecalcOrderParams 里写死），所以这里不必再判开关。
+    bool CloseSpreadReached(const PairInfo& pi) const;
+
 private:
     SignalGenerator() = default;
 

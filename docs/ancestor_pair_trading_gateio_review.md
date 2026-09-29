@@ -405,6 +405,15 @@ per pairKey:
 6. `smallStats` 是否保留？祖先没有。**建议先只做 largeStats（24h）**，
    `smallStats` 留空但把 `IsValid()` 依赖去掉，避免 `openSmallSpread*` 那条支路悬空。
 
+> **2026-09-29 已落地（采用更强的方案）**：`RiskManager::CheckSpreadNoRegression` 已重写，
+> 完全弃用 `openSmallSpread*` / `smallStats` 判据，改为复用执行端的平仓阈值
+> （新增 `SignalGenerator::CloseSpreadReached`，与 `CheckSignalForSatisfy` 的
+> ttCL / mtCL / ttCS / mtCS 同源同轴同成本口径），并加了 `minHoldDurationUs` 最短持有期。
+> 原先"补生产者"这条路不必再走：它既解决不了轴错配（原判据把多空两个方向的平仓轴互换了），
+> 也解决不了重启后基准丢失。`smallStats` / `UpdateSmallStats` / `CaptureOpenSpreadSnapshot`
+> 现在是**只写不读**的死代码，快照里的两列暂留以保持列布局，待格式统一迁移时一并删除。
+> 详见 `docs/restart_recovery_design.md` §5.5。
+
 ---
 
 ## 八、建议落地顺序

@@ -283,9 +283,9 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 | # | 分组 | 字段 | 为什么交易所给不了 |
 |---|---|---|---|
 | 1 | **持仓账本** | `pairTotalVolume`、`pairActiveTotalPrice`、`pairPassiveTotalPrice` | 唯一写入方是算法单回调（`UpdateOnAlgoOrder:296-298`，只写这 3 个）。`pairTotalVolume` **就是主动腿持仓**，平仓与四条风控全建立在它上面（见 §5.3.1）。注意它**没有**持久化路径以外的来源：算法单不落盘 |
-| 2 | **建仓基准** | `openSmallSpreadBidBidUQ`、`openSmallSpreadAskAskDQ` | 是"建仓那一刻"的 1h 分位数快照（`CaptureOpenSpreadSnapshot:904-916`，只在 `wasFlat → HasPosition` 那一次取）。`smallStats` 是进程内滚动窗口，重启后从零积累，取不回建仓时的值 |
+| 2 | **建仓基准** ~~`openSmallSpreadBidBidUQ`、`openSmallSpreadAskAskDQ`~~ | ⚠️ **2026-09-29 起已无人读取**。原先的"建仓那一刻的 1h 分位数快照"（`CaptureOpenSpreadSnapshot`，只在 `wasFlat → HasPosition` 那一次取）有两个致命问题：`smallStats` 全工程没有生产者（`UpdateSmallStats` 零调用者）→ 恒为 NaN → `isnan` 哨兵永不触发；且轴错配（多头比 `spreadAskAsk`、空头比 `spreadBidBid`，正好是对方方向的平仓轴）。"价差不回归"已改为复用执行端平仓阈值（`SignalGenerator::CloseSpreadReached`）。这两列**暂留仅为保持列布局**，待格式统一迁移时删除 |
 | 3 | **风控档位** | `adlClose` / `spreadNoRegression` / `fundingAbnormal` 各 6 个字段（`triggered`、`currentTier`、`startTime`、`tier1Times`、`tier2Times`、`tier3Times`） | 是"强平档位"的**跨轮次累积**状态（`AdvanceTier:43-60`、`OnAlgoFinished:318-332`、`GetCurrentTier:6-40`）。丢了 → 档位从 tier1 重来、`startTime` 归零让 `elapsed` 从 0 起算，等于每次重启都把风控的耐心重置一遍 |
-| 4 | **风控计时起点** | `positionExceedThresholdStartTime`、`spreadNoRegressionStartTime` | 同上，是"持仓超时 / 价差不回归"的计时起点（`RiskManager.cpp:104/112-113/163/195-196/311-312`）。丢了 = 时钟重置，4 天门槛要重新等 |
+| 4 | **风控计时起点** | `positionExceedThresholdStartTime`、`spreadNoRegressionStartTime` | 同上，是"持仓超时 / 价差不回归"的计时起点（`RiskManager.cpp:104/112-113/163/195-196/311-312`）。丢了 = 时钟重置，4 天门槛要重新等。**注意 `positionStartTime`（2026-09-29 新增，最短持有期门槛）刻意不进快照** —— 它是运行态字段，重启后重新起算，方向是"推迟风控"，落在安全侧 |
 | 5 | **运维意图** | `autoFlag`、`stopFlag`、`closeFlag`、`profitPct` | 由 `ApplyCommand`（`PairInfoManager.cpp:466-506`）写入，是运维指令，没有任何自愈路径 |
 | 6 | **错误态** | `errorFlag` | 由 `CheckExposureAbnormal:416` 写入，语义是"该对子判死、留人工处理"。清除方 = `PairCmd_RESUME`（`PairInfoManager.cpp:481-490`，本次新增，见 §5.5）→ 不存的话，重启会让一个已判死的对子静默复活 |
 | 7 | **上一轮残留标记** | `hasActiveAlgoOrder`、`currentAlgoOrderId` | **只用于启动告警**（见 5.4）。重启后 `alogOrderManager` 是空的，恢复 id 本身没有意义 |
@@ -327,6 +327,7 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 | `profitSwitch` | 0 写入 → 恒 `true`（读于 `SignalGenerator.cpp:54/74/93/113`） |
 | `AbnormalCloseState::lastPositionValue` | 0 写入 |
 | k 线统计 8 个（`activeDailyAmount` / `activeOI` / `activeMeanClose` / …） | `UpdateKlineStats` 全仓库无调用者 |
+| `smallStats` + `UpdateSmallStats` + `CaptureOpenSpreadSnapshot` | **2026-09-29 起确认是死链**：`UpdateSmallStats`（`PairInfoManager.cpp:415`）零调用者 → `smallStats` 恒无效 → `CaptureOpenSpreadSnapshot` 的 `IsValid()` 守卫永远早退 → `openSmallSpread*` 恒 NaN。原先唯一读取方 `CheckSpreadNoRegression` 已改用 `SignalGenerator::CloseSpreadReached`。可整体删除（含快照 2 列） |
 | `riskCloseOrderInFlight` | 重启后必然没有在途单，恒 false |
 | `activeLiquidStatus`、`passiveLiquidStatus` | **有**写入，但由 `liquidPrice`/`markPrice` 算出（`UpdateSideLiquidStatus:243-261`）→ 随推送自愈，不用存 |
 
@@ -899,6 +900,19 @@ C++ 侧建议改成**一次性**：
 4. **孤儿单中期动作**：在途单 id 持久化 + 启动撤单，什么时候做（§5.4）？
 5. **`pairActiveTotalPrice` / `pairPassiveTotalPrice` 保不保？** 本次实现的选择是：
    **交易所空仓时复位成 `-1.0`；仍持仓时保留快照值**（§5.2.3）。认可吗？
+
+**已解决（2026-09-29）**：`CheckSpreadNoRegression` 的"永远无条件强平"缺陷。原判据依赖
+`smallStats`/`openSmallSpread*`（无生产者 + 轴错配）→ `isRegressed` 恒 false → 持仓满 24h
+必然强平。已重写为复用执行端平仓阈值（`SignalGenerator::CloseSpreadReached`，与
+`CheckSignalForSatisfy` 的 ttCL/mtCL/ttCS/mtCS 同源同轴同成本口径），并新增
+`RiskConfig::minHoldDurationUs`（默认 1h）最短持有期门槛 —— 未满最短持有期一律不触发，
+且**不启动**"连续未回归"计时。验证：`/tmp/riskcheck/spread_regress.cpp`（22 项断言全过，
+编译真实 `RiskManager.cpp` + `SignalGenerator.cpp`）。
+
+**顺带查出的两个新缺陷（未修）**：见 `docs/ancestor_pair_trading_gateio_review.md` 第七节后的批注
+与 `.workbuddy-ai/memory/2026-09-29.md` —— ① `OnAlgoFinished` 对**任何**终态算法单都
+`incrTimes`，普通单会污染已平息的风控档位；② `CheckADLRisk` / `CheckFundingAbnormal`
+没有"条件消失就复位"分支。
    —— 残余风险是"宕机期间被平掉又重开"时均价陈旧，需要人工看一眼 `LOG_ERROR`。
 6. **上线回归重点**：`Position` 路修好后，`CheckExposureAbnormal` / `SignalGenerator:139` /
    `ProcessModify:545` 三条**原本不可达**的路径同时变活（§5.3.4）。需要确认它们的阈值在真实

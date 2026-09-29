@@ -280,4 +280,33 @@ bool SignalGenerator::CanClose(const PairInfo& pi, std::string& reason) const {
     return true;
 }
 
+bool SignalGenerator::CloseSpreadReached(const PairInfo& pi) const {
+    if (!pi.HasPosition() || !pi.rtSpread.valid) {
+        return false;
+    }
+
+    const auto& op = pi.orderParams;
+    const auto& rt = pi.rtSpread;
+
+    // 与 CheckSignalForSatisfy(:176-177) 完全同源的成本口径
+    const double F_tt = CalcExecCost(true);
+    const double F_mt = CalcExecCost(false);
+
+    // 四个平仓分支逐字对应 CheckSignalForSatisfy 的 ttCL / mtCL / ttCS / mtCS。
+    // 刻意**不**带 vol 条件（op.ttCLEndVolume 那一类）：
+    // 那些条件判的是"还有没有仓位可平"，与"价差有没有回归"是两件事；
+    // 风控这里只问后者，前者由 CanClose / HasPosition 负责。
+    if (pi.IsLong()) {
+        return (rt.spreadAskBid - F_tt > op.ttCLStartSpread) ||
+               (rt.spreadBidBid - F_mt > op.mtCLStartSpread);
+    }
+
+    if (pi.IsShort()) {
+        return (rt.spreadBidAsk + F_tt < op.ttCSStartSpread) ||
+               (rt.spreadAskAsk + F_mt < op.mtCSStartSpread);
+    }
+
+    return false;
+}
+
 }

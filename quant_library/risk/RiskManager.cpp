@@ -1,4 +1,5 @@
 #include "RiskManager.h"
+#include "../signal/SignalGenerator.h"
 
 namespace pt {
 
@@ -60,8 +61,10 @@ namespace pt {
     }
 
 
-    // 对于持有多头仓位：平仓条件为spreadAskAsk > ttCLStartSpread
-    // 让步：降低ttCLStartSptred(接受更低的价差也平仓)。
+    // 对于持有多头仓位：平仓条件是 spreadAskBid - F_tt > ttCLStartSpread
+    //   （或 spreadBidBid - F_mt > mtCLStartSpread），见 SignalGenerator::CheckSignalForSatisfy。
+    //   ⚠️ 原先这里写的是 spreadAskAsk / ttCLStartSpread，轴写错了：ttCL 走 spreadAskBid。
+    // 让步：降低 ttCLStartSpread（接受更低的价差也平仓）。
     // 返回值是**绝对价差**让利幅度（量纲与 orderParams 里的 StartSpread 一致，
     // 调用方直接做 *pStartSpread -= forgoProfit），不是利润比例。
     // 注：pi 目前未参与计算，保留形参是为了后续按持仓/波动缩放让利幅度。
@@ -138,29 +141,47 @@ namespace pt {
     }
 
 
-    // 持仓后价差持续未回归1天-》渐进式平仓
-    // 回归判断：当前实时价差越过建仓时的小周期分位数（说明价差已经回到开仓时的有利侧）
+    // 持仓后价差持续未回归 -> 渐进式平仓
     //
-    // ⚠️ 与祖先的差异（有意保留，2026-09-26 确认）：
-    //   祖先 cc_pricespread_gb_ltp.py:896-898 的 unqualified_spread_flag 用的是
-    //   **腿价比偏离**（|positionValue| > target_amount*5 且
-    //   pairPassiveTotalPrice/pairActiveTotalPrice - 1 偏离 ∓0.0003），
-    //   而且它的用途是"禁止开仓 + 压掉开仓开关"（:906/:966/:1069），**不是强平**。
-    //   这里保留分位数判据、并把它用作 1 天后的强平触发，是 C++ 侧的设计。
+    // 「回归」的定义（2026-09-29 重写）：**当前已经满足"按价差平仓"的条件**，
+    //   即 SignalGenerator::CloseSpreadReached —— 与 CheckSignalForSatisfy 的
+    //   ttCL / mtCL / ttCS / mtCS 四个分支同源、同轴、同成本口径。
     //
-    // ⚠️ 依赖 openSmallSpread* 两个字段：
-    //   它们是建仓瞬间的快照，由 PairTradingContext::CaptureOpenSpreadSnapshot 写、
-    //   完全平仓时由 OnAlgoFinished 复位成 NAN。这两个字段原先在 PairInfo 里没有初值
-    //   （栈上垃圾），垃圾只要不是 NaN 就会让下面的 isnan 哨兵失效 ——
-    //   快照永不写入，且拿垃圾基准判"是否回归"。已在 PairInfo.h 里显式初始化为 NAN。
+    // 为什么弃用原来的 openSmallSpread* / smallStats 判据：
+    //   ① smallStats 全工程没有生产者（PairInfoManager::UpdateSmallStats 零调用者），
+    //      于是 CaptureOpenSpreadSnapshot 的 smallStats.IsValid() 守卫永远早退、
+    //      openSmallSpread* 恒为 NaN，下面两处 isnan 哨兵都进不去 —— isRegressed
+    //      恒为 false，这条风控实际退化成了"持仓满 spreadNoRegressionDuration
+    //      就无条件下强平"，与价差是否回归、是否盈利完全无关；
+    //   ② 即使补上生产者，原来的轴也是错的：IsLong 比 spreadAskAsk、IsShort 比
+    //      spreadBidBid，正好是**对方方向**的平仓轴（多头平仓走 ttCL=spreadAskBid /
+    //      mtCL=spreadBidBid；空头平仓走 ttCS=spreadBidAsk / mtCS=spreadAskAsk）；
+    //   ③ 祖先 Python 根本没有这条风控（cc_pricespread_gb_ltp.py 全仓库
+    //      grep regress/force_close 零命中），其平仓条件全是"价差已经变好"；
+    //      而 openSmallSpread* 的来源 *_q_open（:702/:708/:778-779）是**开仓**阈值，
+    //      用途是把开仓门槛收紧到分位数以内，不是平仓基准。
     //
-    // ⚠️ 已知口径问题（未改）：这里的轴是 spreadAskAsk / spreadBidBid，
-    //   而平仓触发价差用的轴是 ttCL=spreadAskBid、mtCL=spreadBidBid、ttCS=spreadBidAsk、
-    //   mtCS=spreadAskAsk —— 与 ttCL/ttCS 并不同轴，只是近似。
+    // 现在的语义：持仓达到 minHoldDurationUs 之后，**连续** spreadNoRegressionDuration
+    //   都没能满足"按价差平仓"的条件 -> 渐进式平仓。
+    //   一旦某一 tick 观察到已满足（价差回归 / 已可止盈），计时清零并复位档位。
     RiskCheckResult RiskManager::CheckSpreadNoRegression(PairInfo& pi, int64_t nowUs) const {
         RiskCheckResult r;
         if (!pi.HasPosition()) {
+            pi.positionStartTime = 0;
             pi.spreadNoRegressionStartTime = 0;
+            return r;
+        }
+
+        // 持仓起点：第一次观察到有持仓（含建仓中的部分成交）的时刻
+        if (pi.positionStartTime == 0) {
+            pi.positionStartTime = nowUs;
+        }
+
+        // 最短持有期：不足则一律不触发，且**不启动**下面的"连续未回归"计时。
+        // 必须放在回归判断之前 —— 建仓瞬间价差必然还没到平仓阈值，若从这一刻就开始
+        // 跑表，持有期会被缩成 0，等于"刚开仓，24h 后无条件强平"。
+        // 它同时是重启后的宽限期：positionStartTime 是运行态、重启重新起算。
+        if (nowUs - pi.positionStartTime < m_cfg.minHoldDurationUs) {
             return r;
         }
 
@@ -168,21 +189,14 @@ namespace pt {
             return r;
         }
 
-        // 判断价差是否回归；回归=越过平仓阈值方向
-        bool isRegressed = false;
-        if (pi.IsLong()) {
-            // 多头持仓：若spreadAskAsk 已超过小周期askAskUQ, 说明价差回归
-            if (!std::isnan(pi.openSmallSpreadAskAskDQ)) {
-                isRegressed = pi.rtSpread.spreadAskAsk > pi.openSmallSpreadAskAskDQ;
-            }
-        } else if (pi.IsShort()) {
-            // 空头持仓：若spreadBidBid 已低于小周期bidBidDQ, 说明价差回归
-            if (!std::isnan(pi.openSmallSpreadBidBidUQ)) {
-                isRegressed = pi.rtSpread.spreadBidBid < pi.openSmallSpreadBidBidUQ;
-            }
+        // orderParams 派生自 largeStats；统计还没建立时阈值是默认 0，
+        // 拿它判"是否回归"没有意义 -> 不启动计时（等价于这条风控暂缓）
+        if (!pi.largeStats.IsValid()) {
+            return r;
         }
 
-        if (isRegressed) {
+        // 回归 = 已经能满足按价差平仓的条件（与执行端同源同轴）
+        if (SignalGenerator::Instance().CloseSpreadReached(pi)) {
             pi.spreadNoRegressionStartTime = 0;
             if (pi.spreadNoRegression.triggered) {
                 // 价差已回归，重置风控状态
@@ -193,11 +207,11 @@ namespace pt {
 
         // 价差未回归，开始/继续计时
         if (pi.spreadNoRegressionStartTime == 0) {
-           pi.spreadNoRegressionStartTime = nowUs;
-           return r; 
+            pi.spreadNoRegressionStartTime = nowUs;
+            return r;
         }
 
-        int64_t noRegressionDuration = nowUs - pi.spreadNoRegressionStartTime;
+        const int64_t noRegressionDuration = nowUs - pi.spreadNoRegressionStartTime;
         if (noRegressionDuration < m_cfg.spreadNoRegressionDuration) {
             return r;
         }
@@ -310,6 +324,10 @@ namespace pt {
 
             pi.positionExceedThresholdStartTime = 0;
             pi.spreadNoRegressionStartTime = 0;
+            pi.positionStartTime = 0;
+            // openSmallSpread* 自 2026-09-29 起已无人读取（"价差不回归"改用
+            // SignalGenerator::CloseSpreadReached），这里保留复位只是为了
+            // 不改变快照列布局；待快照格式统一迁移时一并删掉。
             pi.openSmallSpreadBidBidUQ = NAN;
             pi.openSmallSpreadAskAskDQ = NAN;
             return;

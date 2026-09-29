@@ -262,6 +262,12 @@ namespace pt {
         int64_t positionExceedThresholdStartTime{0}; // 持仓阈值开始时间
         int64_t spreadNoRegressionStartTime{0};    // 价差不会归开始时间
 
+        // 持仓起点（第一次观察到有持仓的时刻，含建仓中的部分成交）。
+        // 只用于"价差不回归"的最短持有期门槛，0 = 当前无持仓。
+        // **运行态字段，不进快照**：重启后重新起算 —— 方向是"推迟风控"，落在安全侧。
+        // 与 positionExceedThresholdStartTime 同样是运行态、同样不进快照，保持一致。
+        int64_t positionStartTime{0};
+
         // 当前在跑的算法单是不是 ProcessRisk 发出去的风控强平单。
         // 用途只有一个：让 ProcessRisk 别在报单后的下一个 tick 就把自己刚发的强平单撤掉。
         // ProcessRisk 的写法是"对子被算法单占着就先撤掉它、下一轮再报强平单"，
