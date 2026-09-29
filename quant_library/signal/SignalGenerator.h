@@ -51,7 +51,7 @@ struct SignalResult {
     bool mtOSSignal{false};
     bool mtCLSignal{false};
     bool mtCSSignal{false};
-    std::string firstSignalDesc;
+    //std::string firstSignalDesc;
 };
 
 

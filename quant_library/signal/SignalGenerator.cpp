@@ -125,15 +125,10 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     op.mtOLSwitch = canOpenLong && pi.autoFlag;
     op.mtOSSwitch = canOpenShort && pi.autoFlag;
 
-
     // 始终开启，除非stopFlag且无持仓
     op.ttCLSwitch = op.ttCSSwitch = true;
     op.mtCLSwitch = op.mtCSSwitch = true;
 
-    if (!pi.autoFlag) {
-        op.ttOLSwitch = op.ttOSSwitch = false;
-        op.ttCLSwitch = op.ttCSSwitch = false;
-    }
 
     // 流动性风险，禁止开仓
     if (pi.activeLiquidStatus > 0 || pi.passiveLiquidStatus > 0 || pi.activeMarginStatus > 0 || pi.passiveMarginStatus > 0) {

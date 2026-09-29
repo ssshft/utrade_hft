@@ -1043,8 +1043,7 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
         if (!TryReconcile(nowUs)) {
             return;
         }
-        LOG_WARN("启动闸门: Reconciling -> Trading，交易放行（耗时 {}ms）",
-                 (nowUs - m_startupTimeUs) / 1000);
+        LOG_WARN("启动闸门: Reconciling -> Trading, 交易放行(耗时 {}ms)", (nowUs - m_startupTimeUs) / 1000);
     }
 
     // 1. 重算报单量参数（每分钟）
@@ -1067,9 +1066,7 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
             SpreadStatsBuilder& builder = it->second.builder;
             builder.Prune(nowUs); // 先按 24h 窗口淘汰过期样本
 
-            const SpreadStats stats = builder.Build(m_cfg.quantileUp,
-                                                   m_cfg.quantileDn,
-                                                   static_cast<size_t>(m_cfg.spreadStatsMinSamples));
+            const SpreadStats stats = builder.Build(m_cfg.quantileUp, m_cfg.quantileDn, static_cast<size_t>(m_cfg.spreadStatsMinSamples));
             pim.UpdateLargeStats(pairKey, stats);
 
             sg.RecalcOrderParams(*pi);
