@@ -40,10 +40,6 @@ namespace pt {
 
 PairTradingContext* PairTradingContext::s_instance = nullptr;
 
-int64_t PairTradingContext::GenerateAlgoOrderId() {
-    return GenerateStrategyAlgoPairId();
-}
-
 PairTradingContext::PairTradingContext() = default;
 
 PairTradingContext::~PairTradingContext() {
@@ -703,7 +699,7 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->algoType = stra::AlgoType_PairTrading;
 
     // ---- 身份 / 币对 ----
-    pAlgoOrder->algoOrderId = GenerateAlgoOrderId();
+    pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
     pAlgoOrder->commandType = stra::CommandType_NEW;
     pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
     pAlgoOrder->insertTime = crypto::getCurrentTime();

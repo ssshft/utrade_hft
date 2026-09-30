@@ -87,9 +87,8 @@ void AlgoContext::SubmitAlgoOrder(BaseAlgoOrder* pAlgoOrder) {
     pAlgoOrder->commandType = stra::CommandType_TRADING;
     pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
     // 策略层已经分配好 algoOrderId 时沿用（PairInfoManager 用同一个 id 追踪算法单）
-    if (pAlgoOrder->algoOrderId == 0) {
-        pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
-    }
+
+    pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
     pAlgoOrder->Init(smc);
 
     alogOrderManager.InsertAlgoOrderByAlgoOrder(pAlgoOrder);
