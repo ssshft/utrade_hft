@@ -10,9 +10,15 @@
 ## 怎么跑
 
 ```bash
-./run.sh          # 编译并运行
-./run.sh -v       # 额外打开 -Wall -Wextra
+./run.sh              # 编译并运行
+./run.sh -v           # 额外打开 -Wall -Wextra
+CXX=g++-13 ./run.sh   # 指定编译器
 ```
+
+**编译器自动挑选**，顺序是 `$CXX` → `/usr/bin/g++` → `/usr/bin/c++` → `/usr/bin/clang++`
+→ PATH 上的 `g++` → `c++` → `clang++`；挑到后会打印用的是哪一个，并校验可执行
+（不合格会打印中文错误并 `exit 1`）。目标环境是 Ubuntu 服务器（g++ + 系统已装的三方库），
+macOS 上 clang++ 也能跑。
 
 期望输出结尾：
 
@@ -27,15 +33,22 @@ ALL PASS
 所有输入都是进程内手工构造的（`dbp::DbpTopic` / `DbpData` / `pubsub::Position` /
 `Balance` / `TotalAccount`），报单与撤单出口换成回调记账。
 
-编译产物只链两个系统库：
+编译产物只链标准库与 libc：
 
 ```
-$ otool -L "$TMPDIR/ptsuite_build/suite"
+$ ldd "$TMPDIR/ptsuite_build/suite"      # Linux
+	libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6
+	libm.so.6 => ...
+	libgcc_s.so.1 => ...
+	libc.so.6 => ...
+
+$ otool -L "$TMPDIR/ptsuite_build/suite" # macOS
 	/usr/lib/libc++.1.dylib
 	/usr/lib/libSystem.B.dylib
 ```
 
-唯一落盘副作用是 `/tmp/ptsuite/out/*.csv`（快照往返那几个用例）。
+唯一落盘副作用是 `/tmp/ptsuite/out/*.csv`（快照往返那几个用例，硬编码路径）。
+重复运行不会互相影响 —— 每次运行都会先覆写这些文件。
 
 ## 为什么需要一棵临时编译树
 
@@ -72,6 +85,27 @@ $ otool -L "$TMPDIR/ptsuite_build/suite"
 
 这样测的是**真实的类、真实的成员状态、真实的调用链**，而不是把方法体抄进 `.inc`
 （那种做法会随源码漂移）。代价是：`std` 头必须在宏生效之前先包含完。
+
+> `suite.cpp` 顶部那份 std 头清单是**刻意冗余**的。项目头（`PairTradingContext.h` /
+> `SignalGenerator.h` / `SpreadStatsBuilder.h` …）在宏生效期间被解析，它们内部还会
+> include 若干 std 头；如果那些 std 头此刻才第一次被包含，它们的内部实现就会在
+> `private` 已被改写成 `public` 的情况下解析。libc++ 上通常还能过，**libstdc++
+> （Ubuntu 的 g++）更容易炸**。所以宁多勿少，让项目头里的 include 全部命中 guard。
+
+## 移植到 Linux / g++
+
+脚本本身没有平台相关的东西，另外做了两件事：
+
+| 项 | 说明 |
+|---|---|
+| 编译器自动挑选 + 校验 | `$CXX` → `/usr/bin/g++` → `/usr/bin/c++` → `/usr/bin/clang++` → PATH 上的 `g++` → `c++` → `clang++`。挑到后打印并校验可执行，不合格报中文错误并退出。注意 **macOS 上 `/usr/bin/g++` 是 clang++ 的软链**，所以这个顺序两边都安全 |
+| `-pthread` | 编译时带上。本套件不用线程，但 `<atomic>` / 单例里的锁在 glibc 下可能要求它 |
+
+Ubuntu 上如果装了多个 g++（`g++-13` 等），用 `CXX=g++-13 ./run.sh` 显式指定。
+
+> **本机（macOS）无法验证 libstdc++ 那条构建路径** —— 这台机器上没有真的 GNU g++，
+> `/usr/bin/g++` 其实是 clang。所以上面那份"刻意冗余的 std 头清单"是否足够，
+> 要在 Ubuntu 服务器上跑一次 `./run.sh` 才算确认。
 
 ## 覆盖范围
 

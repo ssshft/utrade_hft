@@ -24,26 +24,50 @@
 // =============================================================================
 
 #include <algorithm>
+#include <array>
+#include <bitset>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <exception>
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <iostream>
+#include <iterator>
+#include <limits>
+#include <list>
 #include <map>
+#include <memory>
+#include <numeric>
+#include <optional>
+#include <random>
+#include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <sys/stat.h>
+#include <tuple>
+#include <type_traits>
+#include <typeinfo>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+// ⚠️ `#define private public` 必须在**所有 std 头包含完之后**才生效。
+//    原因：项目头（PairTradingContext.h / SignalGenerator.h / SpreadStatsBuilder.h …）
+//    会在宏生效期间被解析，它们内部还会 include 若干 std 头；如果那些 std 头此刻才第一次
+//    被包含，它们的内部实现就会在 `private` 被改写成 `public` 的情况下解析 ——
+//    libc++ 上通常还能过，libstdc++（Ubuntu 服务器用的 g++）更容易炸。
+//    所以这里先把 std 头**一次包含足**，让项目头里的 include 全部命中 include guard。
+//    上面这份清单是「按需 + 冗余」的：不要求精确，多包含几个没有代价。
 #define private public
 #include "algo/PairTradingContext.h"
 #undef private
@@ -1883,7 +1907,9 @@ int main() {
     // 固定配置，让成本口径可预测
     SignalGenerator::Instance().SetConfig(FeeSlippageConfig{});
     RiskManager::Instance().SetConfig(RiskConfig{});
-    ::mkdir("/tmp/ptsuite/out", 0755);
+    // 快照用例的输出目录。强转 void：glibc 的 mkdir 可能带 warn_unused_result，
+    // g++ -Wall 下会报 "ignoring return value"。
+    (void)::mkdir("/tmp/ptsuite/out", 0755);
 
     TestA_Create();
     TestB_Open();
