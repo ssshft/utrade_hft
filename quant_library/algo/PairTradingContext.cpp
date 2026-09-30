@@ -30,6 +30,7 @@
 
 #include "PairTradingContext.h"
 #include "basic/DataStruct.h"
+#include "basic/Utility.h"
 #include "basic/AlgoPairOrder.h"
 #include <atomic>
 #include <algorithm>
