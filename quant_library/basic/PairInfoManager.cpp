@@ -328,7 +328,7 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
 
         // ---- 上一轮残留标记（只用于启动告警，见 §5.4）----
         p.hasActiveAlgoOrder = ParseBool(f[31], false);
-        p.currentAlgoOrderId = ParseI64(f[32], 0);
+        p.currentAlgoOrderId = ParseI64(f[32], 0, "currentAlgoOrderId", pk);
         p.modifyTime = crypto::getCurrentTime();
 
         ++restored;
@@ -536,7 +536,7 @@ void PairInfoManager::UpdateOnAlgoOrder(const std::string& pairKey, double volum
     pi->modifyTime = crypto::getCurrentTime();
 }
 
-void PairInfoManager::SetActiveAlgoOrder(const std::string& pairKey, int4_t algoOrderId) {
+void PairInfoManager::SetActiveAlgoOrder(const std::string& pairKey, int64_t algoOrderId) {
     auto* pi = GetPairInfo(pairKey);
     if (!pi) {
         return;
