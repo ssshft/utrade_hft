@@ -12,6 +12,8 @@ AlgoPairOrder::AlgoPairOrder() : BaseAlgoOrder() {
 PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId) {
     PairOrder pairOrder;
     if (fundVerifyFailedFlag && (tradingTypeOffset == stra::OPEN_SHORT || tradingTypeOffset == stra::OPEN_LONG)){
+        LOG_WARN("未报单: 验资失败标记 fundVerifyFailedFlag 为真，本次禁止开仓 tradingTypeOrder:{} tradingTypeOffset:{} pairInstrumentKey:{}",
+                 stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], pairInstrumentKey);
         return pairOrder;
     }
 
@@ -521,6 +523,8 @@ PairOrder AlgoPairOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, 
 
     targetVolume = round(targetVolume / activeInfo.lotSize) * activeInfo.lotSize;
     if (targetVolume < stra::MIN_FLOAT) {
+        LOG_WARN("未报单: 取整后报单量 {} < 最小报单量，放弃本次报单 tradingTypeOrder:{} tradingTypeOffset:{} activeInstrumentKey:{}",
+                 targetVolume, stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], activeInstrumentKey);
         return pairOrder;
     }
     
@@ -647,7 +651,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (ttCSSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
             } else {
-                //LOG_INFO("");
+                LOG_INFO("未报单: TAKER_TAKER: 开空/平空开关均关闭(ttOSSwitch/ttCSSwitch 都为 false) -> 不报单");
             }
         } else if (expectVolume <= -minVolume + stra::MIN_FLOAT) {
             if (ttOLSwitch && ttCLSwitch) {
@@ -660,7 +664,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (ttCLSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
             } else {
-               // LOG_INFO("");
+                LOG_INFO("未报单: TAKER_TAKER: 开多/平多开关均关闭(ttOLSwitch/ttCLSwitch 都为 false) -> 不报单");
             }
         } else {
             if (ttOSSwitch) {
@@ -684,7 +688,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (mtCSSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
             } else {
-                //LOG_INFO("");
+                LOG_INFO("未报单: MAKER_TAKER: 开空/平空开关均关闭(mtOSSwitch/mtCSSwitch 都为 false) -> 不报单");
             }
         } else if (expectVolume <= -minVolume + stra::MIN_FLOAT) {
             if (mtOLSwitch && mtCLSwitch) {
@@ -697,7 +701,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             } else if (mtCLSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
             } else {
-                //LOG_INFO("");
+                LOG_INFO("未报单: MAKER_TAKER: 开多/平多开关均关闭(mtOLSwitch/mtCLSwitch 都为 false) -> 不报单");
             }
         } else {
             if (mtOSSwitch) {

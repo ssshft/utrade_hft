@@ -229,7 +229,10 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
         return;
     }
 
-    LOG_INFO("");
+    LOG_INFO("信号触发，准备派发算法单: pairInstrumentKey:{} canOpen:{} canClose:{} reason:{} ttCL:{} ttCS:{} ttOL:{} ttOS:{} mtCL:{} mtCS:{} mtOL:{} mtOS:{}",
+             pi.pairInstrumentKey, canOpen, canClose, reason,
+             sig.ttCLSignal, sig.ttCSSignal, sig.ttOLSignal, sig.ttOSSignal,
+             sig.mtCLSignal, sig.mtCSSignal, sig.mtOLSignal, sig.mtOSSignal);
 
     // 优先级 平仓 > 开仓
     if (sig.ttCLSignal && canClose) {
@@ -626,6 +629,8 @@ void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMo
     // 直接创建算法单对象（不再拼 JSON 字符串），创建失败返回 nullptr
     BaseAlgoOrder* pAlgoOrder = BuildAlgoOrderJson(pi, algoMode, direction, forgoProfit);
     if (pAlgoOrder == nullptr) {
+        LOG_WARN("算法单创建失败: BuildAlgoOrderJson 返回 nullptr -> 本次不报单 pairKey:{} algoMode:{} direction:{} forgoProfit:{}",
+                 pi.pairInstrumentKey, algoMode, direction, forgoProfit);
         return;
     }
 
@@ -685,6 +690,8 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
 
     // 2. 开关校验：正常开仓必须开关打开；平仓（含风控强平）不受开关限制
     if (!sw && !isClose && forgoProfit == 0.0) {
+        LOG_INFO("算法单创建失败: 开仓开关关闭且非平仓且无让利 -> 不报单 pairKey:{} algoMode:{} direction:{} switch:{} forgoProfit:{}",
+                 pi.pairInstrumentKey, algoMode, direction, sw, forgoProfit);
         return nullptr;
     }
 

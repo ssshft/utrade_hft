@@ -15,6 +15,8 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     // 这里需要进行改造, 按照持仓量与盈利参数计算目标报价
     PairOrder pairOrder;
     if (fundVerifyFailedFlag && (tradingTypeOffset == stra::OPEN_SHORT || tradingTypeOffset == stra::OPEN_LONG)){
+        LOG_WARN("未报单: 验资失败标记 fundVerifyFailedFlag 为真，本次禁止开仓 tradingTypeOrder:{} tradingTypeOffset:{} pairInstrumentKey:{}",
+                 stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], pairInstrumentKey);
         return pairOrder;
     }
     double expectActiveVolume = GetExpectActiveVolume();
@@ -369,6 +371,8 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
 
     targetVolume = round(targetVolume / activeInfo.lotSize) * activeInfo.lotSize;
     if (targetVolume < stra::MIN_FLOAT) {
+        LOG_WARN("未报单: 取整后报单量 {} < 最小报单量，放弃本次报单 tradingTypeOrder:{} tradingTypeOffset:{} activeInstrumentKey:{}",
+                 targetVolume, stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], activeInstrumentKey);
         return pairOrder;
     }
 

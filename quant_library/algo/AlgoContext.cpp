@@ -80,6 +80,7 @@ void AlgoContext::SetDbp(dbp::DbpReader* dbp) {
 // 注册策略层直接创建好的算法单对象（不再拼 JSON 字符串）
 void AlgoContext::SubmitAlgoOrder(BaseAlgoOrder* pAlgoOrder) {
     if (pAlgoOrder == nullptr) {
+        LOG_ERROR("SubmitAlgoOrder: pAlgoOrder 为空 -> 算法单创建失败（上游构造返回了空指针）");
         return;
     }
 
@@ -92,6 +93,9 @@ void AlgoContext::SubmitAlgoOrder(BaseAlgoOrder* pAlgoOrder) {
     pAlgoOrder->Init(smc);
 
     alogOrderManager.InsertAlgoOrderByAlgoOrder(pAlgoOrder);
+    LOG_INFO("算法单创建: algoOrderId:{} algoType:{} pairInstrumentKey:{} pairTotalVolume:{} 主动腿:{} 被动腿:{}",
+             pAlgoOrder->algoOrderId, stra::AlgoTypeEnum2Str[pAlgoOrder->algoType], pAlgoOrder->pairInstrumentKey,
+             pAlgoOrder->pairTotalVolume, pAlgoOrder->activeInstrumentKey, pAlgoOrder->passiveInstrumentKey);
 
     string pubMsg = pAlgoOrder->GeneratePubStr();
     rLarkMsg.Push(pubMsg);
@@ -1024,7 +1028,7 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
             pairId = stoll(v[1]);
         }
         else {
-            //LOG_ERROR("wrong orderResponse: {}", orderResponse.getString());
+            LOG_WARN("OnOrder: strategyRef 解析失败，定位不到算法单/对子 -> 丢弃该回报 strategyRef:{}", orderResponse.strategyRef);
             return;
         }
 
@@ -1034,6 +1038,8 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
                 // 是配对单进行配对单的处理
                 PairOrder& pairOrder = pAlgoOrder->pairOrderMgr.SelectPairOrderByPairId(pairId);
                 if (pairOrder.pairId <= 0) {
+                    LOG_WARN("OnOrder: 回报找不到 pairOrder -> 丢弃 algoOrderId:{} pairId:{} clientOrderId:{}",
+                             pAlgoOrder->algoOrderId, pairId, orderResponse.clientOrderId);
                     return;
                 }
                 // 更新od_mgr与quant_order
@@ -1152,6 +1158,17 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
                 // 更新algo_order的ps_mgr与pair_order
                 pAlgoOrder->UpdateAlgoPairOrderByQuantOrder(quantOrder);
                 if (quantOrder.orderStatus == OS_FILLED|| quantOrder.orderStatus == OS_REJECTED || quantOrder.orderStatus == OS_CANCELED) {
+                    // 订单终结。报单被拒是"为什么没成交"的直接原因，单独提级。
+                    if (quantOrder.orderStatus == OS_REJECTED) {
+                        LOG_ERROR("报单被拒: algoOrderId:{} pairId:{} instrumentKey:{} strategyOrderId:{} 主动腿:{}",
+                                  pAlgoOrder->algoOrderId, pairOrder.pairId, quantOrder.instrumentKey,
+                                  quantOrder.strategyOrderId, quantOrder.isActiveOrder);
+                    } else {
+                        LOG_INFO("订单终结: algoOrderId:{} pairId:{} instrumentKey:{} status:{} strategyOrderId:{} 主动腿:{}",
+                                 pAlgoOrder->algoOrderId, pairOrder.pairId, quantOrder.instrumentKey,
+                                 OrderStatusEnum2StrMap[quantOrder.orderStatus], quantOrder.strategyOrderId,
+                                 quantOrder.isActiveOrder);
+                    }
                     // 订单完结解冻
                     //LOG_INFO("OnOrder start update algoPairOrderByDeleteQuantOrder!");
                     pAlgoOrder->UpdateAlgoPairOrderByDeleteQuantOrder(quantOrder);
@@ -1175,6 +1192,9 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
                     }
                 }
             }
+        } else {
+            LOG_WARN("OnOrder: 回报找不到算法单（可能已终结并删除）-> 丢弃 algoOrderId:{} strategyRef:{}",
+                     algoId, orderResponse.strategyRef);
         }
     } catch(StraException& e) {
         LOG_INFO("StraException in AlgoContext::OnOrder, error msg:{}", e.what());
@@ -1310,6 +1330,9 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
                             pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
+                            LOG_ERROR("算法单终结(卡单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单查询超 5 次仍无确认 orderStatus:{}",
+                                      it->second->algoOrderId, it->second->pairInstrumentKey,
+                                      OrderStatusEnum2StrMap[order.orderStatus]);
                             std::cout << "---stuck order----query error-----" << std::endl;
                         }
 
@@ -1345,6 +1368,8 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
                             pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
+                            LOG_ERROR("算法单终结(状态未知): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单 orderStatus 长期 OS_UNKNOWN 且查询超 5 次",
+                                      it->second->algoOrderId, it->second->pairInstrumentKey);
                             std::cout << "---unknown order----query error-----" << std::endl;
                         }
                     }
@@ -1377,6 +1402,8 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
                         pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
+                        LOG_INFO("算法单终结(剩余量不足不再报单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_FILLED，剩余量 {} < 最小报单量 {} 且无在途 pairOrder",
+                                 it->second->algoOrderId, it->second->pairInstrumentKey, orderAmount, minSize);
                         std::cout << "orderAmount < minSize && allPairOrders.size() == 0" << std::endl;
                     }
 
@@ -1396,6 +1423,8 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
                         pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
+                        LOG_INFO("算法单终结(剩余量不足不再报单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_FILLED，剩余量 {} < 最小报单量 {} 且无在途 pairOrder",
+                                 it->second->algoOrderId, it->second->pairInstrumentKey, orderAmount, it->second->activeInfo.minSize);
                         std::cout << "orderAmount < it->second->activeInfo.minSize && allPairOrders.size() == 0" << std::endl;
                     }    
                 }        
@@ -1460,6 +1489,8 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
+                LOG_INFO("算法单终结(撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELED，子单已全部清零",
+                         it->second->algoOrderId, it->second->pairInstrumentKey);
                 std::cout << "allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_CANCELLING" << std::endl;
             } else if (allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_ERRORCANCELLING) {  //需要考虑下这个状态的定义
                 it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
@@ -1468,6 +1499,8 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 rLarkMsg.Push(pubMsg);
                 deleteAlgoOrderFlag = true;
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
+                LOG_WARN("算法单终结(异常撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单已全部清零",
+                         it->second->algoOrderId, it->second->pairInstrumentKey);
                 std::cout << "allPairOrders.size() == 0" << std::endl;
             }
 

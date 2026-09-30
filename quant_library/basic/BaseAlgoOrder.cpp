@@ -432,6 +432,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                 if (nowTime - it->second.updateTime > 1000 * 10) {
                     bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                     if (cancel_flag) {
+                        LOG_INFO("撤单[算法单撤单中-清理在途主动腿]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                 algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                 OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                         orderMgr.UpdateOrderOnCancel(it->second);
 			            WriteQuantOrder(it->second, pdata);
                         // 撤单成功报出去才能更新！！
@@ -462,6 +465,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
 			                if ((it->second.direction == DT_LONG && it->second.price < pdata->activeBidPrice[0] - stra::MIN_FLOAT) || (it->second.direction == DT_SHORT && it->second.price > pdata->activeAskPrice[0] + stra::MIN_FLOAT)) {
                                 bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                                 if (cancel_flag) {
+                                    LOG_INFO("撤单[主动腿Maker-超时且主动价偏离]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                             algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                             OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                     orderMgr.UpdateOrderOnCancel(it->second);
                     		        WriteQuantOrder(it->second, pdata);
                                     // 撤单成功报出去才能更新！！
@@ -487,6 +493,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (passive_price_check) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[主动腿Maker-被动腿价格偏离]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -505,6 +514,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (active_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[主动腿Maker-主动腿价格偏离]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -516,6 +528,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (pdata->exchActiveTradeDelay > tradesDelayThreshold || pdata->exchPassiveTradeDelay > tradesDelayThreshold) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[主动腿Maker-大单成交延迟]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -528,6 +543,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (nowTime - it->second.updateTime > activeTakerCancelOrderTime){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[主动腿Taker-超时]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -552,6 +570,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (passive_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[主动腿Taker-被动腿价格偏离]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -570,6 +591,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (active_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[主动腿Taker-主动腿价格偏离]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -581,6 +605,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (pdata->exchActiveTradeDelay > tradesDelayThreshold || pdata->exchPassiveTradeDelay > tradesDelayThreshold) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[主动腿Taker-大单成交延迟]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -600,6 +627,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (nowTime - it->second.updateTime > passiveMakerCancelOrderTime){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[被动腿Maker-超时]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -616,6 +646,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (passive_price_check){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[被动腿Maker-被动腿价格偏离]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -629,6 +662,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (nowTime - it->second.updateTime > passiveTakerCancelOrderTime){
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[被动腿Taker-超时]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -645,6 +681,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         if (passive_price_check) {
                             bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                             if (cancel_flag) {
+                                LOG_INFO("撤单[被动腿Taker-被动腿价格偏离]: algoOrderId:{} pairId:{} instrumentKey:{} direction:{} orderType:{} price:{} volume:{} strategyOrderId:{}",
+                                         algoOrderId, it->second.pairId, it->second.instrumentKey, DirectionEnum2StrMap[it->second.direction],
+                                         OrderTypeEnum2StrMap[it->second.orderType], it->second.price, it->second.volume, it->second.strategyOrderId);
                                 orderMgr.UpdateOrderOnCancel(it->second);
 				                WriteQuantOrder(it->second, pdata);
                                 // 撤单成功报出去才能更新！！
@@ -828,14 +867,25 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
         bool verify = AccountManager::Instance().FundVerify(quant_order, pairOrder.passiveInfo);
         if (verify) {
             // 通过验资正常报单
+            LOG_INFO("报单: algoOrderId:{} algoPairId:{} pairId:{} instrumentKey:{} direction:{} offsetFlag:{} orderType:{} price:{} volume:{} strategyOrderId:{} reduceOnly:{} 主动腿:{}",
+                     algoOrderId, quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey,
+                     DirectionEnum2StrMap[quant_order.direction], OffsetFlagEnum2StrMap[quant_order.offsetFlag],
+                     OrderTypeEnum2StrMap[quant_order.orderType], quant_order.price, quant_order.volume,
+                     quant_order.strategyOrderId, quant_order.reduceOnly, quant_order.isActiveOrder);
             bool orderFlag = QuantTrade::Instance().CreateOrder(quant_order);
             string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
             dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
             WriteQuantOrder(quant_order, pdata);
             if (orderFlag) {
                 UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
+            } else {
+                LOG_ERROR("报单失败: algoOrderId:{} instrumentKey:{} strategyOrderId:{} -> CreateOrder 返回 false，未登记到算法单",
+                          algoOrderId, quant_order.instrumentKey, quant_order.strategyOrderId);
             }
         } else {
+            LOG_WARN("未报单(验资未通过): algoOrderId:{} algoPairId:{} pairId:{} instrumentKey:{} direction:{} price:{} volume:{} -> FundVerify 未通过，本次不报单",
+                     algoOrderId, quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey,
+                     DirectionEnum2StrMap[quant_order.direction], quant_order.price, quant_order.volume);
             char msg[stra::MSG_LEN];
             sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:{}, pairId:{} instrumentKey:{}", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey);
             rLarkMsg.Push(msg);

@@ -13,10 +13,13 @@ AlgoRebalanceOrder::AlgoRebalanceOrder() : BaseAlgoOrder() {
 PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId) {
     PairOrder pairOrder;
     if (fundVerifyFailedFlag && (tradingTypeOffset == stra::OPEN_SHORT || tradingTypeOffset == stra::OPEN_LONG)){
+        LOG_WARN("未报单: 验资失败标记 fundVerifyFailedFlag 为真，本次禁止开仓 tradingTypeOrder:{} tradingTypeOffset:{} pairInstrumentKey:{}",
+                 stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], pairInstrumentKey);
         return pairOrder;
     }
 
     if (activeTrade == -1) {
+        LOG_WARN("未报单: Rebalance activeTrade == -1（尚未确定主动腿方向）-> 不报单 pairInstrumentKey:{}", pairInstrumentKey);
         return pairOrder;
     }
 
@@ -223,7 +226,8 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
     }
 
     if (targetVolume < stra::MIN_FLOAT) {
-        LOG_INFO("");
+        LOG_INFO("未报单: 目标量 {} < 最小报单量，放弃本次报单 tradingTypeOrder:{} tradingTypeOffset:{} activeInstrumentKey:{}",
+                 targetVolume, stra::TradingTypeEnum2Str[tradingTypeOrder], stra::TradingTypeEnum2Str[tradingTypeOffset], activeInstrumentKey);
         return pairOrder;
     }
     
@@ -345,13 +349,13 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (ttCSSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
                 } else {
-                    LOG_INFO("");
+                    LOG_INFO("未报单: Rebalance 主动腿 TAKER_TAKER 平空开关(ttCSSwitch)关闭 -> 不报单");
                 }
             } else if (expectActiveVolume <= stra::MIN_FLOAT) {
                 if (ttCLSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
                 } else {
-                    LOG_INFO("");
+                    LOG_INFO("未报单: Rebalance 主动腿 TAKER_TAKER 平多开关(ttCLSwitch)关闭 -> 不报单");
                 }
             }
         }
@@ -360,13 +364,13 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (ttCLSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
                 } else {
-                    LOG_INFO("");
+                    LOG_INFO("未报单: Rebalance 被动腿 TAKER_TAKER 平多开关(ttCLSwitch)关闭 -> 不报单");
                 }
             } else if (expectPassiveVolume <= stra::MIN_FLOAT) {
                 if (ttCSSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
                 } else {
-                    LOG_INFO("");
+                    LOG_INFO("未报单: Rebalance 被动腿 TAKER_TAKER 平空开关(ttCSSwitch)关闭 -> 不报单");
                 }
             }
         }
@@ -376,13 +380,13 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (mtCSSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
                 } else {
-                    LOG_INFO("");
+                    LOG_INFO("未报单: Rebalance 主动腿 MAKER_TAKER 平空开关(mtCSSwitch)关闭 -> 不报单");
                 }
             } else if (expectActiveVolume <= stra::MIN_FLOAT) {
                 if (mtCLSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
                 } else {
-                    LOG_INFO("");
+                    LOG_INFO("未报单: Rebalance 主动腿 MAKER_TAKER 平多开关(mtCLSwitch)关闭 -> 不报单");
                 }
             }
         }
@@ -391,13 +395,13 @@ PairOrder AlgoRebalanceOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (mtCLSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_LONG, pairOrderId);
                 } else {
-                    LOG_INFO("");
+                    LOG_INFO("未报单: Rebalance 被动腿 MAKER_TAKER 平多开关(mtCLSwitch)关闭 -> 不报单");
                 }
             } else if (expectPassiveVolume <= stra::MIN_FLOAT) {
                 if (mtCSSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::CLOSE_SHORT, pairOrderId);
                 } else {
-                    LOG_INFO("");
+                    LOG_INFO("未报单: Rebalance 被动腿 MAKER_TAKER 平空开关(mtCSSwitch)关闭 -> 不报单");
                 }
             }
         }
@@ -584,7 +588,7 @@ void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder) {
         pairOrderMgr.DeletePairOrderByPairOrder(pairOrder);
     }
     else {
-        LOG_INFO("");
+        LOG_INFO("Rebalance 配对单未完结，继续交易 pairId:{} pairInstrumentKey:{}", pairOrder.pairId, pairInstrumentKey);
     }
  
 }

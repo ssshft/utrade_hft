@@ -64,7 +64,7 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
 
     }
 
-    LOG_INFO("");
+    LOG_INFO("PairInfoManager::Init 完成: 配置对子数:{} 已注册对子数:{}", m_pairKeys.size(), m_pairInfoMap.size());
 }
 
 
