@@ -40,15 +40,8 @@ namespace pt {
 
 PairTradingContext* PairTradingContext::s_instance = nullptr;
 
-int64_t PairTradingContext::NowUs() {
-    using namespace std::chrono;
-    return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
-}
-
 int64_t PairTradingContext::GenerateAlgoOrderId() {
-    static std::atomic<int64_t> seq{0};
-    int64_t id = NowUs() * 1000 + (seq.fetch_add(1) % 1000);
-    return id;
+    return GenerateStrategyAlgoPairId();
 }
 
 PairTradingContext::PairTradingContext() = default;
@@ -94,7 +87,7 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     // 快照最多是 10s 前的，且 pre_stop 不撤单 —— 直接开跑等于拿一本可能过期的账去下单。
     // 价差推送通常早于持仓推送，所以这里必须挡住，等 OnPosition 把两腿填上再放行。
     m_phase = StartupPhase::Reconciling;
-    m_startupTimeUs = NowUs();
+    m_startupTimeUs = crypto::getCurrentTime();
     m_lastReconcileWarnUs = m_startupTimeUs;
 
     // 上一轮有算法单未终结 -> 交易所侧可能仍有子单在成交，账本不可信（§5.4）
@@ -157,7 +150,7 @@ void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, cons
     // generateTs 是价差生成时间，单位 us（dbsnap.h: high_resolution_clock/1000），
     // 与 crypto::getCurrentTime() 同量纲，可直接和 Prune(nowUs) 比较；
     // 若上游没填（==0），退回本地时钟，避免 0 值把整窗样本顶掉
-    const int64_t ts = (pdata->generateTs > 0) ? pdata->generateTs : NowUs();
+    const int64_t ts = (pdata->generateTs > 0) ? pdata->generateTs : crypto::getCurrentTime();;
 
     auto it = m_spreadWindows.find(pairKey);
     if (it == m_spreadWindows.end()) {
@@ -213,7 +206,7 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
     // 此时 CheckSignalForSatisfy 与 CheckSignal 完全等价。
     const SignalResult sig = sg.CheckSignalForSatisfy(pi);
 
-    UpdateSatisfyTime(pi, sig, canOpen, canClose, NowUs());
+    UpdateSatisfyTime(pi, sig, canOpen, canClose);
 
     if (pi.hasActiveAlgoOrder) {
         return;
@@ -376,7 +369,7 @@ namespace {
     }
 }
 
-void PairTradingContext::UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose, int64_t nowUs) const {
+void PairTradingContext::UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose) const {
     // 祖先的三个 satisfy_time 写入点：
     //   open_satisfy_index（:922）  = 一大串开仓前置条件同时成立
     //   manual_index（:930）        = status==READY & auto_flag==False & !stop_flag
@@ -390,7 +383,7 @@ void PairTradingContext::UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig
     const bool manualReady = !pi.autoFlag && !pi.stopFlag;
 
     if (openSatisfied || closeSatisfied || manualReady) {
-        pi.satisfyTime = nowUs;
+        pi.satisfyTime = crypto::getCurrentTime();
     }
 }
 
@@ -643,7 +636,7 @@ void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMo
     // 报单即"参数已经推给算法单了"，把两个计时起点一起归零（详见头文件注释）：
     //   satisfyTime    供 CheckAlgoOrderTimeout 算"机会连续不成立"的时长
     //   algoModifyTime 供 ProcessModify 算"距上次推参数多久"
-    pi.satisfyTime = NowUs();
+    pi.satisfyTime = crypto::getCurrentTime();
     pi.algoModifyTime = pi.satisfyTime;
 
     // 交给 AlgoContext 注册：Init / 插入 algoOrderManager / 落库 / 订阅价差
@@ -948,7 +941,7 @@ void PairTradingContext::OnPosition(const pubsub::Position& position) {
     // 交易所通常不会为从未持有过的腿推零仓，只等 push 会永远等不到。
     // Init 之前不记（m_startupTimeUs == 0 时 BatchDoneAfterStart 的语义不成立）。
     if (position.isLast && m_startupTimeUs > 0) {
-        m_positionBatchDoneUs[position.accountId] = NowUs();
+        m_positionBatchDoneUs[position.accountId] = crypto::getCurrentTime();;
     }
 
     PairInfoManager::Instance().UpdateOnPosition(position);

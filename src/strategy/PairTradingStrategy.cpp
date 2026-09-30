@@ -10,9 +10,6 @@
 
 using namespace std::chrono;
 
-static int64_t NowUs() {
-    return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
-}
 
 PairTradingStrategy::PairTradingStrategy() {
     algoContext.SetTradeClient(tradeClient);

@@ -192,7 +192,7 @@ private:
     // 每 tick 对**每个**对子都算一次，与是否已有算法单无关；条件成立就把 pi.satisfyTime 刷成 nowUs。
     // 于是 satisfyTime 的含义是"最后一次机会成立的时间"，CheckAlgoOrderTimeout 用它算"连续不成立"的时长。
     // 祖先是在 pair_info 整个 DataFrame 上整列赋值，所以这里也不能只对有单的对子算。
-    void UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose, int64_t nowUs) const;
+    void UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose) const;
 
     // 撤单触发①：机会超时（祖先 :1021）。
     // nowUs - satisfyTime > algoOrderTimeoutMs 时请求撤单。
@@ -244,8 +244,6 @@ private:
 
     // 函数名沿用旧名，但已不再拼 JSON：直接创建算法单对象并返回，创建失败（开关关闭/报单量非法）返回 nullptr
     BaseAlgoOrder* BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;
-
-    static int64_t NowUs();
 
     // 算法单唯一ID：必须是纯数字，ScanFinishedAlgoOrders 会用 stoll(currentAlgoOrderId)
     // 还原成 int64 去 AlgoContext 的 alogOrderManager 里查算法单
