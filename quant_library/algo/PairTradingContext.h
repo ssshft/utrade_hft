@@ -14,7 +14,6 @@
 #include "../signal/SignalGenerator.h"
 #include "../signal/SpreadStatsBuilder.h"
 #include "../risk/RiskManager.h"
-
 #include <unordered_map>
 
 
