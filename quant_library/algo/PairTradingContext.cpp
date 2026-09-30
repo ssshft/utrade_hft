@@ -952,7 +952,7 @@ void PairTradingContext::OnPosition(const pubsub::Position& position) {
     }
 
     PairInfoManager::Instance().UpdateOnPosition(position);
-    PairInfoManager::Instance().UpdateLiquidStatus(position);
+    // PairInfoManager::Instance().UpdateLiquidStatus(position);
 }
 
 void PairTradingContext::OnBalance(const pubsub::Balance& balance) {
