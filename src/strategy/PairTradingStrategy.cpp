@@ -159,7 +159,7 @@ void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {
             continue;
         }
 
-        int64_t algoOrderIdInt = std::stoll(pi->currentAlgoOrderId);
+        int64_t algoOrderIdInt = pi->currentAlgoOrderId;
         BaseAlgoOrder* order = algoContext.GetAlgoOrder(algoOrderIdInt);
 
         if (!order) {

@@ -61,7 +61,7 @@
         // 算法单同步：执行端是唯一数据源，量 / 价直接覆盖（不做策略侧加权混合）
         void UpdateOnAlgoOrder(const std::string& pairKey, double volume, double activePrice, double passivePrice);
 
-        void SetActiveAlgoOrder(const std::string& pairKey, const char* algoOrderId);
+        void SetActiveAlgoOrder(const std::string& pairKey, int64_t algoOrderId);
 
         void ClearActiveAlgoOrder(const std::string& pairKey);
 

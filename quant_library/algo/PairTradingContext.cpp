@@ -337,21 +337,10 @@ void PairTradingContext::RequestCancelAlgoOrder(const PairInfo& pi) const {
         return;
     }
 
-    // currentAlgoOrderId 由 SetActiveAlgoOrder 写入，内容必须能还原成 int64
-    // （GenerateAlgoOrderId 生成的就是纯数字），这里和 ScanFinishedAlgoOrders 一样用 stoll
-    int64_t algoOrderId = 0;
-    try {
-        algoOrderId = std::stoll(pi.currentAlgoOrderId);
-    } catch (...) {
-        LOG_ERROR("RequestCancelAlgoOrder: bad currentAlgoOrderId:{} pairKey:{}",
-                  pi.currentAlgoOrderId, pi.pairInstrumentKey);
-        return;
-    }
-
     // 这里不打日志：ProcessRisk 每个 tick 都会走到这里，直到算法单终结、对子被释放为止，
     // 打日志会刷屏。真正发生状态跃迁的地方（AlgoContext::SubmitAlgoOrder 的 CANCEL 分支）
     // 已经有一条日志。
-    m_algoOrderModifyCb(algoOrderId, stra::CommandType_CANCEL, nullptr);
+    m_algoOrderModifyCb(pi.currentAlgoOrderId, stra::CommandType_CANCEL, nullptr);
 }
 
 // ---- 撤单触发条件（对齐祖先 cc_pricespread_gb_ltp.py:1015-1092）----
@@ -577,15 +566,6 @@ void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
         return;
     }
 
-    int64_t algoOrderId = 0;
-    try {
-        algoOrderId = std::stoll(pi.currentAlgoOrderId);
-    } catch (...) {
-        LOG_ERROR("ProcessModify: bad currentAlgoOrderId:{} pairKey:{}",
-                  pi.currentAlgoOrderId, pi.pairInstrumentKey);
-        return;
-    }
-
     // 祖先 :1063-1068：流动性危险时改用更激进的平仓参数，否则按最新行情重算
     const bool aggressiveClose = (pi.activeLiquidStatus == 2 || pi.passiveLiquidStatus == 2);
     stra::AlgoOrderModify mod = aggressiveClose ? BuildCloseModify(pi, m_cfg.modifyShiftPct)
@@ -608,7 +588,7 @@ void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
 
     LOG_INFO("ProcessModify: pairKey:{} algoOrderId:{} aggressiveClose:{} stopFlag:{} closeFlag:{} -> CommandType_MODIFY",
              pi.pairInstrumentKey, pi.currentAlgoOrderId, aggressiveClose, pi.stopFlag, pi.closeFlag);
-    m_algoOrderModifyCb(algoOrderId, stra::CommandType_MODIFY, &mod);
+    m_algoOrderModifyCb(pi.currentAlgoOrderId, stra::CommandType_MODIFY, &mod);
 }
 
 void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
@@ -624,11 +604,8 @@ void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMo
         return;
     }
 
-    // 先占住这个对子，避免算法单未结束时同一对子重复触发。
-    // 注意：这里存的 id 必须和算法单对象的 algoOrderId 一致（ScanFinishedAlgoOrders
-    //      会用 stoll(currentAlgoOrderId) 去 AlgoContext 里查这个算法单）
     auto& pim = PairInfoManager::Instance();
-    pim.SetActiveAlgoOrder(pi.pairInstrumentKey, std::to_string(pAlgoOrder->algoOrderId).c_str());
+    pim.SetActiveAlgoOrder(pi.pairInstrumentKey, pAlgoOrder->algoOrderId);
 
     // 报单即"参数已经推给算法单了"，把两个计时起点一起归零（详见头文件注释）：
     //   satisfyTime    供 CheckAlgoOrderTimeout 算"机会连续不成立"的时长
@@ -994,7 +971,7 @@ void PairTradingContext::OnAlgoOrderUpdate(BaseAlgoOrder* order) {
     // 只接受该对子"当前算法单"的回传。算法单终结后仍可能有子单回报走到
     // OnOrder -> PairOrderTrade；若不校验 ID，既会把已释放的对子重新结算一遍
     // （OnAlgoFinished 重复调用 -> 风控档位多加），也可能误释放后来新建的算法单。
-    if (std::to_string(order->algoOrderId) != std::string(pi->currentAlgoOrderId)) {
+    if (order->algoOrderId != pi->currentAlgoOrderId) {
         return;
     }
 

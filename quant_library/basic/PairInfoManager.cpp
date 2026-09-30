@@ -328,9 +328,7 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
 
         // ---- 上一轮残留标记（只用于启动告警，见 §5.4）----
         p.hasActiveAlgoOrder = ParseBool(f[31], false);
-        std::strncpy(p.currentAlgoOrderId, f[32].c_str(), sizeof(p.currentAlgoOrderId) - 1);
-        p.currentAlgoOrderId[sizeof(p.currentAlgoOrderId) - 1] = '\0';
-
+        p.currentAlgoOrderId = ParseI64(f[32], 0);
         p.modifyTime = crypto::getCurrentTime();
 
         ++restored;
@@ -538,13 +536,13 @@ void PairInfoManager::UpdateOnAlgoOrder(const std::string& pairKey, double volum
     pi->modifyTime = crypto::getCurrentTime();
 }
 
-void PairInfoManager::SetActiveAlgoOrder(const std::string& pairKey, const char* algoOrderId) {
+void PairInfoManager::SetActiveAlgoOrder(const std::string& pairKey, int4_t algoOrderId) {
     auto* pi = GetPairInfo(pairKey);
     if (!pi) {
         return;
     }
 
-    strncpy(pi->currentAlgoOrderId, algoOrderId, sizeof(pi->currentAlgoOrderId) - 1);
+    pi->currentAlgoOrderId = algoOrderId;
     pi->hasActiveAlgoOrder = true;
 }
 
@@ -554,7 +552,7 @@ void PairInfoManager::ClearActiveAlgoOrder(const std::string& pairKey) {
         return;
     } 
 
-    memset(pi->currentAlgoOrderId, 0, 128);
+    pi->currentAlgoOrderId = 0;
     pi->hasActiveAlgoOrder = false;
     // 算法单已终结，风控强平单的"在途"标记随之失效（ProcessRisk 会重新判断）
     pi->riskCloseOrderInFlight = false;

@@ -278,7 +278,7 @@ namespace pt {
         // 由 ProcessRisk 在报单成功后置位，PairInfoManager::ClearActiveAlgoOrder 清除。
         bool riskCloseOrderInFlight{false};
 
-        char currentAlgoOrderId[stra::ID_LEN]{""};
+        int64_t currentAlgoOrderId{0};
         bool hasActiveAlgoOrder{false};
 
         // ---- 启动对账用：该腿是否已收到过 pubsub::Position 推送 ----
