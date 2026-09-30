@@ -31,12 +31,8 @@
 
 using namespace std;
 
-// Swallow fmt-style arguments; proves the call sites compile without a formatter.
-template <typename... A> inline void log_sink(const char*, A&&...) {}
-#define LOG_DEBUG(...) log_sink(__VA_ARGS__)
-#define LOG_INFO(...)  log_sink(__VA_ARGS__)
-#define LOG_WARN(...)  log_sink(__VA_ARGS__)
-#define LOG_ERROR(...) log_sink(__VA_ARGS__)
+// LOG_DEBUG / LOG_INFO / LOG_WARN / LOG_ERROR 现在统一由 ext/log_engine.h 提供
+// （真实头也是从那里来的），这里不再重复定义。
 
 namespace stra {
     const double MIN_FLOAT = 0.0000000001;

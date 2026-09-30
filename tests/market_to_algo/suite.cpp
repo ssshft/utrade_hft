@@ -118,6 +118,22 @@ static const char* kPairKey = "BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE
 static const char* kActive = "BINANCE.USDT_SWAP.DOGE-USDT";
 static const char* kPassive = "GATEIO.USDT_SWAP.DOGE-USDT";
 
+// 合约信息。真实的 md::InstrumentInfo 字段很多（前 7 个是枚举和字符串），
+// 不能再用聚合初始化 {1.0, 0.0001, 0.1, 0} —— 那样会把 1.0 塞进 exchangeTypeEnum。
+// 改成按字段名赋值，顺序就和真实头无关了。
+static md::InstrumentInfo MakeInstrumentInfo(double value = 1.0,
+                                             double tickSize = 0.0001,
+                                             double minSize = 0.1,
+                                             int calcType = 0) {
+    md::InstrumentInfo info;
+    info.value = value;
+    info.tickSize = tickSize;
+    info.minSize = minSize;
+    info.calcType = calcType;
+    info.lotSize = tickSize;
+    return info;
+}
+
 // ---------------------------------------------------------------------------
 // 世界重置：PairInfoManager 是单例，测试之间必须清干净
 // （private 已被宏打开，可以直接清内部容器）
@@ -177,8 +193,8 @@ struct Fx {
 static void Boot(Fx& fx, const std::string& csv = "") {
     ResetWorld();
     fx.smc.Clear();
-    fx.smc.Set(kActive, md::InstrumentInfo{1.0, 0.0001, 0.1, 0});
-    fx.smc.Set(kPassive, md::InstrumentInfo{1.0, 0.0001, 0.1, 0});
+    fx.smc.Set(kActive, MakeInstrumentInfo());
+    fx.smc.Set(kPassive, MakeInstrumentInfo());
 
     PairTradingConfig cfg;
     cfg.pairKeys = {kPairKey};
@@ -1475,8 +1491,8 @@ static void TestG_Restart() {
         ResetWorld();
         Fx fx;
         fx.smc.Clear();
-        fx.smc.Set(kActive, md::InstrumentInfo{1.0, 0.0001, 0.1, 0});
-        fx.smc.Set(kPassive, md::InstrumentInfo{1.0, 0.0001, 0.1, 0});
+        fx.smc.Set(kActive, MakeInstrumentInfo());
+        fx.smc.Set(kPassive, MakeInstrumentInfo());
         PairTradingConfig cfg;
         cfg.pairKeys = {kPairKey};
         cfg.activeAccountId = 10000; cfg.passiveAccountId = 10001;

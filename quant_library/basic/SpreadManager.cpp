@@ -23,10 +23,28 @@ void SpreadManager::AddSpreadPara(const std::string& pairInstrumentKey) {
         return;
     }
 
-    auto pdata = std::make_unique<dbp::DbpData>();
-    dbp::DbpData* p = pdata.get();
-
-    mSpread.emplace(pairInstrumentKey, std::move(p));
+    dbp::DbpData* p = nullptr;
+    // ⚠️ 这里原本是
+    //        auto pdata = std::make_unique<dbp::DbpData>();
+    //        dbp::DbpData* p = pdata.get();
+    //        mSpread.emplace(pairInstrumentKey, std::move(p));
+    //    `get()` 只是取一个**非拥有**的裸指针，`pdata` 仍然是所有者；而 `emplace` 又用
+    //    这个裸指针构造了**第二个** unique_ptr 塞进 map。于是函数返回时 `pdata` 析构，
+    //    把 map 里那个 unique_ptr 指的对象 delete 掉 —— map 里留下一个悬垂指针。
+    //    后果有三层：
+    //      1. 之后每一次 OnMarketSpread 的 memcpy 都写进已释放的内存（use-after-free），
+    //         而 OnMarketSpread 是每一笔价差行情都会走的路径；
+    //      2. GetBbo 读的是同一块已释放内存；
+    //      3. DeleteSpread / 进程退出时的 clear() 触发 double free。
+    //    触发点是 AlgoContext::SubmitAlgoOrder -> AddSpreadPara，
+    //    也就是**每创建一个算法单就会踩一次**。
+    //    修法：把所有权真正转移给 map（release 之后本地不再持有）。
+    //    用局部块而不是裸 release()，是为了 emplace 抛异常时也不会泄漏。
+    {
+        auto owned = std::make_unique<dbp::DbpData>();
+        p = owned.get();
+        mSpread.emplace(pairInstrumentKey, std::move(owned));
+    }
 
     std::vector<std::string> v;
     splitString(pairInstrumentKey, v, "|");

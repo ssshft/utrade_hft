@@ -3,8 +3,9 @@
 覆盖 **行情进来 → 策略决策 → 创建算法单对象** 这一段（`PairTradingContext` /
 `SignalGenerator` / `RiskManager` / `PairInfoManager`）。
 
-算法单**执行**那一段（`AlgoContext::OnCommand` 建单后怎么报、怎么追、怎么撤）不在
-本套件范围内 —— 那部分已经在 `OnCommand` 上单独测过了。本套件只到"把算法单对象
+算法单**执行**那一段（`AlgoContext::OnCommand` 建单后怎么报、怎么追、怎么撤）在
+**另一个套件** `../algo_exec` 里覆盖，并且那边有两条把两边串起来跑的全链路
+（行情 → 建单 → 拆单 → 成交 / 风控 → 撤单 → 终结）。本套件只到"把算法单对象
 交出去"为止，用回调把对象截获下来断言它的字段。
 
 ## 怎么跑
