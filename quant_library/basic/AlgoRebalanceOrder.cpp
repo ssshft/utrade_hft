@@ -569,7 +569,7 @@ void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder) {
                     // 异常报警
                     char msg[stra::MSG_LEN];
                     sprintf(msg, "strategyName:%s algoOrderId:%ld mtSlipageFlag:%d  mtSlipage:%f", algoStrategyName, algoOrderId, mtSlipageFlag, mtSlipage);
-                    rLarkMsg.Push(msg);
+                    LarkRebot::GetInstance().SendMsg(msg);
                 }
             } else {
                 // 被动腿有成交且pairOrder完结,更改rebalance状态
@@ -581,7 +581,7 @@ void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder) {
                     // 异常报警
                     char msg[stra::MSG_LEN];
                     sprintf(msg, "strategyName:%s algoOrderId:%ld ttSlipageFlag:%d  ttSlipage:%f", algoStrategyName, algoOrderId, ttSlipageFlag, ttSlipage);
-                    rLarkMsg.Push(msg);
+                    LarkRebot::GetInstance().SendMsg(msg);
                 }
             }            
         }
