@@ -97,6 +97,7 @@ SpreadStats SpreadStatsBuilder::Build(double quantileUp, double quantileDn, size
     }
     st.avgDepthVolume = depthSum / static_cast<double>(n);
 
+    std::cout << "SpreadStatsBuilder: -----------------------------" << std::endl;
     st.valid = true;
     return st;
 }

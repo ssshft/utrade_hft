@@ -195,8 +195,6 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
 
     UpdateSatisfyTime(pi, sig, canOpen, canClose);
 
-    std::cout << "ProcessPairSignal pi.hasActiveAlgoOrder:" << pi.hasActiveAlgoOrder << " pi.errorFlag:" << pi.errorFlag << " sig.hasSignal:" << sig.hasSignal << std::endl;
-
     if (pi.hasActiveAlgoOrder) {
         return;
     }

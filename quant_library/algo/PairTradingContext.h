@@ -39,7 +39,8 @@ struct PairTradingConfig {
     // ---- 价差统计生产者（对齐祖先 pair_trading_c_gateio）----
     int spreadStatsWindowSec{86400};       // 24h 滚动窗口（祖先 spread_df_update_period）
     int spreadStatsUpdateIntervalSec{60};  // 60s 刷新统计（祖先 spread_df_update_timespan，原值 3600）
-    int spreadStatsMinSamples{8640};       // 样本数门槛（祖先 spread_count > 24*3600/5*0.5）
+    // int spreadStatsMinSamples{8640};       // 样本数门槛（祖先 spread_count > 24*3600/5*0.5）
+    int spreadStatsMinSamples{5};       // 样本数门槛（祖先 spread_count > 24*3600/5*0.5）
     int spreadSampleIntervalMs{5000};       // 采样间隔 5s，控制内存；0 = 不降频（逐 tick 全存）
     int spreadFreshnessSec{30};            // 行情新鲜度门槛（祖先 lastGenerateTs < 30s）
 
