@@ -35,6 +35,25 @@
         // 返回实际恢复的对子数；<0 表示失败（文件不存在 / 解析失败）
         int LoadSnapshot(const std::string& path);
 
+        // ---- 价差统计快照（**独立文件**，不动 pair_info.csv 的 33 列格式）----
+        //
+        // 为什么单独一个文件：largeStats 是"派生字段"，本来按 §5.1.1 不落盘；
+        // 但冷启动要重新攒够 spreadStatsMinSamples 个样本才能算分位数，
+        // 生产参数下那是几十分钟"完全不下单"。所以把**上次算出来的分位数**
+        // 单独存一份，重启时直接顶上，省掉这段空窗。
+        //
+        // 它和 pair_info.csv 是两种东西，混在一起会把"账本快照"的列格式也一起改了：
+        //   pair_info.csv   = 不可自己恢复的状态（账本 / 运维意图 / 风控档位）
+        //   spread_stats.csv= 可自己恢复、但恢复能省掉冷启动的派生量
+        //
+        // SaveSpreadStats：**一个对子的统计都没建立时直接不写**（保留上一份好值），
+        //   否则预热期每轮都把文件刷成空表头，等于把上次的 last-known-good 丢掉。
+        // LoadSpreadStats：maxStaleSec <= 0 表示关闭恢复；超过 maxStaleSec 的行跳过
+        //   （行情可能已经换了个regime，宁可正常预热）。返回实际恢复的对子数。
+        bool SaveSpreadStats(const std::string& path);
+
+        int LoadSpreadStats(const std::string& path, int maxStaleSec);
+
         PairInfo* GetPairInfo(const std::string& pairKey);
         PairInfo* GetPairInfo(const char* pairKey);
 

@@ -52,6 +52,12 @@ namespace pt {
         double avgDepthVolume{0};
         bool valid{false};
 
+        // 这组分位数对应的**最新样本时间**（us，取自 dbp 的 generateTs，不是墙钟）。
+        // 用途只有一个：重启时判断落盘的那份统计有多旧（见
+        // PairInfoManager::SaveSpreadStats / LoadSpreadStats）。
+        // 不进 IsValid() —— 它是"新鲜度"信息，不是"有效性"信息。
+        int64_t calcTs{0};
+
         bool IsValid() const {
             return valid && count > 0 && !std::isnan(bidBidUQ);
         }

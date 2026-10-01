@@ -60,6 +60,8 @@ ALLOWED = {
     "int": {"std::stoi"},
     "bool": {"StrTrue"},
     "OrderType": {"GetString"},
+    # 字符串字段（如 spreadStatsStatePath）直接 GetString()，没有转换函数
+    "std::string": {"GetString"},
 }
 READABLE = {
     "std::stod": "std::stod(...)",

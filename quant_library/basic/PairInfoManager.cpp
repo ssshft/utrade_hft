@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
+#include <sstream>
 #include <sys/stat.h>
 
 namespace pt {
@@ -103,6 +104,27 @@ constexpr const char* kSnapshotHeader =
     "errorFlag,"
     "hasActiveAlgoOrder,"
     "currentAlgoOrderId";
+
+// ---------------------------------------------------------------------------
+// 价差统计快照（独立文件，见 PairInfoManager.h 的说明）
+//
+// 列布局（12 列）。pairInstrumentKey 放第一列当行键，calcTs 放最后：
+//   1   pairInstrumentKey
+//   8   分位数 bidAskUQ/DQ bidBidUQ/DQ askBidUQ/DQ askAskUQ/DQ
+//   1   count
+//   1   avgDepthVolume
+//   1   calcTs（us，这组分位数对应的最新样本时间）
+//
+// ⚠️ 这 12 列是**一个整体**：列数不对就整份丢掉、回退到正常预热。
+//    它不像 pair_info.csv 那样有"丢了就丢了一本账"的后果 ——
+//    最坏情况只是回到改动前的行为（重新攒样本）。
+// ---------------------------------------------------------------------------
+constexpr size_t kSpreadStatsColumns = 12;
+
+constexpr const char* kSpreadStatsHeader =
+    "pairInstrumentKey,"
+    "bidAskUQ,bidAskDQ,bidBidUQ,bidBidDQ,askBidUQ,askBidDQ,askAskUQ,askAskDQ,"
+    "count,avgDepthVolume,calcTs";
 
 // 逐级建父目录（POSIX）。已存在时 mkdir 返回 EEXIST，忽略即可；
 // 失败不致命 —— 真打不开文件时 SaveSnapshot 会自己 LOG_ERROR 并返回 false。
@@ -335,6 +357,184 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
     }
 
     LOG_INFO("LoadSnapshot: restored:{} skipped:{} from {}", restored, skipped, path);
+    return restored;
+}
+
+
+bool PairInfoManager::SaveSpreadStats(const std::string& path) {
+    if (path.empty()) {
+        return false;
+    }
+
+    // 先在内存里拼好整份内容，再决定要不要落盘 —— 关键点：
+    // **一个有效统计都没有时不写**。预热期每轮都会走到这里，若无脑 truncate，
+    // 上一份 last-known-good 会在重启前的最后几轮里被刷成空表头，
+    // 于是"重启后直接顶上"这个功能永远生效不了。
+    std::ostringstream oss;
+    oss << std::setprecision(17);
+    oss << kSpreadStatsHeader << "\n";
+
+    int rows = 0;
+    for (const auto& pk : m_pairKeys) {
+        auto it = m_pairInfoMap.find(pk);
+        if (it == m_pairInfoMap.end()) {
+            continue;
+        }
+        const PairInfo& p = it->second;
+        const SpreadStats& st = p.largeStats;
+
+        if (!st.IsValid()) {
+            continue; // 还没建立起来（或刚被一次无效 Build 覆盖）-> 不覆盖旧值
+        }
+
+        oss << p.pairInstrumentKey << ","
+            << st.bidAskUQ << "," << st.bidAskDQ << ","
+            << st.bidBidUQ << "," << st.bidBidDQ << ","
+            << st.askBidUQ << "," << st.askBidDQ << ","
+            << st.askAskUQ << "," << st.askAskDQ << ","
+            << st.count << "," << st.avgDepthVolume << ","
+            << st.calcTs << "\n";
+        ++rows;
+    }
+
+    if (rows == 0) {
+        return false; // 保留磁盘上已有的那份
+    }
+
+    EnsureParentDir(path);
+
+    // 与 SaveSnapshot 同款：写临时文件 + rename 原子替换
+    const std::string tmpPath = path + ".tmp";
+    std::ofstream ofs(tmpPath, std::ios::trunc);
+    if (!ofs) {
+        LOG_ERROR("SaveSpreadStats: open failed: {}", tmpPath);
+        return false;
+    }
+    ofs << oss.str();
+    ofs.flush();
+    const bool writeOk = static_cast<bool>(ofs);
+    ofs.close();
+
+    if (!writeOk) {
+        LOG_ERROR("SaveSpreadStats: write failed: {}", tmpPath);
+        return false;
+    }
+    if (std::rename(tmpPath.c_str(), path.c_str()) != 0) {
+        LOG_ERROR("SaveSpreadStats: rename {} -> {} failed: {}", tmpPath, path, std::strerror(errno));
+        return false;
+    }
+
+    return true;
+}
+
+
+int PairInfoManager::LoadSpreadStats(const std::string& path, int maxStaleSec) {
+    if (path.empty()) {
+        return -1;
+    }
+    if (maxStaleSec <= 0) {
+        LOG_INFO("LoadSpreadStats: 恢复已关闭(spreadStatsMaxStaleSec<=0) -> 正常预热");
+        return -1;
+    }
+
+    std::ifstream ifs(path);
+    if (!ifs) {
+        LOG_WARN("LoadSpreadStats: no stats at {} (首次启动属正常) -> 正常预热", path);
+        return -1;
+    }
+
+    std::string line;
+    if (!std::getline(ifs, line)) {
+        LOG_WARN("LoadSpreadStats: empty file: {} -> 正常预热", path);
+        return -1;
+    }
+
+    // 列数不对 -> 整份丢掉。宁可多预热一次，也不要按错误的列序读出一组乱码分位数
+    {
+        const auto header = SplitCsv(line);
+        if (header.size() != kSpreadStatsColumns) {
+            LOG_ERROR("LoadSpreadStats: header has {} columns, expected {} -> 忽略该文件（格式不兼容）",
+                      header.size(), kSpreadStatsColumns);
+            return -1;
+        }
+    }
+
+    const int64_t nowUs = crypto::getCurrentTime();
+    const int64_t maxStaleUs = static_cast<int64_t>(maxStaleSec) * 1000000LL;
+
+    int restored = 0;
+    int stale    = 0;
+    int skipped  = 0;
+    int lineno   = 1;
+
+    while (std::getline(ifs, line)) {
+        ++lineno;
+        if (line.empty()) {
+            continue;
+        }
+
+        const auto f = SplitCsv(line);
+        if (f.size() != kSpreadStatsColumns) {
+            LOG_WARN("LoadSpreadStats: line:{} has {} columns, expected {} -> skip",
+                     lineno, f.size(), kSpreadStatsColumns);
+            ++skipped;
+            continue;
+        }
+
+        const std::string& pk = f[0];
+        auto it = m_pairInfoMap.find(pk);
+        if (it == m_pairInfoMap.end()) {
+            LOG_WARN("LoadSpreadStats: line:{} pairKey:{} 不在本次配置里 -> skip", lineno, pk);
+            ++skipped;
+            continue;
+        }
+
+        // 新鲜度：统计是"多久以前算出来的"。calcTs 是行情时间戳，
+        // 停牌 / 断档时它不会前进，所以这个判据同时能挡住"进程停了很久"和
+        // "行情本身就停了很久"两种情况。
+        const int64_t calcTs = ParseI64(f[11], 0, "calcTs", pk);
+        if (calcTs <= 0) {
+            LOG_WARN("LoadSpreadStats: line:{} pairKey:{} calcTs 缺失 -> skip", lineno, pk);
+            ++skipped;
+            continue;
+        }
+        const int64_t ageUs = nowUs - calcTs;
+        if (ageUs < 0 || ageUs > maxStaleUs) {
+            LOG_WARN("LoadSpreadStats: pairKey:{} 统计已过期 {}s > {}s -> 不恢复，正常预热",
+                     pk, ageUs / 1000000, maxStaleSec);
+            ++stale;
+            continue;
+        }
+
+        SpreadStats st;
+        st.bidAskUQ = ParseDouble(f[1], st.bidAskUQ, "bidAskUQ", pk);
+        st.bidAskDQ = ParseDouble(f[2], st.bidAskDQ, "bidAskDQ", pk);
+        st.bidBidUQ = ParseDouble(f[3], st.bidBidUQ, "bidBidUQ", pk);
+        st.bidBidDQ = ParseDouble(f[4], st.bidBidDQ, "bidBidDQ", pk);
+        st.askBidUQ = ParseDouble(f[5], st.askBidUQ, "askBidUQ", pk);
+        st.askBidDQ = ParseDouble(f[6], st.askBidDQ, "askBidDQ", pk);
+        st.askAskUQ = ParseDouble(f[7], st.askAskUQ, "askAskUQ", pk);
+        st.askAskDQ = ParseDouble(f[8], st.askAskDQ, "askAskDQ", pk);
+        st.count = static_cast<int>(ParseI64(f[9], 0, "count", pk));
+        st.avgDepthVolume = ParseDouble(f[10], 0.0, "avgDepthVolume", pk);
+        st.calcTs = calcTs;
+        st.valid = true;
+
+        // 坏行可能让某个分位数解析失败 -> 留 NaN -> IsValid() 为 false。
+        // 宁可这个对子去预热，也不要塞一组带 NaN 的阈值进 orderParams。
+        if (!st.IsValid()) {
+            LOG_WARN("LoadSpreadStats: pairKey:{} 分位数不完整 -> skip", pk);
+            ++skipped;
+            continue;
+        }
+
+        PairInfo& p = it->second;
+        p.largeStats = st;
+        p.modifyTime = nowUs;
+        ++restored;
+    }
+
+    LOG_INFO("LoadSpreadStats: restored:{} stale:{} skipped:{} from {}", restored, stale, skipped, path);
     return restored;
 }
 

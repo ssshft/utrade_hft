@@ -62,6 +62,13 @@ SpreadStats SpreadStatsBuilder::Build(double quantileUp, double quantileDn, size
 
     st.count = static_cast<int>(n);
 
+    // 这组分位数"代表到哪一刻"：取窗口里最新一条样本的时间。
+    // m_samples 按 ts 递增入队、Prune 只从头部删，所以 back() 就是最新的。
+    // 有效样本数为 0（或窗口空）时留 0 —— 调用方据此判断"这份统计没有时间基准"。
+    if (!m_samples.empty()) {
+        st.calcTs = m_samples.back().ts;
+    }
+
     // 样本数门槛（祖先 spread_count > 24*3600/5*0.5 = 8640）
     if (n < minSamples) {
         st.valid = false;

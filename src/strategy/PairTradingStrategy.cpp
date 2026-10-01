@@ -261,6 +261,15 @@ void PairTradingStrategy::pre_start(Config* config) {
             m_ptCfg.spreadFreshnessSec = std::stoi(s["spreadFreshnessSec"].GetString());
         } 
 
+        // 分位数快照（重启免预热）。路径为空 / maxStaleSec<=0 都等于关掉这个功能。
+        if (s.HasMember("spreadStatsStatePath")) {
+            m_ptCfg.spreadStatsStatePath = s["spreadStatsStatePath"].GetString();
+        }
+
+        if (s.HasMember("spreadStatsMaxStaleSec")) {
+            m_ptCfg.spreadStatsMaxStaleSec = std::stoi(s["spreadStatsMaxStaleSec"].GetString());
+        }
+
         // 算法单机会超时（已经是毫秒，不用换算）
         if (s.HasMember("algoOrderTimeoutMs")) {
             m_ptCfg.algoOrderTimeoutMs = std::stoll(s["algoOrderTimeoutMs"].GetString());
@@ -510,6 +519,9 @@ void PairTradingStrategy::pre_start(Config* config) {
                  m_ptCfg.quantileUp, m_ptCfg.quantileDn, m_ptCfg.spreadStatsWindowSec,
                  m_ptCfg.spreadStatsUpdateIntervalSec, m_ptCfg.spreadStatsMinSamples,
                  m_ptCfg.spreadSampleIntervalMs, m_ptCfg.spreadFreshnessSec);
+        LOG_INFO("配置生效[分位数快照] path={} maxStaleSec={} ({})",
+                 m_ptCfg.spreadStatsStatePath, m_ptCfg.spreadStatsMaxStaleSec,
+                 m_ptCfg.spreadStatsMaxStaleSec > 0 ? "重启免预热已开" : "已关闭，每次重启正常预热");
         LOG_INFO("配置生效[风控] tinyCloseThresholdUsdt={} fundingAbnormalUsdt={} minHoldDurationSec={} spreadNoRegressionSec={} tier1WaitSec={} tier2WaitSec={}",
                  rc.tinyCloseThresholdUsdt, rc.fundingAbnormalUsdt,
                  rc.minHoldDurationUs / 1000000LL, rc.spreadNoRegressionDuration / 1000000LL,

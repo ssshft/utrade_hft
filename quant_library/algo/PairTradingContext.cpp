@@ -80,6 +80,28 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
         }
     }
 
+    // 恢复价差统计（**重启免预热**）。
+    // largeStats 不落在 pair_info.csv 里（它是派生字段，见 PairInfoManager.h），
+    // 所以正常流程下重启后必须重新攒够 spreadStatsMinSamples 个样本才算出第一组
+    // 分位数 —— 在那之前 RecalcOrderParams 直接早退，一单都发不出去。
+    // 这里把上一轮算好的分位数捞回来，够新就直接顶上。
+    // 捞回来之后必须**立刻重算一次 orderParams**：orderParams 是从 largeStats
+    // 推出来的，只恢复 largeStats 而不重算，阈值仍然是默认值，等于没恢复。
+    if (!cfg.spreadStatsStatePath.empty() && cfg.spreadStatsMaxStaleSec > 0) {
+        const int restoredStats = pim.LoadSpreadStats(cfg.spreadStatsStatePath, cfg.spreadStatsMaxStaleSec);
+        if (restoredStats > 0) {
+            auto& sg = SignalGenerator::Instance();
+            for (PairInfo* pi : pim.GetAllPairInfos()) {
+                if (!pi->largeStats.IsValid()) {
+                    continue; // 这一对子没恢复成功 -> 让它走正常预热
+                }
+                sg.RecalcOrderParams(*pi);
+                LOG_INFO("重启免预热: pairKey:{} 已恢复价差统计（样本数:{} 统计时刻:{}）-> 无需等待预热即可报单",
+                         pi->pairInstrumentKey, pi->largeStats.count, pi->largeStats.calcTs);
+            }
+        }
+    }
+
     // ---- 启动闸门：先冻结，等对账 ----
     // 快照最多是 10s 前的，且 pre_stop 不撤单 —— 直接开跑等于拿一本可能过期的账去下单。
     // 价差推送通常早于持仓推送，所以这里必须挡住，等 OnPosition 把两腿填上再放行。
@@ -1035,8 +1057,17 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     }
 
     // 1. 重算报单量参数（每分钟）
+    //    量一变就得重算 orderParams —— orderParams 的 16 个 *StartVolume/*EndVolume
+    //    直接取自 pi.maxVolume，量变了不重算，它们就是上一轮的旧值。
+    //    冷启动时这条尤其关键：Init 里那一次 RecalcOrderParams 拿到的 maxVolume 还是 0
+    //    （腿价要等第一条行情才有效），于是 ttOLEndVolume = 0 ->
+    //    开仓判据 `vol > ttOLEndVolume + 1e-9` 退化成 `0 > 1e-9` -> **一单都开不出去**，
+    //    而且下一次重算要等到统计刷新（默认 60s），统计无效时还会被早退掉。
     if (nowUs - m_lastVolumeRecalcUs > m_cfg.volumeRecalcIntervalSec * 1000000LL) {
         pim.RecalcVolumeParams(m_cfg.maxAmount, m_cfg.targetAmount, m_cfg.exposureMaxLimit, m_cfg.exposureMaxLimitCoff);
+        for (PairInfo* pi : pim.GetAllPairInfos()) {
+            sg.RecalcOrderParams(*pi);
+        }
         m_lastVolumeRecalcUs = nowUs;
     }
 
@@ -1059,6 +1090,15 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
 
             sg.RecalcOrderParams(*pi);
         }
+
+        // 2b. 顺手把这一轮的统计落盘 —— 下一轮重启直接顶上，不用再等预热。
+        //     跟着统计刷新周期走（默认 60s），不额外加定时器：
+        //     统计本来就只在这个点变，多存几次没有意义。
+        //     一个有效统计都没有时 SaveSpreadStats 自己会跳过（保留上一份好值）。
+        if (!m_cfg.spreadStatsStatePath.empty()) {
+            pim.SaveSpreadStats(m_cfg.spreadStatsStatePath);
+        }
+
         m_lastSpreadStatsUpdateUs = nowUs;
     }
 

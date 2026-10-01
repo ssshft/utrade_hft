@@ -142,6 +142,20 @@ struct PairTradingConfig {
     int spreadSampleIntervalMs{5000};       // 采样间隔 5s，控制内存；0 = 不降频（逐 tick 全存）
     int spreadFreshnessSec{30};            // 行情新鲜度门槛（祖先 lastGenerateTs < 30s）
 
+    // ---- 分位数快照（重启免预热）----
+    // 冷启动要攒够 spreadStatsMinSamples 个样本才算出第一组分位数，
+    // 在那之前 SignalGenerator::RecalcOrderParams 直接早退、**一单都发不出去**。
+    // 生产参数下（窗口 24h / 5s 采样）这段"哑火期"是分钟级，每次重启都要重付。
+    // 所以把算好的分位数单独落一份盘，重启时够新就直接顶上。
+    //
+    // 单独一个文件、不塞进 pair_info.csv：分位数是**派生字段**，两个文件的恢复
+    // 语义也不同（这本账丢了只是回到旧行为，pair_info.csv 丢了是丢账）。
+    std::string spreadStatsStatePath{"data/spread_stats.csv"};
+    // 允许恢复的最大陈旧度（秒，按样本时间 calcTs 算，不是墙钟）。
+    // 行情时间戳在停牌/断档时不前进，所以这一条同时挡住"进程停了很久"和
+    // "行情本身就停了很久"。<= 0 = 关闭恢复，永远正常预热。
+    int spreadStatsMaxStaleSec{3600};
+
     // 算法单机会超时ms（祖先 algo_order_cancel_time = 150s）。
     // 语义是"机会连续不成立的时长"，不是订单年龄：机会条件一成立就刷新 satisfyTime，
     // 所以只有连续不成立超过这个时长才会撤单。见 UpdateSatisfyTime / CheckAlgoOrderTimeout

@@ -30,6 +30,31 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     auto& op = pi.orderParams;
     const auto& ls = pi.largeStats;
 
+    // ---- 量字段：只依赖 pi.maxVolume，与分位数**无关** ----
+    //
+    // 必须写在下面 `ls.IsValid()` 早退**之前**。这两个输入是互相独立的，
+    // 就绪时刻也不同：分位数来自行情窗口（要攒样本），maxVolume 来自腿价
+    // （第一条行情到就有）。原来它们混在同一个早退后面，于是出现下面这个坑：
+    //
+    //   重启恢复分位数 -> Init 里算一次 orderParams，但那一刻腿价还没有、
+    //   maxVolume = 0 -> ttOLEndVolume = 0 -> 开仓判据
+    //   `vol > ttOLEndVolume + 1e-9` 退化成 `0 > 1e-9` -> **一单都开不出去**；
+    //   而下一轮统计刷新会把 largeStats 刷成无效（窗口刚重启，样本不够），
+    //   早退一挡，量字段就永远停在 0，直到窗口重新预热完 —— 等于一天没省。
+    //
+    // 分开写之后：maxVolume 一变就重算，与分位数是否就绪无关。
+    {
+        const double mv = pi.maxVolume;
+        op.ttOLStartVolume = 0.0;   op.ttOLEndVolume = -mv;
+        op.ttCLStartVolume = -mv;   op.ttCLEndVolume = 0.0;
+        op.ttOSStartVolume = 0.0;   op.ttOSEndVolume = mv;
+        op.ttCSStartVolume = mv;    op.ttCSEndVolume = 0.0;
+        op.mtOLStartVolume = 0.0;   op.mtOLEndVolume = -mv;
+        op.mtCLStartVolume = -mv;   op.mtCLEndVolume = 0.0;
+        op.mtOSStartVolume = 0.0;   op.mtOSEndVolume = mv;
+        op.mtCSStartVolume = mv;    op.mtCSEndVolume = 0.0;
+    }
+
     if (!ls.IsValid()) {
         return;
     }
@@ -49,8 +74,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         auto [start, end] = CalcExpectSpread(ls.bidAskDQ, true, -1);
         op.ttOLStartSpread = start;
         op.ttOLEndSpread = end;
-        op.ttOLStartVolume = 0.0;
-        op.ttOLEndVolume = -pi.maxVolume;
     }
 
     // TT 平多 Close Long
@@ -58,8 +81,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         auto [start, end] = CalcExpectSpread(ls.askBidUQ, true, 1);
         op.ttCLStartSpread = start + (pi.profitSwitch ? pi.profitPct : 0.0);
         op.ttCLEndSpread = op.ttCLStartSpread + 0.000005;
-        op.ttCLStartVolume = -pi.maxVolume;
-        op.ttCLEndVolume = 0.0;
     }
 
 
@@ -68,8 +89,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         auto [start, end] = CalcExpectSpread(ls.askBidUQ, true, 1);
         op.ttOSStartSpread = start;
         op.ttOSEndSpread = end;
-        op.ttOSStartVolume = 0.0;
-        op.ttOSEndVolume = pi.maxVolume;
     }
 
 
@@ -78,8 +97,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         auto [start, end] = CalcExpectSpread(ls.bidAskDQ, true, -1);
         op.ttCSStartSpread = start - (pi.profitSwitch ? pi.profitPct : 0.0);
         op.ttCSEndSpread = op.ttCSStartSpread - 0.000005;
-        op.ttCSStartVolume = pi.maxVolume;
-        op.ttCSEndVolume = 0.0;
     }
 
 
@@ -88,8 +105,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         auto [start, end] = CalcExpectSpread(ls.askAskDQ, false, -1);
         op.mtOLStartSpread = start;
         op.mtOLEndSpread = end;
-        op.mtOLStartVolume = 0.0;
-        op.mtOLEndVolume = -pi.maxVolume;
     }
 
     // MT 平多 Close Long
@@ -97,8 +112,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         auto [start, end] = CalcExpectSpread(ls.bidBidUQ, false, 1);
         op.mtCLStartSpread = start + (pi.profitSwitch ? pi.profitPct : 0.0);
         op.mtCLEndSpread = op.mtCLStartSpread + 0.000005;
-        op.mtCLStartVolume = -pi.maxVolume;
-        op.mtCLEndVolume = 0.0;
     }
 
 
@@ -107,8 +120,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         auto [start, end] = CalcExpectSpread(ls.bidBidUQ, false, 1);
         op.mtOSStartSpread = start;
         op.mtOSEndSpread = end;
-        op.mtOSStartVolume = 0.0;
-        op.mtOSEndVolume = pi.maxVolume;
     }
 
 
@@ -117,8 +128,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         auto [start, end] = CalcExpectSpread(ls.askAskDQ, false, -1);
         op.mtCSStartSpread = start - (pi.profitSwitch ? pi.profitPct : 0.0);
         op.mtCSEndSpread = op.mtCSStartSpread - 0.000005;
-        op.mtCSStartVolume = pi.maxVolume;
-        op.mtCSEndVolume = 0.0;
     }
 
 

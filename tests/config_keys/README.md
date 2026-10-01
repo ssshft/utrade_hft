@@ -16,8 +16,8 @@ python3 tests/config_keys/field_check.py    # 字段级
 python3 tests/config_keys/field_check.py -v # 顺带打印各段的逐字段明细
 ```
 
-两个都是退出码 0 = 通过。当前实测：`check.py` 两侧各 86 个 key 一致；
-`field_check.py` 88 个结构体字段 / 79 条块内赋值 / 7 条平铺赋值，全部一致。
+两个都是退出码 0 = 通过。当前实测：`check.py` 两侧各 88 个 key 一致；
+`field_check.py` 90 个结构体字段 / 81 条块内赋值 / 7 条平铺赋值，全部一致。
 
 ---
 
@@ -29,11 +29,11 @@ python3 tests/config_keys/field_check.py -v # 顺带打印各段的逐字段明�
 |---|---|---|
 | `op.feeSlippage` | `pt::FeeSlippageConfig` | 12 |
 | `op.risk` | `pt::RiskConfig` | 14 |
-| `op.pairTrading` | `pt::PairTradingConfig`（本体） | 53 |
+| `op.pairTrading` | `pt::PairTradingConfig`（本体） | 55 |
 
-`op.pairTrading` 那 53 个里有 18 个是策略参数、**35 个是算法单参数**（报单类型 /
-撤单门槛 / rebalance …）。算法单参数**没有独立结构体**，就是 `PairTradingConfig`
-的普通字段，由 `PairTradingContext::BuildAlgoOrderJson` 直接读。
+`op.pairTrading` 那 55 个里有 18 个是策略参数、2 个是分位数快照（重启免预热）、
+**35 个是算法单参数**（报单类型 / 撤单门槛 / rebalance …）。算法单参数**没有独立结构体**，
+就是 `PairTradingConfig` 的普通字段，由 `PairTradingContext::BuildAlgoOrderJson` 直接读。
 
 平铺在 `op` 下的 7 个：`pairKeys` / `activeAccountId` / `passiveAccountId` /
 `maxPositionValue` / `maxAmount` / `targetAmount` / `csvStatePath`。
@@ -91,6 +91,7 @@ key 名对了不代表赋值对了。下面三类错误 `check.py` 看不出来�
      | `int64_t` | `std::stoll(...)` |
      | `int` | `std::stoi(...)` |
      | `bool` | `(s["x"].GetString() == std::string("true"))` |
+     | `std::string` | `s["x"].GetString()`（如 `spreadStatsStatePath`） |
      | 枚举（`OrderType` / `stra::*`） | `GetString()` 后查表或字符串直比 |
 
    - 结构体的每个字段都要被读到。

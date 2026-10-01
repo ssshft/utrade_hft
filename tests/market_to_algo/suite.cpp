@@ -196,7 +196,10 @@ struct Fx {
 };
 
 // 注册合约 + Init。csv 路径留空则跳过快照。
-static void Boot(Fx& fx, const std::string& csv = "") {
+// statsPath 是分位数快照路径（重启免预热）。默认**留空 = 关掉**：
+// 绝大多数用例不关心它，开着会让每个用例都往相对路径 data/spread_stats.csv
+// 写盘、还可能把上一轮留下的统计带进来污染断言。需要它的用例（G17-G19）显式传。
+static void Boot(Fx& fx, const std::string& csv = "", const std::string& statsPath = "") {
     ResetWorld();
     fx.smc.Clear();
     fx.smc.Set(kActive, MakeInstrumentInfo());
@@ -207,6 +210,7 @@ static void Boot(Fx& fx, const std::string& csv = "") {
     cfg.activeAccountId = 10000;
     cfg.passiveAccountId = 10001;
     cfg.csvStatePath = csv;
+    cfg.spreadStatsStatePath = statsPath;
     cfg.spreadStatsMinSamples = 3;      // 让少量样本就能建立统计
     cfg.spreadSampleIntervalMs = 0;     // 不降频
     fx.csvPath = csv;
@@ -1800,6 +1804,171 @@ static void TestG_Restart() {
         PairInfoManager::Instance().ApplyCommand(kPairKey, PairCmd_RESUME);
         CHECK(!pi.errorFlag, "G16 RESUME 清掉 errorFlag（孤儿冻结 / 敞口异常的唯一复活路径）");
         CHECK(!pi.stopFlag && pi.autoFlag, "G16 RESUME 恢复自动交易");
+    }
+
+    // G17 分位数快照：重启免预热
+    //
+    // 改这个功能要守的不变量：重启后**一个样本都不喂**，largeStats 就得是有效的，
+    // 且 orderParams 得已经按它重算过 —— 只恢复 largeStats 不重算，阈值仍是默认值，
+    // 等于没恢复（CanOpen 看的是 orderParams，不是 largeStats）。
+    {
+        const std::string stats = "/tmp/ptsuite/out/spread_stats.csv";
+        std::remove(stats.c_str());
+
+        double ttOLStart = 0.0, bidBidUQ = 0.0, askAskDQ = 0.0;
+        int64_t calcTs = 0;
+        int count = 0;
+
+        // 第一轮：喂样本 -> 建统计 -> OnTimer 顺手落盘
+        {
+            Fx fx; Boot(fx, "", stats); GoTrading(fx);
+            PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+
+            // ts 必须用**真实墙钟**：calcTs 取自样本时间，而恢复侧的过期判据是
+            // `nowUs - calcTs <= maxStaleSec`。用合成时间戳（如 1000*SEC）写出来的
+            // 文件会被判成 1970 年的统计，永远恢复不了。
+            const int64_t now = crypto::getCurrentTime();
+            dbp::DbpTopic topic = MakeTopic(kPairKey);
+            for (int i = 0; i < 5; ++i) {
+                dbp::DbpData d = MakeData(0.001 * i, 0.002 * i, 0.003 * i, -0.001 * i,
+                                          now - (4 - i) * SEC);
+                fx.ctx.OnSpread(&topic, &d);
+            }
+            fx.ctx.OnTimer(now + SEC);
+
+            CHECK(pi.largeStats.IsValid(), "G17 第一轮：样本足够 -> largeStats 建立");
+            CHECK(std::ifstream(stats).good(), "G17 第一轮：OnTimer 顺手把统计落盘");
+
+            ttOLStart = pi.orderParams.ttOLStartSpread;
+            bidBidUQ  = pi.largeStats.bidBidUQ;
+            askAskDQ  = pi.largeStats.askAskDQ;
+            calcTs    = pi.largeStats.calcTs;
+            count     = pi.largeStats.count;
+        }
+
+        // 第二轮：重启，一个样本都不喂
+        {
+            Fx fx; Boot(fx, "", stats);
+            PairInfo& pi = *fx.pi();
+            CHECK(pi.largeStats.IsValid(), "G17 重启后未喂任何样本 -> largeStats 已恢复（免预热）");
+            CHECK(Near(pi.largeStats.bidBidUQ, bidBidUQ) && Near(pi.largeStats.askAskDQ, askAskDQ),
+                  "G17 分位数往返无损");
+            CHECK(pi.largeStats.calcTs == calcTs, "G17 calcTs（新鲜度基准）往返无损");
+            CHECK(pi.largeStats.count == count, "G17 样本数往返无损");
+            CHECK(Near(pi.orderParams.ttOLStartSpread, ttOLStart),
+                  "G17 恢复后立刻重算 orderParams（只恢复统计不重算 = 阈值仍是默认值）");
+        }
+    }
+
+    // G18 过期的统计不恢复 -> 回退到正常预热
+    {
+        const std::string stats = "/tmp/ptsuite/out/stale_stats.csv";
+        std::remove(stats.c_str());
+        {
+            // 手写一份"两小时前算出来"的统计（默认 maxStaleSec = 3600）
+            const int64_t old = crypto::getCurrentTime() - 2 * HOUR;
+            std::ofstream ofs(stats);
+            ofs << "pairInstrumentKey,bidAskUQ,bidAskDQ,bidBidUQ,bidBidDQ,"
+                   "askBidUQ,askBidDQ,askAskUQ,askAskDQ,count,avgDepthVolume,calcTs\n";
+            ofs << kPairKey << ",0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,"
+                << "100,10.5," << old << "\n";
+        }
+        Fx fx; Boot(fx, "", stats);
+        PairInfo& pi = *fx.pi();
+        CHECK(!pi.largeStats.IsValid(), "G18 过期统计（2h > maxStaleSec 1h）-> 不恢复，正常预热");
+        CHECK(pi.largeStats.count == 0, "G18 不恢复时不留半截数据");
+    }
+
+    // G19 一个有效统计都没有时不覆盖磁盘上已有的那份
+    {
+        const std::string stats = "/tmp/ptsuite/out/keep_good.csv";
+        std::remove(stats.c_str());
+        std::string before;
+        {
+            const std::string good = "/tmp/ptsuite/out/keep_good_src.csv";
+            std::remove(good.c_str());
+            Fx fx; Boot(fx, "", good); GoTrading(fx);
+            PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+            const int64_t now = crypto::getCurrentTime();
+            dbp::DbpTopic topic = MakeTopic(kPairKey);
+            for (int i = 0; i < 5; ++i) {
+                dbp::DbpData d = MakeData(0.001 * i, 0.002 * i, 0.003 * i, -0.001 * i,
+                                          now - (4 - i) * SEC);
+                fx.ctx.OnSpread(&topic, &d);
+            }
+            fx.ctx.OnTimer(now + SEC);
+            std::ifstream ifs(good);
+            std::stringstream ss; ss << ifs.rdbuf();
+            before = ss.str();
+            CHECK(!before.empty(), "G19 前置：先拿到一份好文件");
+            // 把它当成"磁盘上已有的那份"
+            std::ofstream ofs(stats); ofs << before;
+        }
+
+        // 全新世界、统计快照关掉 -> largeStats 必然无效
+        Fx fx; Boot(fx);
+        CHECK(!fx.pi()->largeStats.IsValid(), "G19 前置：新世界没有有效统计");
+        const bool wrote = PairInfoManager::Instance().SaveSpreadStats(stats);
+        CHECK(!wrote, "G19 无有效统计 -> SaveSpreadStats 返回 false");
+
+        std::ifstream ifs(stats);
+        std::stringstream ss; ss << ifs.rdbuf();
+        CHECK(ss.str() == before, "G19 上一份好值被完整保留（预热期不会把好文件刷成空表头）");
+    }
+
+    // G20 恢复之后**真的能报单**，而不是"orderParams 里有几个值"
+    //
+    // 为什么非要有这一条：orderParams 有两个**互相独立**的输入 ——
+    //   · StartSpread/EndSpread  <- largeStats（分位数）
+    //   · *EndVolume/*StartVolume <- pi.maxVolume（由腿价算出）
+    // G17 只断言了前者。只恢复分位数、不在 maxVolume 到位后重算，
+    // *EndVolume 就还是 0 -> 开仓判据 `vol > ttOLEndVolume + 1e-9` 变成 `0 > 1e-9`
+    // -> **开仓照样发不出去**，等于预热期一天没省。
+    // 所以这里断言的是"单真的发出去了"（fx.N() > 0），不是"某个字段有值"。
+    {
+        const std::string stats = "/tmp/ptsuite/out/restore_trade.csv";
+        std::remove(stats.c_str());
+
+        // 样本：bidAsk/askAsk 走低、bidBid/askBid 走高 ——
+        // 既要让 canOpenLong 成立（mtOLStartSpread < 0），
+        // 又要让 spreadSpan = bidBidUQ - askAskDQ 够宽（否则 RecalcOrderParams 直接关掉全部开仓开关）。
+        const double kLo = -0.02, kHi = 0.02;
+
+        // 第一轮：喂样本建统计并落盘
+        {
+            Fx fx; Boot(fx, "", stats); GoTrading(fx);
+            PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+            const int64_t now = crypto::getCurrentTime();
+            dbp::DbpTopic topic = MakeTopic(kPairKey);
+            for (int i = 0; i < 5; ++i) {
+                dbp::DbpData d = MakeData(kLo, kHi, kHi, kLo, now - (4 - i) * SEC);
+                fx.ctx.OnSpread(&topic, &d);
+            }
+            fx.ctx.OnTimer(now + SEC);
+            CHECK(pi.largeStats.IsValid(), "G20 前置：第一轮建立统计");
+        }
+
+        // 第二轮：重启，只喂**一条**行情，就该能报单
+        {
+            Fx fx; Boot(fx, "", stats); GoTrading(fx);
+            PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+
+            const int64_t now = crypto::getCurrentTime();
+            dbp::DbpTopic topic = MakeTopic(kPairKey);
+            // 远低于下分位的价差 -> 深度足够触发 ttOL
+            dbp::DbpData d = MakeData(-0.05, kHi, kHi, kLo, now);
+            fx.ctx.OnSpread(&topic, &d);
+            fx.ctx.OnTimer(now + SEC);
+
+            CHECK(pi.maxVolume > 0, "G20 前置：maxVolume 已由腿价算出");
+            CHECK(pi.orderParams.ttOLEndVolume != 0.0,
+                  "G20 orderParams 的量字段也跟着 maxVolume 重算了（否则开仓判据恒不成立）");
+            CHECK(SignalGenerator::Instance().CheckSignalForSatisfy(pi).ttOLSignal,
+                  "G20 恢复后第一 tick 就有 ttOL 信号");
+
+            fx.ctx.ProcessPairSignal(pi);
+            CHECK(fx.N() > 0, "G20 恢复后第一 tick 就真的把单报出去了（无需重新预热）");
+        }
     }
 }
 
