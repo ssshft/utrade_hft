@@ -783,7 +783,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                         // 异常报警
                         char msg[stra::MSG_LEN];
                         sprintf(msg, "strategyName:%s algoOrderId:%ld mtSlipageFlag:%d  mtSlipage:%f", algoStrategyName, algoOrderId, mtSlipageFlag, mtSlipage);
-                        rLarkMsg.Push(msg);
+                        LarkRebot::GetInstance().SendMsg(msg);
                     }
                 } else {
                     LOG_INFO("ttRebalanceFlag set false, pairOrder.passiveTotalVolumeOnOrder:{} activeFrozenValue:{} passiveFrozenValue:{}", pairOrder.passiveTotalVolumeOnOrder, activeFrozenValue, passiveFrozenValue);
@@ -796,7 +796,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                         // 异常报警
                         char msg[stra::MSG_LEN];
                         sprintf(msg, "strategyName:%s algoOrderId:%ld ttSlipageFlag:%d  ttSlipage:%f", algoStrategyName, algoOrderId, ttSlipageFlag, ttSlipage);
-                        rLarkMsg.Push(msg);
+                        LarkRebot::GetInstance().SendMsg(msg);
                     }
                 }
 
@@ -888,7 +888,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
                      DirectionEnum2StrMap[quant_order.direction], quant_order.price, quant_order.volume);
             char msg[stra::MSG_LEN];
             sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:{}, pairId:{} instrumentKey:{}", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey);
-            rLarkMsg.Push(msg);
+            LarkRebot::GetInstance().SendMsg(msg);
         }
     }
 }

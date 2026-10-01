@@ -717,7 +717,7 @@ stra::QuantOrder PairOrder::CreatePassiveOrder(int64_t strategyOrderId) {
     // LOG_INFO("CreatePassiveOrder now is empty! should not run here. strategyOrderId:%ld", strategyOrderId);
     // char msg[stra::MSG_LEN];
     // sprintf(msg, "CreatePassiveOrder strategyOrderId:%ld", strategyOrderId);
-    // rLarkMsg.Push(msg);
+    // LarkRebot::GetInstance().SendMsg(msg);
     double activeAmount = 0.0;
     double passiveAmount = 0.0;
 

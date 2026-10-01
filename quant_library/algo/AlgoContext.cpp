@@ -97,7 +97,7 @@ void AlgoContext::SubmitAlgoOrder(BaseAlgoOrder* pAlgoOrder) {
              pAlgoOrder->pairTotalVolume, pAlgoOrder->activeInstrumentKey, pAlgoOrder->passiveInstrumentKey);
 
     string pubMsg = pAlgoOrder->GeneratePubStr();
-    rLarkMsg.Push(pubMsg);
+    LarkRebot::GetInstance().SendMsg(pubMsg);
     WriteAlgoOrder(pAlgoOrder);
 
     bool exist = SpreadManager::Instance().IsPairInstrumentKeyExist(pAlgoOrder->pairInstrumentKey);
@@ -154,7 +154,7 @@ void AlgoContext::SubmitAlgoOrder(int64_t algoOrderId, stra::CommandType cmd, co
         pAlgoOrder->cancelOrderTime = crypto::getCurrentTime();
         pAlgoOrder->updateTime = crypto::getCurrentTime();
 
-        rLarkMsg.Push(pAlgoOrder->GeneratePubStr());
+        LarkRebot::GetInstance().SendMsg(pAlgoOrder->GeneratePubStr());
         WriteAlgoOrder(pAlgoOrder);
         LOG_INFO("SubmitAlgoOrder(CANCEL): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELLING",
                  algoOrderId, pAlgoOrder->pairInstrumentKey);
@@ -222,7 +222,7 @@ void AlgoContext::SubmitAlgoOrder(int64_t algoOrderId, stra::CommandType cmd, co
         pAlgoOrder->commandType = stra::CommandType_MODIFIED;
         pAlgoOrder->updateTime = crypto::getCurrentTime();
 
-        rLarkMsg.Push(pAlgoOrder->GeneratePubStr());
+        LarkRebot::GetInstance().SendMsg(pAlgoOrder->GeneratePubStr());
         WriteAlgoOrder(pAlgoOrder);
         LOG_INFO("SubmitAlgoOrder(MODIFY): algoOrderId:{} pairInstrumentKey:{} profitSwitch:{} profitPct:{}",
                  algoOrderId, pAlgoOrder->pairInstrumentKey, pAlgoOrder->profitSwitch, pAlgoOrder->profitPct);
@@ -371,7 +371,7 @@ void AlgoContext::OnCommand(string s) {
     alogOrderManager.InsertAlgoOrderByAlgoOrder(pPairOrder);
 
     // string pubMsg = pPairOrder->GeneratePubStr();
-    // rLarkMsg.Push(pubMsg);
+    // LarkRebot::GetInstance().SendMsg(pubMsg);
 
 
     WriteAlgoOrder(pPairOrder);
@@ -497,7 +497,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                     pAlgoOrder->fundVerifyFailedFlag = true;
                                                     char msg[stra::MSG_LEN];
                                                     sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                    rLarkMsg.Push(msg);
+                                                    LarkRebot::GetInstance().SendMsg(msg);
                                                 }
                                             }
                                         }
@@ -546,7 +546,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                         pAlgoOrder->fundVerifyFailedFlag = true;
                                                         char msg[stra::MSG_LEN];
                                                         sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                        rLarkMsg.Push(msg);
+                                                        LarkRebot::GetInstance().SendMsg(msg);
                                                     }
                                                 }
                                             }
@@ -583,7 +583,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                     pAlgoOrder->fundVerifyFailedFlag = true;
                                                     char msg[stra::MSG_LEN];
                                                     sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                    rLarkMsg.Push(msg);
+                                                    LarkRebot::GetInstance().SendMsg(msg);
                                                 }
                                             }
                                         }
@@ -633,7 +633,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                         pAlgoOrder->fundVerifyFailedFlag = true;
                                                         char msg[stra::MSG_LEN];
                                                         sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                        rLarkMsg.Push(msg);
+                                                        LarkRebot::GetInstance().SendMsg(msg);
                                                     }
                                                 }
                                             }
@@ -678,7 +678,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                         pAlgoOrder->fundVerifyFailedFlag = true;
                                                         char msg[stra::MSG_LEN];
                                                         sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                        rLarkMsg.Push(msg);
+                                                        LarkRebot::GetInstance().SendMsg(msg);
                                                     }
                                                 }
                                             }
@@ -704,7 +704,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                         pAlgoOrder->fundVerifyFailedFlag = true;
                                                         char msg[stra::MSG_LEN];
                                                         sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                        rLarkMsg.Push(msg);
+                                                        LarkRebot::GetInstance().SendMsg(msg);
                                                     }
                                                 }
                                             }
@@ -738,7 +738,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                     pAlgoOrder->fundVerifyFailedFlag = true;
                                                     char msg[stra::MSG_LEN];
                                                     sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                    rLarkMsg.Push(msg);
+                                                    LarkRebot::GetInstance().SendMsg(msg);
                                                 }
                                             }
                                         }
@@ -766,7 +766,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                     pAlgoOrder->fundVerifyFailedFlag = true;
                                                     char msg[stra::MSG_LEN];
                                                     sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                    rLarkMsg.Push(msg);
+                                                    LarkRebot::GetInstance().SendMsg(msg);
                                                 }
                                             }
                                         }
@@ -804,7 +804,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                         pAlgoOrder->fundVerifyFailedFlag = true;
                                                         char msg[stra::MSG_LEN];
                                                         sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                        rLarkMsg.Push(msg);
+                                                        LarkRebot::GetInstance().SendMsg(msg);
                                                     }
                                                 }
                                             }
@@ -830,7 +830,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                         pAlgoOrder->fundVerifyFailedFlag = true;
                                                         char msg[stra::MSG_LEN];
                                                         sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                        rLarkMsg.Push(msg);
+                                                        LarkRebot::GetInstance().SendMsg(msg);
                                                     }
                                                 }
                                             }
@@ -864,7 +864,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                         pAlgoOrder->fundVerifyFailedFlag = true;
                                                         char msg[stra::MSG_LEN];
                                                         sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                        rLarkMsg.Push(msg);
+                                                        LarkRebot::GetInstance().SendMsg(msg);
                                                     }
                                                 }
                                             }
@@ -891,7 +891,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                         pAlgoOrder->fundVerifyFailedFlag = true;
                                                         char msg[stra::MSG_LEN];
                                                         sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);
-                                                        rLarkMsg.Push(msg);
+                                                        LarkRebot::GetInstance().SendMsg(msg);
                                                     }
                                                 }
                                             }
@@ -941,7 +941,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                     pAlgoOrder->fundVerifyFailedFlag = true;
                                                     char msg[stra::MSG_LEN];
                                                     sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);      
-                                                    rLarkMsg.Push(msg);  
+                                                    LarkRebot::GetInstance().SendMsg(msg);  
                                                 }
                                             }
                                         }
@@ -988,7 +988,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                                     pAlgoOrder->fundVerifyFailedFlag = true;
                                                     char msg[stra::MSG_LEN];
                                                     sprintf(msg, "AccountManager FundVerify failed! quant_order  algoPairId:%ld, pairId:%ld instrumentKey:%s direction:%d", quant_order.algoPairId, quant_order.pairId, quant_order.instrumentKey, quant_order.direction);  
-                                                    rLarkMsg.Push(msg);  
+                                                    LarkRebot::GetInstance().SendMsg(msg);  
                                                 }
                                             }
                                         }
@@ -1005,12 +1005,12 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
         LOG_INFO("StraException, in AlgoContext::OnSpread error msg:{}", e.what());
         char msg[stra::MSG_LEN];
         sprintf(msg, "StraException, in AlgoContext::OnSpread error msg:%s", e.what());
-        rLarkMsg.Push(msg);
+        LarkRebot::GetInstance().SendMsg(msg);
     } catch (exception& e) {
         LOG_INFO("some errors has happened in AlgoContext::OnSpread, errormsg:{}", e.what());
         char msg[stra::MSG_LEN];
         sprintf(msg, "some errors has happened in AlgoContext::OnSpread, errormsg:%s", e.what());
-        rLarkMsg.Push(msg);
+        LarkRebot::GetInstance().SendMsg(msg);
     }
 }
 
@@ -1124,7 +1124,7 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
                         // 进行异常播报
                         char msg[stra::MSG_LEN];
                         sprintf(msg, "strategyName:%s algoOrderId:%ld quantOrder:%ld  systemDelayFlag:%d  systemDelayTimeSpan:%ld", pAlgoOrder->algoStrategyName, pAlgoOrder->algoOrderId, quantOrder.strategyOrderId, pAlgoOrder->systemDelayFlag, pAlgoOrder->systemDelayTimeSpan);
-                        rLarkMsg.Push(string(msg));
+                        LarkRebot::GetInstance().SendMsg(string(msg));
                     }
                 }
 
@@ -1137,7 +1137,7 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
                         // 进行异常播报
                         char msg[stra::MSG_LEN];
                         sprintf(msg, "strategyName:%s algoOrderId:%ld quantOrder:%ld exchangeDelayFlag:%d  exchangeDelayTimeSpan:%ld", pAlgoOrder->algoStrategyName, pAlgoOrder->algoOrderId, quantOrder.strategyOrderId, pAlgoOrder->exchangeDelayFlag, pAlgoOrder->exchangeDelayTimeSpan);
-                        rLarkMsg.Push(string(msg));
+                        LarkRebot::GetInstance().SendMsg(string(msg));
                     }
                 }
 
@@ -1199,12 +1199,12 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
         LOG_INFO("StraException in AlgoContext::OnOrder, error msg:{}", e.what());
         char msg[stra::MSG_LEN];
         sprintf(msg, "StraException in AlgoContext::OnOrder, error msg:%s", e.what());
-        rLarkMsg.Push(msg);
+        LarkRebot::GetInstance().SendMsg(msg);
     } catch (exception& e) {
         LOG_INFO("some errors has happened in AlgoContext::OnOrder, errormsg:{}", e.what());
         char msg[stra::MSG_LEN];
         sprintf(msg, "some errors has happened in AlgoContext::OnOrder, errormsg:%s", e.what());
-        rLarkMsg.Push(msg);
+        LarkRebot::GetInstance().SendMsg(msg);
     }
 }
 
@@ -1290,7 +1290,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             if (eventTime - pdata->generateTs > 30 * second1 && mSpreadReportCount[it->second->pairInstrumentKey] > 60) {
                 char msg[stra::MSG_LEN];
                 sprintf(msg, "check spread data !!! strategyName:%s algoOrderId:%ld pairInstrumentKey:%s  eventTime:%ld  pdata->generateTs:%ld", it->second->algoStrategyName, it->second->algoOrderId, it->second->pairInstrumentKey, eventTime, pdata->generateTs);
-                rLarkMsg.Push(msg);
+                LarkRebot::GetInstance().SendMsg(msg);
                 LOG_INFO("Spread {}", msg);
                 it->second->commandType = stra::CommandType_ERROR;
                 it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELLING;
@@ -1307,7 +1307,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         if (stuckOrderReportCount > 60){
                             char msg[stra::MSG_LEN];
                             sprintf(msg, "check stuck order !!! strategyName:%s algoOrderId:%ld strategyOrderId:%ld  instrumentKey:%s orderStatus:%s posDirection:%s direction:%s", it->second->algoStrategyName, it->second->algoOrderId, order.strategyOrderId, order.instrumentKey, OrderStatusEnum2StrMap[order.orderStatus].c_str(), OffsetFlagEnum2StrMap[order.offsetFlag].c_str(), DirectionEnum2StrMap[order.direction].c_str());
-                            rLarkMsg.Push(msg);
+                            LarkRebot::GetInstance().SendMsg(msg);
                             stuckOrderFlag = true;
                         }
 
@@ -1325,7 +1325,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                             string pubMsg = it->second->GeneratePubStr();
                             //QuantPub::Instance().Publish(pubMsg);
-                            rLarkMsg.Push(pubMsg);
+                            LarkRebot::GetInstance().SendMsg(pubMsg);
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
                             pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
@@ -1346,7 +1346,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         if (errorOrderReportCount > 60){
                             char msg[stra::MSG_LEN];
                             sprintf(msg, "check unknown order !!! strategyName:%s algoOrderId:%ld strategyOrderId:%ld  orderStatus:%s", it->second->algoStrategyName, it->second->algoOrderId, order.strategyOrderId, OrderStatusEnum2StrMap[order.orderStatus].c_str());
-                            rLarkMsg.Push(msg);
+                            LarkRebot::GetInstance().SendMsg(msg);
                             errorOrderFlag = true;
                         }
                         // 主动发起订单查询
@@ -1363,7 +1363,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                             string pubMsg = it->second->GeneratePubStr();
                             //QuantPub::Instance().Publish(pubMsg);
-                            rLarkMsg.Push(pubMsg);
+                            LarkRebot::GetInstance().SendMsg(pubMsg);
                             WriteAlgoOrder(it->second);
                             deleteAlgoOrderFlag = true;
                             pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
@@ -1397,7 +1397,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                         string pubMsg = it->second->GeneratePubStr();
                         //QuantPub::Instance().Publish(pubMsg);
-                        rLarkMsg.Push(pubMsg);
+                        LarkRebot::GetInstance().SendMsg(pubMsg);
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
                         pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
@@ -1418,7 +1418,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         // 不满足最小报单量,不会报pairOrder了,这时候订单终止,返回交易结果
                         string pubMsg = it->second->GeneratePubStr();
                         //QuantPub::Instance().Publish(pubMsg);
-                        rLarkMsg.Push(pubMsg);
+                        LarkRebot::GetInstance().SendMsg(pubMsg);
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
                         pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
@@ -1463,9 +1463,9 @@ void AlgoContext::OnTimer(int64_t eventTime) {
 
             if (infoReportCount >= 60) {
                 string info = it->second->GetLastestStatusInfo();
-                rLarkMsg.Push(info);
+                LarkRebot::GetInstance().SendMsg(info);
                 // string pubMsg = it->second->GeneratePubStr();
-                // rLarkMsg.Push(pubMsg);
+                // LarkRebot::GetInstance().SendMsg(pubMsg);
             }
             
             // delete cancled status algoorder
@@ -1485,7 +1485,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 it->second->algoOrderStatus = stra::ALGO_OS_CANCELED;
                 string pubMsg = it->second->GeneratePubStr();
                 //QuantPub::Instance().Publish(pubMsg);
-                rLarkMsg.Push(pubMsg);
+                LarkRebot::GetInstance().SendMsg(pubMsg);
                 deleteAlgoOrderFlag = true;
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                 LOG_INFO("算法单终结(撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELED，子单已全部清零",
@@ -1495,7 +1495,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
                 string pubMsg = it->second->GeneratePubStr();
                 //QuantPub::Instance().Publish(pubMsg);
-                rLarkMsg.Push(pubMsg);
+                LarkRebot::GetInstance().SendMsg(pubMsg);
                 deleteAlgoOrderFlag = true;
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                 LOG_WARN("算法单终结(异常撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单已全部清零",
@@ -1531,9 +1531,9 @@ void AlgoContext::OnTimer(int64_t eventTime) {
 
         if (algoOrderReportCount >= 60) {
             if (algoOrderStr.length() > 0) {
-                rLarkMsg.Push(algoOrderStr);
+                LarkRebot::GetInstance().SendMsg(algoOrderStr);
             } else {
-                rLarkMsg.Push("There are no algo orders!");
+                LarkRebot::GetInstance().SendMsg("There are no algo orders!");
             }
         }
 
@@ -1607,12 +1607,12 @@ void AlgoContext::OnTimer(int64_t eventTime) {
         LOG_INFO("StraException in AlgoContext::OnTimer, error msg:{}", e.what());
         char msg[stra::MSG_LEN];
         sprintf(msg, "StraException in AlgoContext::OnTimer, error msg:%s", e.what());
-        rLarkMsg.Push(msg);
+        LarkRebot::GetInstance().SendMsg(msg);
     } catch (exception& e) {
         LOG_INFO("some errors has happened in AlgoContext::OnTimer, errormsg:{}", e.what());
         char msg[stra::MSG_LEN];
         sprintf(msg, "some errors has happened in AlgoContext::OnTimer, errormsg:%s", e.what());
-        rLarkMsg.Push(msg);
+        LarkRebot::GetInstance().SendMsg(msg);
     }
 
     // 如果多次查询仍无法同步订单状态，有订单丢失的情况，则需要停止algoOrder,返回回报并将algoOrder从algoOrderMgr中删除，回报时订单状态为Fault
