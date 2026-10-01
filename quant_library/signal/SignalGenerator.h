@@ -20,11 +20,18 @@
 namespace pt {
 // 全局配置，所有对子共享
 struct FeeSlippageConfig {
-    double activeMakerFeeRate{0.0002};
-    double activeTakerFeeRate{0.0006};
-    double passiveMakerFeeRate{0.0002};
-    double passiveTakerFeeRate{0.0006};
-    double basicSlippage{0.0001};
+    // double activeMakerFeeRate{0.0002};
+    // double activeTakerFeeRate{0.0006};
+    // double passiveMakerFeeRate{0.0002};
+    // double passiveTakerFeeRate{0.0006};
+    // double basicSlippage{0.0001};
+
+    double activeMakerFeeRate{0};
+    double activeTakerFeeRate{0};
+    double passiveMakerFeeRate{0};
+    double passiveTakerFeeRate{0};
+    double basicSlippage{0};
+
     double slippagePctMinMove{0.5}; // 按最小变价计算的滑点比例
     double ttAddPercent{0.0003};   // 双taker额外价差要求：只对 TT 生效，且与执行成本反向叠加，
                                    // 抵消后使 TT 入口阈值 = Q*spreadAdjPct + direction*ttAddPercent，
@@ -34,7 +41,8 @@ struct FeeSlippageConfig {
                                   // 祖先注释「在 spread 收缩时有更多的开平机会」
     double minSpreadSpan{0.000};   // 最小分位数差值(套利空间门槛)（祖先 min_spread_span_org=0.0002）。
                                     // 低于此值 RecalcOrderParams 直接关掉全部开仓开关并 return
-    double minSpreadTarget{0.0};   // 最小期望价差(绝对值)
+    // double minSpreadTarget{0.0};   // 最小期望价差(绝对值)
+    double minSpreadTarget{-0.001};   // 最小期望价差(绝对值)
     double openProfitPct{0.0001};   // 开仓期望利润
     double openMaxFundingRate{0.002};  // 开仓最大资金费率绝对值
 
