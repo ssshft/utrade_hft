@@ -32,7 +32,7 @@ struct FeeSlippageConfig {
     double spreadAdjPct{0.8};     // 分位数调节比例（祖先 spread_adj_pct=0.8）。
                                   // 入口阈值 = Q*spreadAdjPct，|Q*adj| 越小越容易触发：
                                   // 祖先注释「在 spread 收缩时有更多的开平机会」
-    double minSpreadSpan{0.0002};   // 最小分位数差值(套利空间门槛)（祖先 min_spread_span_org=0.0002）。
+    double minSpreadSpan{0.000};   // 最小分位数差值(套利空间门槛)（祖先 min_spread_span_org=0.0002）。
                                     // 低于此值 RecalcOrderParams 直接关掉全部开仓开关并 return
     double minSpreadTarget{0.0};   // 最小期望价差(绝对值)
     double openProfitPct{0.0001};   // 开仓期望利润

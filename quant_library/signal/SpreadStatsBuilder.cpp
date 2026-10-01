@@ -97,7 +97,7 @@ SpreadStats SpreadStatsBuilder::Build(double quantileUp, double quantileDn, size
     }
     st.avgDepthVolume = depthSum / static_cast<double>(n);
 
-    std::cout << "SpreadStatsBuilder: ----------------- " << " st.bidAskUQ:" << st.bidAskUQ << " st.bidAskDQ:" << st.bidAskDQ << " st.bidBidUQ:" << st.bidBidUQ  <<  " st.bidBidDQ:" << " st.askBidUQ:" << st.askBidUQ << " st.askBidDQ:" << st.askBidDQ << " st.askAskUQ:" << st.askAskUQ << " st.askAskDQ:" << st.askAskDQ << std::endl;
+    std::cout << "SpreadStatsBuilder: ----------------- " << " st.bidAskUQ:" << st.bidAskUQ << " st.bidAskDQ:" << st.bidAskDQ << " st.bidBidUQ:" << st.bidBidUQ  <<  " st.bidBidDQ:" << st.bidBidDQ <<  " st.askBidUQ:" << st.askBidUQ << " st.askBidDQ:" << st.askBidDQ << " st.askAskUQ:" << st.askAskUQ << " st.askAskDQ:" << st.askAskDQ << std::endl;
     st.valid = true;
     return st;
 }

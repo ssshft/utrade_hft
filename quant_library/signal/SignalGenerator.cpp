@@ -176,6 +176,23 @@ SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
     const double F_tt = CalcExecCost(true);
     const double F_mt = CalcExecCost(false);
 
+    std::cout << "F_tt:" << F_tt << " F_mt:" << F_mt << std::endl;
+    std::cout << "ttOL " << op.ttOLSwitch << " " << rt.spreadBidAsk << " " << op.ttOLStartSpread << " " << vol << " " << op.ttOLEndVolume << std::endl;
+
+    std::cout << "ttOS " << op.ttOSSwitch << " " << rt.spreadAskBid << " " << op.ttOSStartSpread << " " << vol << " " << op.ttOSEndVolume << std::endl;
+
+    std::cout << "ttCL " << op.ttCLSwitch << " " << rt.spreadAskBid << " " << op.ttCLStartSpread << " " << vol << " " << op.ttCLEndVolume << std::endl;
+
+    std::cout << "ttCS " << op.ttCSSwitch << " " << rt.spreadBidAsk << " " << op.ttCSStartSpread << " " << vol << " " << op.ttCSEndVolume << std::endl;
+
+    std::cout << "mtOL " << op.mtOLSwitch << " " << rt.spreadAskAsk << " " << op.mtOLStartSpread << " " << vol << " " << op.mtOLEndVolume << std::endl;
+
+    std::cout << "mtOS " << op.mtOSSwitch << " " << rt.spreadBidBid << " " << op.mtOSStartSpread << " " << vol << " " << op.mtOSEndVolume << std::endl;
+
+    std::cout << "mtCL " << op.mtCLSwitch << " " << rt.spreadBidBid << " " << op.mtCLStartSpread << " " << vol << " " << op.mtCLEndVolume << std::endl;
+
+    std::cout << "mtCS " << op.mtCSSwitch << " " << rt.spreadAskAsk << " " << op.mtCSStartSpread << " " << vol << " " << op.mtCSEndVolume << std::endl;
+
     if (op.ttOLSwitch && rt.spreadBidAsk + F_tt < op.ttOLStartSpread && vol > op.ttOLEndVolume + 1e-9) {
         result.ttOLSignal = true;
         result.hasSignal = true;
