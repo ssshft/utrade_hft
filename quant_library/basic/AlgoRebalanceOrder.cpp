@@ -3,6 +3,7 @@
 #include "AccountManager.h"
 #include "QuantTrade.h"
 #include "Convert.h"
+#include "LarkRebot.h"
 
 
 AlgoRebalanceOrder::AlgoRebalanceOrder() : BaseAlgoOrder() {
