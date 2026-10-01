@@ -50,7 +50,7 @@ void LarkRebot::Send(const std::string& s) {
 	std::string host = url.substr(0, slash_pos);
 	std::string target = url.substr(slash_pos);
 	
-	std::string body_in = fmt::format("{{\"msg_type\":\"text\",\"content\":{{\"text\":\"{}\"}}}}", msg);
+	std::string body_in = fmt::format("{{\"msg_type\":\"text\",\"content\":{{\"text\":\"{}\"}}}}", s);
 
    	int status = 0;
     std::string body;
