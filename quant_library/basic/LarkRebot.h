@@ -2,9 +2,9 @@
 
 #include <string>
 #include "DataStruct.h"
+#include "ConcurrentQueue.h"
 #include "Utility.h"
-
-using namespace std;
+#include "Net.h"
 
 
 class LarkRebot {
@@ -12,24 +12,16 @@ public:
     static LarkRebot& GetInstance();
     ~LarkRebot();
     void Run();
-    void SendMsg(string msg);
-    void SendMsg(string msg, ReceiveInfo& receiveInfo);
-    void SendGroupMsg(string msg, ReceiveGroupInfo& receiveGroupInfo);
-    void SendGroupMsgCard(MsgCard& msgCard, ReceiveGroupInfo& receiveGroupInfo);
-    void SendVoiceCall(string msg, string receiveId);
-    void SendGroupVoiceCall(string msg, string groupId, vector<string>& vUserId);
+    void SendMsg(const std::string& msg);
+
 private:
     LarkRebot();
-    string url;
-    string authorization;
-    string groupUrl;
-    string voiceCallUrl;
-    string groupVoiceCallUrl;
-    unordered_map<string, int64_t> mIdTime;
-    int channel;
-    double voiceCallInterval;
-    bool running;
-    thread* runningThread;
+    void Send(const std::string& s);
+    std::string url;
+    std::string tag;
 
-    string tag;
+    bool running;
+    std::thread* runningThread;
+
+    ConcurrentQueue<string, 10000> queue;
 };
