@@ -685,10 +685,9 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     // ---- 腿属性（默认值，后续从 PairTradingConfig 来）----
     pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
     pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
-    // TT 主动腿吃单 -> MARKET；MT 主动腿挂单 -> LIMIT
-    pAlgoOrder->activeOrderType = isTT ? OT_MARKET : OT_LIMIT;
-    // 被动腿永远是吃单腿
-    pAlgoOrder->passiveOrderType = OT_MARKET;
+    
+    pAlgoOrder->activeOrderType = isTT ? OT_LIMIT : OT_POST_ONLY;
+    pAlgoOrder->passiveOrderType = OT_LIMIT;
 
     pAlgoOrder->activeDepthMakerCheck = false;
     pAlgoOrder->activeDepthTakerCheck = false;
@@ -748,9 +747,9 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->profitSwitch = pi.profitSwitch;
     pAlgoOrder->profitPct = pi.profitPct;
     pAlgoOrder->mtRebalanceSwitch = true;
-    pAlgoOrder->ttRebalanceSwitch = true;
+    pAlgoOrder->ttRebalanceSwitch = false;
     pAlgoOrder->mtRebalanceFlag = true;
-    pAlgoOrder->ttRebalanceFlag = true;
+    pAlgoOrder->ttRebalanceFlag = false;
     pAlgoOrder->mtPriceTrendProtectFlag = false;
     pAlgoOrder->ttPriceTrendProtectFlag = false;
     pAlgoOrder->activePriceTickFlag = false;
