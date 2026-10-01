@@ -176,8 +176,6 @@ SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
     const double F_tt = CalcExecCost(true);
     const double F_mt = CalcExecCost(false);
 
-    std::cout << "CheckSignalForSatisfy op.ttOLStartSpread:" << op.ttOLStartSpread << " op.ttOSStartSpread:" << op.ttOSStartSpread << " "
-
     if (op.ttOLSwitch && rt.spreadBidAsk + F_tt < op.ttOLStartSpread && vol > op.ttOLEndVolume + 1e-9) {
         result.ttOLSignal = true;
         result.hasSignal = true;
