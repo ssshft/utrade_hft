@@ -216,10 +216,6 @@ SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
         result.hasSignal = true;
     }
 
-    if (result.hasSignal) {
-        LOG_INFO("");
-    }
-
     return result;
 }
 

@@ -386,16 +386,12 @@ void PairInfoManager::UpdateRtSpread(const std::string& pairKey, const dbp::DbpD
     rt.lastGenerateTs = pdata->generateTs;
     rt.valid = true;
 
-    if (pdata->activeFundingTs > rt.activeFundingRateTime) {
-        rt.activeFundingRate = pdata->activeFundingRate;
-        rt.activeFundingRateTime = pdata->activeFundingTs;
-    }
+    rt.activeFundingRate = pdata->activeFundingRate;
+    rt.activeFundingRateTime = pdata->activeFundingTs;
 
-    if (pdata->passiveFundingTs > rt.passiveFundingRateTime) {
-        rt.passiveFundingRate = pdata->passiveFundingRate;
-        rt.passiveFundingRateTime = pdata->passiveFundingTs;
-    }
-
+    rt.passiveFundingRate = pdata->passiveFundingRate;
+    rt.passiveFundingRateTime = pdata->passiveFundingTs;
+    
     pi->modifyTime = crypto::getCurrentTime();
 }
 

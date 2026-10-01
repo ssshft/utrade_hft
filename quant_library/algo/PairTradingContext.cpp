@@ -91,8 +91,6 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     HandleOrphanAlgoOrders();
 
     LOG_WARN("启动闸门: Reconciling —— 交易冻结，等两腿持仓推送到位后对账（pairs:{}）", cfg.pairKeys.size());
-
-    LOG_INFO("size: {}", cfg.pairKeys.size());
 }
 
 // 快照里 hasActiveAlgoOrder == true 的启动处理。
@@ -123,31 +121,24 @@ void PairTradingContext::HandleOrphanAlgoOrders() {
 
 void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata) {
     std::string pairKey(topic->__name);
-
     auto& pim = PairInfoManager::Instance();
-    PairInfo* pi = pim.GetPairInfo(pairKey);
-    if (!pi) {
-        return;
-    }
-
     pim.UpdateRtSpread(pairKey, pdata);
 
     // 喂一条价差样本进 24h 滚动窗口（内部按 spreadSampleIntervalMs 降频）
     // 注意：这里只负责“收集”，不负责算分位数；分位数在 OnTimer 里按周期重算
     AccumulateSpreadSample(pairKey, pdata);
 
+    PairInfo* pi = pim.GetPairInfo(pairKey);
+    if (!pi) {
+        return;
+    }
+
     ProcessPairSignal(*pi);
 }
 
 void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, const dbp::DbpData* pdata) {
-    if (!pdata) {
-        return;
-    }
-
-    // generateTs 是价差生成时间，单位 us（dbsnap.h: high_resolution_clock/1000），
-    // 与 crypto::getCurrentTime() 同量纲，可直接和 Prune(nowUs) 比较；
-    // 若上游没填（==0），退回本地时钟，避免 0 值把整窗样本顶掉
-    const int64_t ts = (pdata->generateTs > 0) ? pdata->generateTs : crypto::getCurrentTime();;
+    // generateTs 是价差生成时间，单位 us，
+    const int64_t ts = pdata->generateTs;
 
     auto it = m_spreadWindows.find(pairKey);
     if (it == m_spreadWindows.end()) {
@@ -157,7 +148,6 @@ void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, cons
     }
     SpreadWindow& win = it->second;
 
-    // 降频：24h @200ms 约 43 万条/对子（float 结构体，约 10MB/对子）
     if (m_cfg.spreadSampleIntervalMs > 0 && win.lastSampleTs > 0) {
         const int64_t minGapUs = static_cast<int64_t>(m_cfg.spreadSampleIntervalMs) * 1000LL;
         if (ts - win.lastSampleTs < minGapUs) {
@@ -204,6 +194,8 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
     const SignalResult sig = sg.CheckSignalForSatisfy(pi);
 
     UpdateSatisfyTime(pi, sig, canOpen, canClose);
+
+    std::cout << "ProcessPairSignal pi.hasActiveAlgoOrder:" << pi.hasActiveAlgoOrder << " pi.errorFlag:" << pi.errorFlag << " sig.hasSignal:" << sig.hasSignal << std::endl;
 
     if (pi.hasActiveAlgoOrder) {
         return;

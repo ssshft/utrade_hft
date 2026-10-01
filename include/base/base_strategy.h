@@ -87,14 +87,12 @@ private:
                         }
                     }
                     else if (crypto::convert_rcmd_2_balance(rcmd, balance)) {
-                        std::cout << "convert_rcmd_2_balance: " << balance.getString() << std::endl;
                         auto found = _strategyIds.find(balance.strategyId);
                         if (found != _strategyIds.end()) {
                             on_balance(balance);
                         }
                     }
                     else if (crypto::convert_rcmd_2_position(rcmd, position)) {
-                        std::cout << "convert_rcmd_2_position: " << position.getString() << std::endl;
                         auto found = _strategyIds.find(position.strategyId);
                         if (found != _strategyIds.end()) {
                             on_position(position);

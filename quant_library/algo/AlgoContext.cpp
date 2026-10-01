@@ -433,10 +433,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
 
         openOrderFlag = curDelay && curDepthDelay && curTradeDelay;
 
-
         auto& allAlgoOrders = alogOrderManager.GetAllAlgoOrders();
-        std::cout << "AlgoContext allAlgoOrders size: " << allAlgoOrders.size() << std::endl;
-
 
         for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end(); ++it) {
             BaseAlgoOrder* pAlgoOrder = it->second;
@@ -1332,7 +1329,6 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             LOG_ERROR("算法单终结(卡单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单查询超 5 次仍无确认 orderStatus:{}",
                                       it->second->algoOrderId, it->second->pairInstrumentKey,
                                       OrderStatusEnum2StrMap[order.orderStatus]);
-                            std::cout << "---stuck order----query error-----" << std::endl;
                         }
 
                         if (pass) {
@@ -1369,7 +1365,6 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                             LOG_ERROR("算法单终结(状态未知): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单 orderStatus 长期 OS_UNKNOWN 且查询超 5 次",
                                       it->second->algoOrderId, it->second->pairInstrumentKey);
-                            std::cout << "---unknown order----query error-----" << std::endl;
                         }
                     }
                 }
@@ -1403,7 +1398,6 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                         LOG_INFO("算法单终结(剩余量不足不再报单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_FILLED，剩余量 {} < 最小报单量 {} 且无在途 pairOrder",
                                  it->second->algoOrderId, it->second->pairInstrumentKey, orderAmount, minSize);
-                        std::cout << "orderAmount < minSize && allPairOrders.size() == 0" << std::endl;
                     }
 
                 }
@@ -1424,7 +1418,6 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                         LOG_INFO("算法单终结(剩余量不足不再报单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_FILLED，剩余量 {} < 最小报单量 {} 且无在途 pairOrder",
                                  it->second->algoOrderId, it->second->pairInstrumentKey, orderAmount, it->second->activeInfo.minSize);
-                        std::cout << "orderAmount < it->second->activeInfo.minSize && allPairOrders.size() == 0" << std::endl;
                     }    
                 }        
             }
@@ -1483,24 +1476,18 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             if (allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_CANCELLING) {
                 it->second->commandType = stra::CommandType_CANCELED;
                 it->second->algoOrderStatus = stra::ALGO_OS_CANCELED;
-                string pubMsg = it->second->GeneratePubStr();
-                //QuantPub::Instance().Publish(pubMsg);
+                const std::string& pubMsg = it->second->GeneratePubStr();
                 LarkRebot::GetInstance().SendMsg(pubMsg);
                 deleteAlgoOrderFlag = true;
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
-                LOG_INFO("算法单终结(撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELED，子单已全部清零",
-                         it->second->algoOrderId, it->second->pairInstrumentKey);
-                std::cout << "allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_CANCELLING" << std::endl;
+                LOG_INFO("算法单终结(撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELED，子单已全部清零", it->second->algoOrderId, it->second->pairInstrumentKey);
             } else if (allPairOrders.size() == 0 && it->second->algoOrderStatus == stra::ALGO_OS_ERRORCANCELLING) {  //需要考虑下这个状态的定义
                 it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
-                string pubMsg = it->second->GeneratePubStr();
-                //QuantPub::Instance().Publish(pubMsg);
+                const std::string& pubMsg = it->second->GeneratePubStr();
                 LarkRebot::GetInstance().SendMsg(pubMsg);
                 deleteAlgoOrderFlag = true;
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
-                LOG_WARN("算法单终结(异常撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单已全部清零",
-                         it->second->algoOrderId, it->second->pairInstrumentKey);
-                std::cout << "allPairOrders.size() == 0" << std::endl;
+                LOG_WARN("算法单终结(异常撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单已全部清零", it->second->algoOrderId, it->second->pairInstrumentKey);
             }
 
             if (deleteAlgoOrderFlag) {
