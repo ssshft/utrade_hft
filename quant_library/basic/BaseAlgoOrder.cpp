@@ -7,7 +7,6 @@
 #include "algo/PairTradingContext.h"
 
 
-RQUEUE rLarkMsg;
 CONTENTQUEUE contentQueue;
 
 

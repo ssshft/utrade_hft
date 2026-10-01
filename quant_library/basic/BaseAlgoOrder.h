@@ -9,6 +9,7 @@
 #include "time_util.h"
 #include <string>
 #include "securitymanager.h"
+#include "LarkRebot.h"
 
 struct BaseAlgoOrder {
     // char sccId[stra::INST_ID_LEN]{""};
