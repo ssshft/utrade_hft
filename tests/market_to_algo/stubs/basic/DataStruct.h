@@ -182,10 +182,26 @@ namespace stra {
         TargetSpredPrice_MAX
     };
 
+    // 真实 DataStruct.h:373-385 里有这两张表。桩里原来没抄，因为当时没人用；
+    // pre_start 的告警要打"保持的默认值叫什么名字"，所以补上。
+    // 只加 Enum2Str：解析侧用的是字符串直比 + 显式拒哨兵，不用 Str2Enum。
+    static std::unordered_map<TargetSpredPrice, std::string> TargetSpredPriceEnum2Str {
+        {TargetSpredPrice_MIN, "TargetSpredPrice_MIN"},
+        {TargetSpredPrice_NOW, "TargetSpredPrice_NOW"},
+        {TargetSpredPrice_NOW_MEAN, "TargetSpredPrice_NOW_MEAN"},
+        {TargetSpredPrice_MAX, "TargetSpredPrice_MAX"}
+    };
+
     enum ActiveVolumeCalcualteType {
         ActiveVolumeCalcualteType_MIN,
         ActiveVolumeCalcualteType_PassiveVolumePct,
         ActiveVolumeCalcualteType_MAX
+    };
+
+    static std::unordered_map<ActiveVolumeCalcualteType, std::string> ActiveVolumeCalcualteTypeEnum2Str {
+        {ActiveVolumeCalcualteType_MIN, "ActiveVolumeCalcualteType_MIN"},
+        {ActiveVolumeCalcualteType_PassiveVolumePct, "ActiveVolumeCalcualteType_PassiveVolumePct"},
+        {ActiveVolumeCalcualteType_MAX, "ActiveVolumeCalcualteType_MAX"}
     };
 
     enum TradingType {

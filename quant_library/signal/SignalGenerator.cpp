@@ -1,5 +1,10 @@
 #include "SignalGenerator.h"
 
+// 显式包含：CheckSignalForSatisfy 里有 std::cout 调试打印。
+// 不写的话在真实工程里靠别的头传递包含侥幸通过，换一个构建树就直接编译失败
+// （tests/market_to_algo 与 tests/algo_exec 都踩过：'no member named cout in namespace std'）。
+#include <iostream>
+
 namespace pt {
 
 std::pair<double, double> SignalGenerator::CalcExpectSpread(double quantileBound, bool isTT, int direction) const {

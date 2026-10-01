@@ -35,7 +35,10 @@
 //
 //   OPEN_LONG 在这个项目里的语义是「做多**这一对**」，落腿方向是：
 //       主动腿（BINANCE）= DT_SHORT    被动腿（GATEIO）= DT_LONG
-//   主动腿 OT_MARKET（TT 主动腿吃单），被动腿也 OT_MARKET（被动腿永远是吃单腿）。
+//   主动腿 OT_LIMIT（TT 主动腿穿价限价，效果是吃单；2026-10-01 起，原来是 OT_MARKET），
+//   被动腿也是 OT_LIMIT（被动腿永远是吃单腿）。
+//   子单类型 = 算法单的 activeOrderType / passiveOrderType（AlgoPairOrder.cpp:321-322），
+//   所以改 PairTradingConfig 里那两个默认值会直接改到这里 —— B1 钉的就是这个映射。
 //   这不是笔误，是配对交易的腿约定；B1 会把这些逐字段钉住。
 //
 //   同一时刻 MT 分支也会被进入一次（两个 if 是并列的，不是 else if），
@@ -649,7 +652,9 @@ static void TestB_SplitAndPlace() {
         CHECK(std::strcmp(n->instId, "DOGE-USDT") == 0, "B1 出向: instId = DOGE-USDT");
         CHECK(n->offsetFlag == OF_OPEN, "B1 出向: offsetFlag = OF_OPEN");
         CHECK(n->direction == DT_SHORT, "B1 出向: direction = DT_SHORT");
-        CHECK(n->orderType == OT_MARKET, "B1 出向: orderType = OT_MARKET（TT 主动腿吃单）");
+        // 子单类型直接取自算法单的 activeOrderType（AlgoPairOrder.cpp:321）。
+        // 2026-10-01 起 TT 主动腿是 OT_LIMIT（原来是 OT_MARKET）。
+        CHECK(n->orderType == OT_LIMIT, "B1 出向: orderType = OT_LIMIT（TT 主动腿穿价限价）");
         CHECK(Near(n->volumeTotal, 1.0), "B1 出向: volume = 1.0");
         CHECK(n->clientOrderId == kids[0].strategyOrderId, "B1 出向: clientOrderId == 子单 strategyOrderId");
         CHECK(std::strcmp(n->strategyId, "test1") == 0, "B1 出向: strategyId = test1");
@@ -1005,7 +1010,11 @@ static void TestE_TimeoutCancel() {
         dbp::DbpData pdata = FreshData();
         fx.algoCtx.OnSpread(&topic, &pdata);
         CHECK(fx.NNew() == 1, "E1 前置：主动腿已报出");
-        CHECK(o->activeOrderType == OT_MARKET, "E1 前置：主动腿是 Taker（OT_MARKET）");
+        // Taker/Maker 分支的判据是**子单**的 orderType 是否等于 OT_POST_ONLY
+        // （BaseAlgoOrder.cpp:457）。TT 是 TAKER_TAKER，子单类型 = 算法单的
+        // activeOrderType = OT_LIMIT（2026-10-01 起，原来是 OT_MARKET），
+        // 不等于 OT_POST_ONLY，所以走的仍然是 Taker 撤单分支 —— 这条用例依然成立。
+        CHECK(o->activeOrderType == OT_LIMIT, "E1 前置：主动腿走 Taker 分支（子单 OT_LIMIT != OT_POST_ONLY）");
         CHECK(o->activeTakerCancelOrderTime == 5 * SEC, "E1 前置：超时门槛 = 5s");
 
         // 先补上交易所确认。CancelOrderOnSpread 只撤
@@ -1117,8 +1126,8 @@ static void TestF_RiskClose() {
         PairInfo& pi = *fx.pi();
         // OpenTtOL 走的是真实的 SetActiveAlgoOrder 路径，这两个字段应当已被置上
         CHECK(pi.hasActiveAlgoOrder, "F1 前置：对子已被算法单占住");
-        CHECK(std::strcmp(pi.currentAlgoOrderId, std::to_string(o->algoOrderId).c_str()) == 0,
-              "F1 前置：currentAlgoOrderId == algoOrderId");
+        CHECK(pi.currentAlgoOrderId == o->algoOrderId,
+              "F1 前置：currentAlgoOrderId == algoOrderId（int64 直比）");
 
         ArmTinyCloseRisk(pi);
         CHECK(std::abs(pi.CalcPositionValue()) < 25.0, "F1 前置：持仓市值 < tinyCloseThresholdUsdt");
@@ -1319,8 +1328,8 @@ static void TestH_CancelLoop() {
     // ---- 3) 风控命中碎单 -> 策略层算出要撤 -> 回调执行侧 ----
     ArmTinyCloseRisk(pi);
     CHECK(pi.hasActiveAlgoOrder, "H3 前置：对子已被算法单占住");
-    CHECK(std::strcmp(pi.currentAlgoOrderId, std::to_string(o->algoOrderId).c_str()) == 0,
-          "H3 前置：currentAlgoOrderId == algoOrderId");
+    CHECK(pi.currentAlgoOrderId == o->algoOrderId,
+          "H3 前置：currentAlgoOrderId == algoOrderId（int64 直比）");
 
     const size_t before = fx.modifyCalls.size();
     fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());

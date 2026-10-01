@@ -20,14 +20,113 @@
 namespace pt {
 
 struct PairTradingConfig {
+    // 对子清单。**平铺**在 op 段（`op.pairKeys`），不在 `op.pairTrading` 里 ——
+    // 因为 pre_start 是边遍历它边订阅行情的，跟纯参数不是一类东西。
     std::vector<std::string> pairKeys;
 
+    // 账户。同样平铺在 op 段（`op.activeAccountId` / `op.passiveAccountId`）。
     int activeAccountId{0};
     int passiveAccountId{0};
 
+    // 报单额。平铺在 op 段（`op.maxPositionValue` / `op.maxAmount` / `op.targetAmount`），
+    // 单位是 **USDT 名义价值**，不是币数 —— 换算成币数在
+    // PairInfoManager::RecalcVolumeParams（除以腿价再 ceil 到 minVolume）。
     double maxPositionValue{100}; // 总持仓上限
     double maxAmount{50};
     double targetAmount{50};
+
+    // -----------------------------------------------------------------------
+    // 两个"参数块"。挂在 op 段下的**独立子对象**里，解析全在
+    // src/strategy/PairTradingStrategy.cpp 的 pre_start 里用 rapidjson 逐字段读
+    // （每个 key 先 HasMember 再赋值：配置里没写的保持结构体默认值）。
+    //
+    //   op.feeSlippage -> feeSlippage  执行成本 / 滑点 / 价差阈值
+    //                    解析后推给 SignalGenerator::SetConfig（信号侧与算法单侧共用）
+    //   op.risk        -> risk         风控门槛 + 渐进式平仓三档
+    //                    解析后推给 RiskManager::SetConfig
+    //
+    // 为什么这两个也放进来：这两个单例（SignalGenerator / RiskManager）是跨组件
+    // 使用的，各自必须持有一份自己的配置副本；放在这里是为了让"本次启动实际生效
+    // 的全部参数"集中在一处，便于日志打印与核对。
+    //
+    // 算法单参数（报单类型 / 撤单门槛 / rebalance …）**不单独建结构体**，
+    // 就是下面 `op.pairTrading` 段里的普通字段，由 BuildAlgoOrderJson 直接读。
+    // -----------------------------------------------------------------------
+    FeeSlippageConfig feeSlippage;
+    RiskConfig       risk;
+
+    // ---- 以下全部走 `op.pairTrading` 段 ----
+
+    // ---- 腿报单类型（OrderType 枚举，配置里写字符串）----
+    // 判据落在**子单**的 orderType 上（BaseAlgoOrder.cpp:457 的
+    // `it->second.orderType == OT_POST_ONLY` 决定走 Maker 还是 Taker 撤单分支），
+    // 子单类型直接取自这里（AlgoPairOrder.cpp:321-322 / 388-389 / 439-440 / 503-504）。
+    //   主动腿：TT 用 OT_LIMIT（穿价限价，效果是吃单但把最差成交价钉住）
+    //           MT 用 OT_POST_ONLY（必须挂单，否则会被交易所当吃单拒掉）
+    //   被动腿：恒 OT_LIMIT
+    // ⚠️ 2026-10-01 改过（4f3e2a5）：原来是 TT=OT_MARKET / MT=OT_LIMIT / 被动=OT_MARKET。
+    OrderType ttActiveOrderType{OT_LIMIT};
+    OrderType mtActiveOrderType{OT_POST_ONLY};
+    OrderType passiveOrderType{OT_LIMIT};
+
+    // ---- 盘口深度检查（当前四个都关）----
+    bool activeDepthMakerCheck{false};
+    bool activeDepthTakerCheck{false};
+    bool passiveDepthMakerCheck{false};
+    bool passiveDepthTakerCheck{false};
+
+    // ---- 价格偏移比例（相对对手价，当前都是 0 = 不偏移）----
+    double activePriceTakerPct{0.0};
+    double activePriceMakerPct{0.0};
+    double passivePriceTakerPct{0.0};
+    double passivePriceMakerPct{0.0};
+
+    // 被动腿报单量占主动腿的比例（0.5 = 半仓对冲）
+    double passiveVolumePct{0.5};
+
+    // ---- 子单撤单门槛 ----
+    // 时间：配置里写**毫秒**，写进 BaseAlgoOrder 时 ×1000 变微秒
+    int64_t activeMakerCancelOrderTimeMs{5LL * 1000};
+    int64_t activeTakerCancelOrderTimeMs{5LL * 1000};
+    int64_t passiveMakerCancelOrderTimeMs{5LL * 1000};
+    int64_t passiveTakerCancelOrderTimeMs{5LL * 1000};
+    // 比例：价格偏离超过它才撤（0.001 = 10bp）
+    double activePassiveCancelOrderPct{0.001};
+    double activeMakerCancelOrderPct{0.001};
+    double activeTakerCancelOrderPct{0.001};
+    double passiveMakerCancelOrderPct{0.001};
+    double passiveTakerCancelOrderPct{0.001};
+
+    // ---- 单张子单的最大报单量（1.0 = 一次只报一手目标量）----
+    double maxMTOrderSize{1.0};
+    double maxTTOrderSize{1.0};
+
+    // ---- 目标价差口径 / 主动腿量算法 ----
+    // targetSpreadType = NOW：按实时价差算目标，不用均值（NOW_MEAN 是另一种口径）
+    // activeVolumeCalcualteType = PassiveVolumePct：主动腿量由被动腿量 × passiveVolumePct 推
+    stra::TargetSpredPrice targetSpreadType{stra::TargetSpredPrice_NOW};
+    stra::ActiveVolumeCalcualteType activeVolumeCalcualteType{
+        stra::ActiveVolumeCalcualteType_PassiveVolumePct};
+
+    // ---- rebalance（主动腿成交后是否用 rebalance 模式补被动腿）----
+    // ⚠️ 2026-10-01 改过（4f3e2a5）：TT 的两个由 true 改成 false，MT 两个保持 true。
+    bool mtRebalanceSwitch{true};
+    bool ttRebalanceSwitch{false};
+    bool mtRebalanceFlag{true};
+    bool ttRebalanceFlag{false};
+
+    // ---- 价格趋势保护（当前都关）----
+    bool mtPriceTrendProtectFlag{false};
+    bool ttPriceTrendProtectFlag{false};
+
+    // ---- 价格 tick 偏移（当前都关）----
+    bool activePriceTickFlag{false};
+    int activePriceTickNum{0};
+    bool passivePriceTickFlag{false};
+    int passivePriceTickNum{0};
+
+    // ---- 策略参数 ----
+
     double exposureMaxLimit{10}; // 敞口上限
     double exposureMaxLimitCoff{1.0}; // 敞口系数
 
@@ -39,7 +138,6 @@ struct PairTradingConfig {
     // ---- 价差统计生产者（对齐祖先 pair_trading_c_gateio）----
     int spreadStatsWindowSec{86400};       // 24h 滚动窗口（祖先 spread_df_update_period）
     int spreadStatsUpdateIntervalSec{60};  // 60s 刷新统计（祖先 spread_df_update_timespan，原值 3600）
-    // int spreadStatsMinSamples{8640};       // 样本数门槛（祖先 spread_count > 24*3600/5*0.5）
     int spreadStatsMinSamples{5};       // 样本数门槛（祖先 spread_count > 24*3600/5*0.5）
     int spreadSampleIntervalMs{5000};       // 采样间隔 5s，控制内存；0 = 不降频（逐 tick 全存）
     int spreadFreshnessSec{30};            // 行情新鲜度门槛（祖先 lastGenerateTs < 30s）
@@ -60,6 +158,7 @@ struct PairTradingConfig {
     // CL 的起止价差各减这么多、CS 的各加这么多，让平仓更容易成交
     double modifyShiftPct{0.0002};
 
+    // 快照路径。平铺在 op 段（`op.csvStatePath`）。
     std::string csvStatePath{"data/pair_info.csv"};
 
     int volumeRecalcIntervalSec{60};     // 1min 重算仓位参数

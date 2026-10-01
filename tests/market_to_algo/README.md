@@ -110,11 +110,11 @@ Ubuntu 上如果装了多个 g++（`g++-13` 等），用 `CXX=g++-13 ./run.sh` �
 
 ## 覆盖范围
 
-110 个用例 / 315 条断言，分十组：
+111 个用例 / 338 条断言，分十组：
 
 | 组 | 主题 | 用例数 |
 |---|---|---|
-| A | 创建（`BuildAlgoOrderJson` / `SubmitAlgoOrder`） | 16 |
+| A | 创建（`BuildAlgoOrderJson` / `SubmitAlgoOrder`） | 17 |
 | B | 开仓（TT/MT × OL/OS） | 10 |
 | C | 平仓（TT/MT × CL/CS） | 8 |
 | D | 定时更新（`OnTimer` / `ProcessModify` / 快照周期） | 12 |
@@ -137,3 +137,15 @@ Ubuntu 上如果装了多个 g++（`g++-13` 等），用 `CXX=g++-13 ./run.sh` �
 `"BINANCEUSDT_SWAPDOGE-USDT"`（两个点没了）—— `UpdateOnBalance` 拼的 `symKey`
 因此永远匹配不上，资金推送的写入被静默吞掉，I2/I3 两条用例被这个桩骗红。
 现在桩里实现了真正的 `{}` 顺序替换 + `{{`/`}}` 转义。
+
+## 相关套件
+
+| 套件 | 覆盖 |
+|---|---|
+| `../config_keys/` | **参数配置化**：`etc/config.json` 四个 `op.*` 段的 key 名与字段级静态检查（**不编译**，见该目录 README） |
+| `../algo_exec/` | 算法单执行端（拆单 / 报单 / 成交 / 撤单 / 风控平仓 / 两条全链路） |
+| `../param_calc/` | 开仓阈值反解（把"价差 0.0002 能不能开仓"算成数字） |
+
+本套件的 **A12b** 是配置化的端到端验证：`PairTradingConfig` → `BaseAlgoOrder`，
+含 `*CancelOrderTimeMs -> *CancelOrderTime` 的 ×1000 换算（解析阶段不换算，
+`×1000` 只发生在 `BuildAlgoOrderJson` 一处）。

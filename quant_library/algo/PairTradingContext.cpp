@@ -660,7 +660,13 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     }
 
     // 4. 创建算法单对象
-    //    除下面显式赋值的字段外，其余参数先取默认值，后续统一改为从 PairTradingConfig 读取
+    //    可调参数**全部**来自 m_cfg（= etc/config.json 的 op 段），本函数不再有硬编码的
+    //    调参值；剩下的常量是协议/身份类的（algoStrategyName、baseAsset、isManual 等）。
+    //
+    //    ⚠️ algoOrderId 必须在这里就分配好，且后续**不能再改**：
+    //       SubmitAlgoOrder:598 会立刻把它写进 pi.currentAlgoOrderId，
+    //       而 AlgoContext::SubmitAlgoOrder 里的重新分配会让两边脱钩
+    //       （那是个已修的线上级 bug，见 AlgoContext.cpp:89 的注释）。
     const char* algoStrategyName = "pair_trading";
 
     AlgoPairOrder* pAlgoOrder = new AlgoPairOrder();
@@ -682,34 +688,45 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->activeAccountId = pi.activeAccountId;
     pAlgoOrder->passiveAccountId = pi.passiveAccountId;
 
-    // ---- 腿属性（默认值，后续从 PairTradingConfig 来）----
+    // ---- 算法单参数：全部来自 PairTradingConfig（etc/config.json 的 op.pairTrading 段）----
+    // 这里以前是一大段硬编码，改一个值要重编译整个工程；现在改配置即可。
+    // 各字段的含义、单位、以及"2026-10-01 改过哪几个"见 PairTradingContext.h 的
+    // PairTradingConfig 定义。
+    const auto& aoc = m_cfg;
+
+    // ---- 腿属性 ----
     pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
     pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
-    
-    pAlgoOrder->activeOrderType = isTT ? OT_LIMIT : OT_POST_ONLY;
-    pAlgoOrder->passiveOrderType = OT_LIMIT;
 
-    pAlgoOrder->activeDepthMakerCheck = false;
-    pAlgoOrder->activeDepthTakerCheck = false;
-    pAlgoOrder->passiveDepthMakerCheck = false;
-    pAlgoOrder->passiveDepthTakerCheck = false;
+    // 报单类型。判据最终落在**子单**的 orderType 上（BaseAlgoOrder.cpp:457
+    // 用它决定走 Maker 还是 Taker 撤单分支），子单类型直接取自这里
+    // （AlgoPairOrder.cpp:321-322 / 388-389 / 439-440 / 503-504）。
+    pAlgoOrder->activeOrderType  = isTT ? aoc.ttActiveOrderType : aoc.mtActiveOrderType;
+    pAlgoOrder->passiveOrderType = aoc.passiveOrderType;
 
-    pAlgoOrder->activePriceTakerPct = 0.0;
-    pAlgoOrder->activePriceMakerPct = 0.0;
-    pAlgoOrder->passivePriceTakerPct = 0.0;
-    pAlgoOrder->passivePriceMakerPct = 0.0;
-    pAlgoOrder->passiveVolumePct = 0.5;
+    pAlgoOrder->activeDepthMakerCheck  = aoc.activeDepthMakerCheck;
+    pAlgoOrder->activeDepthTakerCheck  = aoc.activeDepthTakerCheck;
+    pAlgoOrder->passiveDepthMakerCheck = aoc.passiveDepthMakerCheck;
+    pAlgoOrder->passiveDepthTakerCheck = aoc.passiveDepthTakerCheck;
 
-    // ---- 撤单参数（默认值，后续从 PairTradingConfig 来）----
-    pAlgoOrder->activeMakerCancelOrderTime = 5LL * 1000 * 1000;
-    pAlgoOrder->activeTakerCancelOrderTime = 5LL * 1000 * 1000;
-    pAlgoOrder->passiveMakerCancelOrderTime = 5LL * 1000 * 1000;
-    pAlgoOrder->passiveTakerCancelOrderTime = 5LL * 1000 * 1000;
-    pAlgoOrder->activePassiveCancelOrderPct = 0.001;
-    pAlgoOrder->activeMakerCancelOrderPct = 0.001;
-    pAlgoOrder->activeTakerCancelOrderPct = 0.001;
-    pAlgoOrder->passiveMakerCancelOrderPct = 0.001;
-    pAlgoOrder->passiveTakerCancelOrderPct = 0.001;
+    pAlgoOrder->activePriceTakerPct  = aoc.activePriceTakerPct;
+    pAlgoOrder->activePriceMakerPct  = aoc.activePriceMakerPct;
+    pAlgoOrder->passivePriceTakerPct = aoc.passivePriceTakerPct;
+    pAlgoOrder->passivePriceMakerPct = aoc.passivePriceMakerPct;
+    pAlgoOrder->passiveVolumePct     = aoc.passiveVolumePct;
+
+    // ---- 撤单参数 ----
+    // 配置里是**毫秒**（*CancelOrderTimeMs），BaseAlgoOrder 里是微秒，
+    // 换算只在这一处做 —— 这样"差了 1000 倍"这类事故只有一个可能的位置。
+    pAlgoOrder->activeMakerCancelOrderTime  = aoc.activeMakerCancelOrderTimeMs  * 1000LL;
+    pAlgoOrder->activeTakerCancelOrderTime  = aoc.activeTakerCancelOrderTimeMs  * 1000LL;
+    pAlgoOrder->passiveMakerCancelOrderTime = aoc.passiveMakerCancelOrderTimeMs * 1000LL;
+    pAlgoOrder->passiveTakerCancelOrderTime = aoc.passiveTakerCancelOrderTimeMs * 1000LL;
+    pAlgoOrder->activePassiveCancelOrderPct = aoc.activePassiveCancelOrderPct;
+    pAlgoOrder->activeMakerCancelOrderPct   = aoc.activeMakerCancelOrderPct;
+    pAlgoOrder->activeTakerCancelOrderPct   = aoc.activeTakerCancelOrderPct;
+    pAlgoOrder->passiveMakerCancelOrderPct  = aoc.passiveMakerCancelOrderPct;
+    pAlgoOrder->passiveTakerCancelOrderPct  = aoc.passiveTakerCancelOrderPct;
 
     // ---- 费率 / 滑点：复用信号侧的同一套配置，保证两边口径一致 ----
     // takerTakerFs / makerTakerFs 会直接参与 GetTargetPairOrder 的目标价差计算，不能留 0
@@ -738,24 +755,25 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->ttTargetVolume = pi.ttTargetVolume;
     pAlgoOrder->mtTargetVolume = pi.mtTargetVolume;
     pAlgoOrder->minVolume = pi.minVolume;
-    pAlgoOrder->maxMTOrderSize = 1.0;   // 默认值，后续从 PairTradingConfig 来
-    pAlgoOrder->maxTTOrderSize = 1.0;   // 默认值，后续从 PairTradingConfig 来
+    pAlgoOrder->maxMTOrderSize = aoc.maxMTOrderSize;
+    pAlgoOrder->maxTTOrderSize = aoc.maxTTOrderSize;
 
-    // ---- 开关 / 策略参数（默认值，后续从 PairTradingConfig 来）----
-    pAlgoOrder->targetSpreadType = stra::TargetSpredPrice_NOW;
-    pAlgoOrder->activeVolumeCalcualteType = stra::ActiveVolumeCalcualteType_PassiveVolumePct;
+    // ---- 开关 / 策略参数 ----
+    pAlgoOrder->targetSpreadType = aoc.targetSpreadType;
+    pAlgoOrder->activeVolumeCalcualteType = aoc.activeVolumeCalcualteType;
     pAlgoOrder->profitSwitch = pi.profitSwitch;
     pAlgoOrder->profitPct = pi.profitPct;
-    pAlgoOrder->mtRebalanceSwitch = true;
-    pAlgoOrder->ttRebalanceSwitch = false;
-    pAlgoOrder->mtRebalanceFlag = true;
-    pAlgoOrder->ttRebalanceFlag = false;
-    pAlgoOrder->mtPriceTrendProtectFlag = false;
-    pAlgoOrder->ttPriceTrendProtectFlag = false;
-    pAlgoOrder->activePriceTickFlag = false;
-    pAlgoOrder->activePriceTickNum = 0;
-    pAlgoOrder->passivePriceTickFlag = false;
-    pAlgoOrder->passivePriceTickNum = 0;
+    // rebalance：MT 与 TT 分开配（2026-10-01 起 TT 两个都是 false，MT 两个都是 true）
+    pAlgoOrder->mtRebalanceSwitch = aoc.mtRebalanceSwitch;
+    pAlgoOrder->ttRebalanceSwitch = aoc.ttRebalanceSwitch;
+    pAlgoOrder->mtRebalanceFlag = aoc.mtRebalanceFlag;
+    pAlgoOrder->ttRebalanceFlag = aoc.ttRebalanceFlag;
+    pAlgoOrder->mtPriceTrendProtectFlag = aoc.mtPriceTrendProtectFlag;
+    pAlgoOrder->ttPriceTrendProtectFlag = aoc.ttPriceTrendProtectFlag;
+    pAlgoOrder->activePriceTickFlag = aoc.activePriceTickFlag;
+    pAlgoOrder->activePriceTickNum = aoc.activePriceTickNum;
+    pAlgoOrder->passivePriceTickFlag = aoc.passivePriceTickFlag;
+    pAlgoOrder->passivePriceTickNum = aoc.passivePriceTickNum;
     pAlgoOrder->isManual = pi.manualFlag;
 
     // ---- 32 个开平仓触发参数整体拷贝 ----

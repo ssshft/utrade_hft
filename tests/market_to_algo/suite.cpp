@@ -68,6 +68,12 @@
 //    libc++ 上通常还能过，libstdc++（Ubuntu 服务器用的 g++）更容易炸。
 //    所以这里先把 std 头**一次包含足**，让项目头里的 include 全部命中 include guard。
 //    上面这份清单是「按需 + 冗余」的：不要求精确，多包含几个没有代价。
+
+// Utility.h 放在宏之外：它只有 splitString 与三个 id 生成器，没有需要提权的私有成员。
+// A16 直接调 GenerateStrategyAlgoPairId()，所以要在这里可见
+// （BuildAlgoOrderJson 内部也用它生成算法单 id）。
+#include "basic/Utility.h"
+
 #define private public
 #include "algo/PairTradingContext.h"
 #undef private
@@ -382,15 +388,23 @@ static void TestA_Create() {
     }
 
     // A2 TT/MT 主动腿报单类型
+    //
+    // ⚠️ 期望值在 2026-10-01 随生产代码一起变了（提交 4f3e2a5）：
+    //      改前：TT 主动腿 OT_MARKET、MT 主动腿 OT_LIMIT、被动腿 OT_MARKET
+    //      改后：TT 主动腿 OT_LIMIT、 MT 主动腿 OT_POST_ONLY、被动腿 OT_LIMIT
+    //    语义上仍然成立 —— TT 主动腿用 OT_LIMIT 配一个穿价的价格，效果是吃单但把
+    //    最差成交价钉住；MT 主动腿要挂单所以必须 POST_ONLY（否则会被当吃单拒掉）。
+    //    这三个值现在都是 PairTradingConfig 的配置项（默认值同生产），
+    //    改配置就能换，不需要再动这里 —— 但默认值变了仍要同步本用例。
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
         BaseAlgoOrder* tt = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
         BaseAlgoOrder* mt = fx.ctx.BuildAlgoOrderJson(pi, "MT", "OL", 0.0);
-        CHECK(tt && tt->activeOrderType == OT_MARKET, "A2 TT 主动腿 = OT_MARKET（吃单）");
-        CHECK(mt && mt->activeOrderType == OT_LIMIT,  "A2 MT 主动腿 = OT_LIMIT（挂单）");
-        CHECK(tt && tt->passiveOrderType == OT_MARKET, "A2 被动腿恒 = OT_MARKET");
-        CHECK(mt && mt->passiveOrderType == OT_MARKET, "A2 被动腿恒 = OT_MARKET (MT)");
+        CHECK(tt && tt->activeOrderType == OT_LIMIT, "A2 TT 主动腿 = OT_LIMIT（穿价限价，效果是吃单）");
+        CHECK(mt && mt->activeOrderType == OT_POST_ONLY, "A2 MT 主动腿 = OT_POST_ONLY（必须挂单）");
+        CHECK(tt && tt->passiveOrderType == OT_LIMIT, "A2 被动腿恒 = OT_LIMIT");
+        CHECK(mt && mt->passiveOrderType == OT_LIMIT, "A2 被动腿恒 = OT_LIMIT (MT)");
         delete tt; delete mt;
     }
 
@@ -555,8 +569,14 @@ static void TestA_Create() {
         CHECK(o && Near(o->activePriceTakerPct, 0.0) && Near(o->activePriceMakerPct, 0.0) &&
                    Near(o->passivePriceTakerPct, 0.0) && Near(o->passivePriceMakerPct, 0.0),
               "A12 四个价格比例 = 0");
-        CHECK(o && o->mtRebalanceSwitch && o->ttRebalanceSwitch && o->mtRebalanceFlag && o->ttRebalanceFlag,
-              "A12 rebalance 开关/标志 = true");
+        // ⚠️ 期望值在 2026-10-01 随生产代码一起变了（提交 4f3e2a5）：
+        //    MT 的 rebalance 开关/标志仍是 true，**TT 的两个都改成了 false**
+        //    （原来四个都是 true）。所以这里不能再断言"四个都是 true"。
+        //    这四个值现在都在 PairTradingConfig 里，改配置即可切换。
+        CHECK(o && o->mtRebalanceSwitch && o->mtRebalanceFlag,
+              "A12 MT rebalance 开关/标志 = true");
+        CHECK(o && !o->ttRebalanceSwitch && !o->ttRebalanceFlag,
+              "A12 TT rebalance 开关/标志 = false（2026-10-01 起）");
         CHECK(o && !o->mtPriceTrendProtectFlag && !o->ttPriceTrendProtectFlag, "A12 价格趋势保护 = false");
         CHECK(o && Near(o->maxTTOrderSize, 1.0) && Near(o->maxMTOrderSize, 1.0), "A12 max{TT,MT}OrderSize = 1.0");
         CHECK(o && o->targetSpreadType == stra::TargetSpredPrice_NOW, "A12 targetSpreadType = NOW");
@@ -566,6 +586,112 @@ static void TestA_Create() {
         delete o;
     }
 
+    // A12b 配置化参数块：改算法单参数 -> 算法单必须跟着变
+    //
+    // 这一条是"参数配置化"的端到端验证：config.json(op.pairTrading) ->
+    // PairTradingConfig -> BaseAlgoOrder。
+    // 为什么 A12 不够：A12 断言的**默认值**恰好等于改造前硬编码的那一套，
+    // 所以"BuildAlgoOrderJson 真的读了 m_cfg"和"还在写死字面量"
+    // 在 A12 眼里完全一样 —— 两条路径都得 PASS。
+    // 这里把算法单参数全部改成非默认值再建单，才能证明接线是通的。
+    // 顺带覆盖 *CancelOrderTimeMs -> *CancelOrderTime 的 ×1000 换算
+    // （解析阶段不换算，×1000 只发生在 BuildAlgoOrderJson 一处）。
+    {
+        Fx fx; Boot(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+
+        PairTradingConfig& aoc = fx.ctx.m_cfg;
+        aoc.ttActiveOrderType = OT_MARKET;      // TT 主动腿
+        aoc.mtActiveOrderType = OT_LIMIT;       // MT 主动腿
+        aoc.passiveOrderType  = OT_POST_ONLY;   // 被动腿
+
+        aoc.activeDepthMakerCheck  = true;
+        aoc.activeDepthTakerCheck  = true;
+        aoc.passiveDepthMakerCheck = true;
+        aoc.passiveDepthTakerCheck = true;
+
+        aoc.activePriceTakerPct  = 0.011;
+        aoc.activePriceMakerPct  = 0.012;
+        aoc.passivePriceTakerPct = 0.013;
+        aoc.passivePriceMakerPct = 0.014;
+        aoc.passiveVolumePct     = 0.6;
+
+        aoc.activeMakerCancelOrderTimeMs  = 7000;
+        aoc.activeTakerCancelOrderTimeMs  = 8000;
+        aoc.passiveMakerCancelOrderTimeMs = 9000;
+        aoc.passiveTakerCancelOrderTimeMs = 10000;
+
+        aoc.activePassiveCancelOrderPct = 0.021;
+        aoc.activeMakerCancelOrderPct   = 0.022;
+        aoc.activeTakerCancelOrderPct   = 0.023;
+        aoc.passiveMakerCancelOrderPct  = 0.024;
+        aoc.passiveTakerCancelOrderPct  = 0.025;
+
+        aoc.maxMTOrderSize = 0.3;
+        aoc.maxTTOrderSize = 0.4;
+        aoc.targetSpreadType = stra::TargetSpredPrice_NOW_MEAN;
+
+        aoc.mtRebalanceSwitch = false;
+        aoc.ttRebalanceSwitch = true;
+        aoc.mtRebalanceFlag   = false;
+        aoc.ttRebalanceFlag   = true;
+        aoc.mtPriceTrendProtectFlag = true;
+        aoc.ttPriceTrendProtectFlag = true;
+        aoc.activePriceTickFlag  = true;
+        aoc.activePriceTickNum   = 3;
+        aoc.passivePriceTickFlag = true;
+        aoc.passivePriceTickNum  = 4;
+
+        BaseAlgoOrder* tt = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
+        CHECK(tt != nullptr, "A12b TT/OL 能建单");
+        if (tt) {
+            CHECK(tt->activeOrderType == OT_MARKET,      "A12b TT 主动腿 = 配置的 OT_MARKET");
+            CHECK(tt->passiveOrderType == OT_POST_ONLY,  "A12b 被动腿 = 配置的 OT_POST_ONLY");
+            CHECK(tt->activeDepthMakerCheck && tt->activeDepthTakerCheck &&
+                      tt->passiveDepthMakerCheck && tt->passiveDepthTakerCheck,
+                  "A12b 四个深度检查 = 配置的 true");
+            CHECK(Near(tt->activePriceTakerPct, 0.011) && Near(tt->activePriceMakerPct, 0.012) &&
+                      Near(tt->passivePriceTakerPct, 0.013) && Near(tt->passivePriceMakerPct, 0.014),
+                  "A12b 四个价格比例 = 配置值");
+            CHECK(Near(tt->passiveVolumePct, 0.6), "A12b passiveVolumePct = 配置的 0.6");
+            // ms -> us 的 ×1000 换算
+            CHECK(tt->activeMakerCancelOrderTime == 7000LL * 1000,
+                  "A12b activeMakerCancelOrderTime = 7000ms × 1000 = 7e6 us");
+            CHECK(tt->activeTakerCancelOrderTime == 8000LL * 1000,
+                  "A12b activeTakerCancelOrderTime = 8000ms × 1000 = 8e6 us");
+            CHECK(tt->passiveMakerCancelOrderTime == 9000LL * 1000,
+                  "A12b passiveMakerCancelOrderTime = 9000ms × 1000 = 9e6 us");
+            CHECK(tt->passiveTakerCancelOrderTime == 10000LL * 1000,
+                  "A12b passiveTakerCancelOrderTime = 10000ms × 1000 = 1e7 us");
+            CHECK(Near(tt->activePassiveCancelOrderPct, 0.021) && Near(tt->activeMakerCancelOrderPct, 0.022) &&
+                      Near(tt->activeTakerCancelOrderPct, 0.023) && Near(tt->passiveMakerCancelOrderPct, 0.024) &&
+                      Near(tt->passiveTakerCancelOrderPct, 0.025),
+                  "A12b 五个撤单比例 = 配置值");
+            CHECK(Near(tt->maxMTOrderSize, 0.3) && Near(tt->maxTTOrderSize, 0.4),
+                  "A12b max{MT,TT}OrderSize = 配置的 0.3 / 0.4");
+            CHECK(tt->targetSpreadType == stra::TargetSpredPrice_NOW_MEAN,
+                  "A12b targetSpreadType = 配置的 NOW_MEAN");
+            CHECK(!tt->mtRebalanceSwitch && tt->ttRebalanceSwitch &&
+                      !tt->mtRebalanceFlag && tt->ttRebalanceFlag,
+                  "A12b rebalance 开关/标志 = 配置值（与默认相反）");
+            CHECK(tt->mtPriceTrendProtectFlag && tt->ttPriceTrendProtectFlag,
+                  "A12b 价格趋势保护 = 配置的 true");
+            CHECK(tt->activePriceTickFlag && tt->activePriceTickNum == 3 &&
+                      tt->passivePriceTickFlag && tt->passivePriceTickNum == 4,
+                  "A12b 价格 tick 偏移 = 配置值");
+            delete tt;
+        }
+
+        // MT 走的是 mtActiveOrderType，不是 ttActiveOrderType
+        BaseAlgoOrder* mt = fx.ctx.BuildAlgoOrderJson(pi, "MT", "OL", 0.0);
+        CHECK(mt != nullptr, "A12b MT/OL 能建单");
+        if (mt) {
+            CHECK(mt->activeOrderType == OT_LIMIT, "A12b MT 主动腿 = 配置的 mtActiveOrderType(OT_LIMIT)");
+            CHECK(mt->passiveOrderType == OT_POST_ONLY, "A12b MT 被动腿同样 = 配置值");
+            delete mt;
+        }
+    }
+
     // A13 SubmitAlgoOrder 的副作用
     {
         Fx fx; Boot(fx); GoTrading(fx);
@@ -573,8 +699,10 @@ static void TestA_Create() {
         fx.ctx.SubmitAlgoOrder(pi, "TT", "OL", 0.0);
         CHECK(fx.N() == 1, "A13 报单回调被调用一次");
         CHECK(pi.hasActiveAlgoOrder, "A13 hasActiveAlgoOrder = true");
-        CHECK(fx.N() == 1 && std::to_string(fx.submits[0]->algoOrderId) == std::string(pi.currentAlgoOrderId),
-              "A13 currentAlgoOrderId == to_string(算法单 algoOrderId)");
+        // algoOrderId 已从字符串（"PT_<n>"）改成 int64_t，两边直接比，
+        // 不再有 to_string / stoll 的往返
+        CHECK(fx.N() == 1 && fx.submits[0]->algoOrderId == pi.currentAlgoOrderId,
+              "A13 currentAlgoOrderId == 算法单 algoOrderId（int64 直比）");
         CHECK(pi.satisfyTime > 0 && pi.algoModifyTime == pi.satisfyTime,
               "A13 satisfyTime / algoModifyTime 一起刷新且相等");
     }
@@ -599,13 +727,16 @@ static void TestA_Create() {
     }
 
     // A16 ID 生成
+    // ⚠️ PairTradingContext::GenerateAlgoOrderId() 已经删掉了：算法单 id 现在由
+    //    basic/Utility.h 的 GenerateStrategyAlgoPairId() 统一生成（BuildAlgoOrderJson:670
+    //    与 AlgoContext.cpp:91/241 都调它），类型是 int64_t，不再是 "PT_<n>" 字符串。
+    //    所以这条改成直接测那个函数。
     {
-        int64_t a = PairTradingContext::GenerateAlgoOrderId();
-        int64_t b = PairTradingContext::GenerateAlgoOrderId();
-        CHECK(a > 0 && b > 0 && a != b, "A16 GenerateAlgoOrderId 唯一且为正");
-        bool numeric = true;
-        for (char c : std::to_string(a)) if (c < '0' || c > '9') numeric = false;
-        CHECK(numeric, "A16 ID 是纯数字（ScanFinishedAlgoOrders 要 stoll 还原）");
+        int64_t a = GenerateStrategyAlgoPairId();
+        int64_t b = GenerateStrategyAlgoPairId();
+        CHECK(a > 0 && b > 0 && a != b, "A16 GenerateStrategyAlgoPairId 唯一且为正");
+        CHECK(std::to_string(a).find_first_not_of("0123456789") == std::string::npos,
+              "A16 ID 是纯数字（快照落盘 / 回传都用 int64，不需要再解析）");
     }
 }
 
@@ -630,7 +761,8 @@ static void TestB_Open() {
         CHECK(ok, (std::string("B ") + c.sw + " 信号 -> 报出一单").c_str());
         if (ok) {
             const auto* o = fx.submits[0];
-            CHECK(o->activeOrderType == (std::string(c.mode) == "TT" ? OT_MARKET : OT_LIMIT),
+            // 期望值 2026-10-01 随生产变（提交 4f3e2a5）：TT -> OT_LIMIT、MT -> OT_POST_ONLY
+            CHECK(o->activeOrderType == (std::string(c.mode) == "TT" ? OT_LIMIT : OT_POST_ONLY),
                   (std::string("B ") + c.sw + " 主动腿类型跟随 TT/MT").c_str());
         }
     }
@@ -762,9 +894,10 @@ static void TestC_Close() {
         pi.rtSpread.spreadBidBid = 1.0; op.mtCLStartSpread = 0.0; op.mtCLEndVolume = 0.0;
         fx.ctx.ProcessPairSignal(pi);
         CHECK(fx.N() == 1, "C6 两个平仓信号 -> 只报一单");
-        // TT_CL 的主动腿是 MARKET，MT_CL 是 LIMIT —— 用这个区分走了哪条路
-        CHECK(fx.N() == 1 && fx.submits[0]->activeOrderType == OT_MARKET,
-              "C6 优先走 TT_CL（主动腿吃单）");
+        // TT_CL 与 MT_CL 的主动腿类型不同，用这个区分走了哪条路。
+        // 期望值 2026-10-01 随生产变（提交 4f3e2a5）：TT -> OT_LIMIT、MT -> OT_POST_ONLY。
+        CHECK(fx.N() == 1 && fx.submits[0]->activeOrderType == OT_LIMIT,
+              "C6 优先走 TT_CL（TT 主动腿 = OT_LIMIT，与 MT 的 OT_POST_ONLY 可区分）");
     }
 
     // C8 CloseSpreadReached 的四个轴
@@ -873,7 +1006,7 @@ static void TestD_Timer() {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         pi.hasActiveAlgoOrder = true;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 999999LL);
+        pi.currentAlgoOrderId = 999999LL;
         pi.algoModifyTime = 1000 * SEC;
 
         // D6 未到周期 -> 不改参
@@ -932,15 +1065,36 @@ static void TestD_Timer() {
         CHECK(fx.modifyCalls.empty(), "D9 无活跃算法单 -> 不改参");
     }
 
-    // D10 坏 id -> 不改参、不崩
+    // D10 id 生命周期（原「坏 id -> 不改参」）
+    //
+    // ⚠️ 原来的用例塞一个 "not-a-number" 字符串进 currentAlgoOrderId，验证
+    //    ProcessModify 解析失败时不改参。**这个前提已经不存在了**：currentAlgoOrderId
+    //    现在是 int64_t（PairInfo.h:281），没有任何解析步骤，也就没有"坏 id"这个状态。
+    //    改成验证真正的契约：SetActiveAlgoOrder / ClearActiveAlgoOrder 必须把
+    //    currentAlgoOrderId 与 hasActiveAlgoOrder 一起维护 —— 一旦脱钩，
+    //    ProcessModify（只看 hasActiveAlgoOrder）就会拿着 id=0 去改单。
     {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
-        pi.hasActiveAlgoOrder = true;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "not-a-number");
+        auto& pim = PairInfoManager::Instance();
+
+        pim.SetActiveAlgoOrder(pi.pairInstrumentKey, 424242LL);
+        CHECK(pi.hasActiveAlgoOrder && pi.currentAlgoOrderId == 424242LL,
+              "D10 SetActiveAlgoOrder 同时置 id 与 hasActiveAlgoOrder");
+
         pi.algoModifyTime = 0;
         fx.ctx.ProcessModify(pi, 1000 * SEC);
-        CHECK(fx.modifyCalls.empty(), "D10 坏 currentAlgoOrderId -> 不改参（不崩）");
+        CHECK(fx.modifyCalls.size() == 1 && fx.modifyCalls[0].first == 424242LL,
+              "D10 改参回调带的就是刚设进去的那个 id");
+
+        pim.ClearActiveAlgoOrder(pi.pairInstrumentKey);
+        CHECK(!pi.hasActiveAlgoOrder && pi.currentAlgoOrderId == 0,
+              "D10 ClearActiveAlgoOrder 同时清 id 与 hasActiveAlgoOrder");
+
+        fx.modifyCalls.clear();
+        pi.algoModifyTime = 0;
+        fx.ctx.ProcessModify(pi, 2000 * SEC);
+        CHECK(fx.modifyCalls.empty(), "D10 清空后不再改参");
     }
 
     // D11 快照落盘周期
@@ -987,7 +1141,7 @@ static void TestE_Cancel() {
         pi.hasActiveAlgoOrder = true;
         pi.autoFlag = false;
         pi.satisfyTime = 0;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 777LL);
+        pi.currentAlgoOrderId = 777LL;
         fx.ctx.CheckAlgoOrderTimeout(pi, t0 + 100 * TIMEOUT);
         CHECK(fx.modifyCalls.empty(), "E2 autoFlag = false（手动单）-> 永不撤单");
     }
@@ -998,7 +1152,7 @@ static void TestE_Cancel() {
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         pi.hasActiveAlgoOrder = true;
         pi.satisfyTime = t0;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 777LL);
+        pi.currentAlgoOrderId = 777LL;
         fx.ctx.CheckAlgoOrderTimeout(pi, t0 + TIMEOUT - 1);
         CHECK(fx.modifyCalls.empty(), "E3 idle <= algoOrderTimeoutMs -> 不撤单");
     }
@@ -1009,7 +1163,7 @@ static void TestE_Cancel() {
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         pi.hasActiveAlgoOrder = true;
         pi.satisfyTime = t0;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 777LL);
+        pi.currentAlgoOrderId = 777LL;
         fx.ctx.CheckAlgoOrderTimeout(pi, t0 + TIMEOUT + 1);
         CHECK(fx.modifyCalls.size() == 1, "E4 idle > 超时 -> 请求撤单一次");
         CHECK(fx.LastCmd() == stra::CommandType_CANCEL, "E4 回调命令 = CommandType_CANCEL");
@@ -1025,7 +1179,7 @@ static void TestE_Cancel() {
         pi.hasActiveAlgoOrder = true;
         pi.riskCloseOrderInFlight = true;       // 这是一张在途的强平单
         pi.satisfyTime = t0;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 777LL);
+        pi.currentAlgoOrderId = 777LL;
         fx.ctx.CheckAlgoOrderTimeout(pi, t0 + TIMEOUT + 1);
         CHECK(fx.modifyCalls.size() == 1, "E5 强平单同样受超时约束 -> 到点撤单（档位升级的唯一驱动）");
     }
@@ -1039,20 +1193,29 @@ static void TestE_Cancel() {
         CHECK(fx.modifyCalls.empty(), "E6 无活跃算法单 -> 请求撤单被忽略");
 
         pi.hasActiveAlgoOrder = true;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 888LL);
+        pi.currentAlgoOrderId = 888LL;
         fx.ctx.SetAlgoOrderModifyCallback(nullptr);
         fx.ctx.RequestCancelAlgoOrder(pi);
         CHECK(fx.modifyCalls.empty(), "E6 未注册回调 -> 安全返回");
     }
 
-    // E7 坏 id
+    // E7 撤单回调原样传出 id（原「坏 id -> 不回调」）
+    //
+    // ⚠️ 原用例的前提（id 是字符串、解析失败就静默不发撤单）随着
+    //    currentAlgoOrderId 改成 int64_t 一起消失了：RequestCancelAlgoOrder 现在
+    //    只判 hasActiveAlgoOrder（:326），id 是直接透传的。
+    //    改成钉住这个新契约：回调里的 id 必须与 pi.currentAlgoOrderId 逐位相等，
+    //    包括 0（"有活跃单但 id 还是 0" 这种不一致状态也要原样透传，
+    //    因为把它悄悄改成别的值会让执行端撤错单）。
     {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         pi.hasActiveAlgoOrder = true;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "garbage");
+        pi.currentAlgoOrderId = 0;
         fx.ctx.RequestCancelAlgoOrder(pi);
-        CHECK(fx.modifyCalls.empty(), "E7 坏 currentAlgoOrderId -> 不回调（不崩）");
+        CHECK(fx.modifyCalls.size() == 1 && fx.modifyCalls[0].first == 0 &&
+              fx.modifyCalls[0].second == stra::CommandType_CANCEL,
+              "E7 撤单回调原样透传 id（int64 直传，不再有解析失败路径）");
     }
 
     // E8 敞口异常 -> errorFlag + 撤单
@@ -1064,7 +1227,7 @@ static void TestE_Cancel() {
         pi.activeParam.multiple = 1.0;  pi.passiveParam.multiple = 1.0;
         pi.ttTargetVolume = 1.0;        // 阈值 = 4 * 1 = 4；净敞口 = |10 - 2| = 8 > 4
         pi.hasActiveAlgoOrder = true;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 555LL);
+        pi.currentAlgoOrderId = 555LL;
         fx.ctx.CheckExposureAbnormal(pi);
         CHECK(pi.errorFlag, "E8 净敞口超阈值 -> errorFlag 置位（判死、留人工）");
         CHECK(fx.modifyCalls.size() == 1 && fx.LastCmd() == stra::CommandType_CANCEL,
@@ -1113,11 +1276,11 @@ static void TestE_Cancel() {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         pi.hasActiveAlgoOrder = true;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 444LL);
+        pi.currentAlgoOrderId = 444LL;
         fx.ctx.RequestCancelAlgoOrder(pi);
         CHECK(fx.modifyCalls.size() == 1, "E12 撤单请求已发出");
         CHECK(pi.hasActiveAlgoOrder, "E12 撤单请求不释放对子（要等终态回传）");
-        CHECK(std::string(pi.currentAlgoOrderId) == "444", "E12 currentAlgoOrderId 保持不动");
+        CHECK(pi.currentAlgoOrderId == 444LL, "E12 currentAlgoOrderId 保持不动");
     }
 
     // E13/E14 ProcessRisk：不撤自己的在途强平单；撤掉非强平单后本轮不再报
@@ -1271,7 +1434,7 @@ static void TestF_Risk() {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         pi.hasActiveAlgoOrder = true;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 111LL);
+        pi.currentAlgoOrderId = 111LL;
         BaseAlgoOrder stale;
         stale.algoOrderId = 222;                // 不是当前算法单
         std::strncpy(stale.pairInstrumentKey, kPairKey, sizeof(stale.pairInstrumentKey) - 1);
@@ -1299,7 +1462,7 @@ static void TestF_Risk() {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
         pi.hasActiveAlgoOrder = true;
-        std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 333LL);
+        pi.currentAlgoOrderId = 333LL;
         BaseAlgoOrder o;
         o.algoOrderId = 333;
         std::strncpy(o.pairInstrumentKey, kPairKey, sizeof(o.pairInstrumentKey) - 1);
@@ -1467,7 +1630,7 @@ static void TestG_Restart() {
             PairInfo& pi = *fx.pi();
             MakeHoldable(pi, -5.0);
             pi.hasActiveAlgoOrder = true;
-            std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 123456789LL);
+            pi.currentAlgoOrderId = 123456789LL;
             PairInfoManager::Instance().SaveSnapshot(csv);
         }
         Fx fx; Boot(fx, csv);
@@ -1485,7 +1648,7 @@ static void TestG_Restart() {
             PairInfo& pi = *fx.pi();
             MakeHoldable(pi, -5.0);
             pi.hasActiveAlgoOrder = true;
-            std::snprintf(pi.currentAlgoOrderId, sizeof(pi.currentAlgoOrderId), "%lld", 123456789LL);
+            pi.currentAlgoOrderId = 123456789LL;
             PairInfoManager::Instance().SaveSnapshot(csv);
         }
         ResetWorld();
@@ -1920,8 +2083,24 @@ static void TestJ_TotalAccount() {
 
 // ===========================================================================
 int main() {
-    // 固定配置，让成本口径可预测
-    SignalGenerator::Instance().SetConfig(FeeSlippageConfig{});
+    // 固定配置，让成本口径可预测。
+    //
+    // ⚠️ 不要图省事用 `FeeSlippageConfig{}` 的默认值：那些默认值现在是**生产兜底**，
+    //    会随调参改动，测试就会跟着漂。2026-10-01 就踩过 —— 费率被置 0 之后
+    //    A4 的「成本口径 = 0.0013 / 0.0009」直接失败。
+    //    这里显式写死一套，A4 才有确定的期望值（= 上面 F_TT / F_MT 两个常量）。
+    //    注意 CheckSignalForSatisfy 里那 10 行逐 tick 调试打印是**无条件**的
+    //    （生产代码的既有形态），所以本套件的输出里会混着 ~230 行 `F_tt:` 噪音 ——
+    //    那是被测代码打的，不是用例打的。
+    {
+        FeeSlippageConfig fs;
+        fs.activeMakerFeeRate  = 0.0002;
+        fs.activeTakerFeeRate  = 0.0006;
+        fs.passiveMakerFeeRate = 0.0002;
+        fs.passiveTakerFeeRate = 0.0006;
+        fs.basicSlippage       = 0.0001;
+        SignalGenerator::Instance().SetConfig(fs);
+    }
     RiskManager::Instance().SetConfig(RiskConfig{});
     // 快照用例的输出目录。强转 void：glibc 的 mkdir 可能带 warn_unused_result，
     // g++ -Wall 下会报 "ignoring return value"。

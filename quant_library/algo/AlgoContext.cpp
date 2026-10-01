@@ -86,9 +86,25 @@ void AlgoContext::SubmitAlgoOrder(BaseAlgoOrder* pAlgoOrder) {
 
     pAlgoOrder->commandType = stra::CommandType_TRADING;
     pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
-    // 策略层已经分配好 algoOrderId 时沿用（PairInfoManager 用同一个 id 追踪算法单）
 
-    pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
+    // 策略层已经分配好 algoOrderId 时沿用（PairInfoManager 用同一个 id 追踪算法单）
+    //
+    // ⚠️ 2026-10-01 修：这里原来是无条件 `pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();`
+    //    —— 与上面这行注释**正好相反**。后果是策略层与执行层各持一个 id：
+    //      · PairTradingContext::SubmitAlgoOrder:598 先把 BuildAlgoOrderJson 生成的 id
+    //        写进 pi.currentAlgoOrderId；
+    //      · 回调进到这里又被换成一个新 id 存进 alogOrderManager；
+    //    于是此后策略层发出的每一次变更都指向一个不存在的 id：
+    //      · ProcessModify      -> SubmitAlgoOrder(id, MODIFY, ...) -> "algo order not found"
+    //      · RequestCancelAlgoOrder -> 同上，**算法单永远撤不掉**
+    //      · OnAlgoOrderUpdate（PairTradingContext.cpp:963）里
+    //        `order->algoOrderId != pi->currentAlgoOrderId` 恒为 true
+    //        -> 回传被当成"不是本对子的单" -> 对子永远不释放 -> 该对子此后再也不交易
+    //    只在调用方没分配时（algoOrderId == 0，BaseAlgoOrder.h:27 的默认值）才生成，
+    //    这样 AlgoContext 单独建单的路径（测试里的手工单）仍然能用。
+    if (pAlgoOrder->algoOrderId == 0) {
+        pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
+    }
     pAlgoOrder->Init(smc);
 
     alogOrderManager.InsertAlgoOrderByAlgoOrder(pAlgoOrder);

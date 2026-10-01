@@ -16,12 +16,138 @@
         "strategyOp": "PairTradingStrategy",
         "timerInterval": 1000,
         "strategyIds": ["bnt1", "gat1"],
+
         "activeAccountId": "10000",
         "passiveAccountId": "10001",
         "pairKeys": ["BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT"],
+
         "maxPositionValue": "500000",
         "maxAmount": "1000",
         "targetAmount": "1000",
-        "csvStatePath": "./data/pair_info.csv"
+        "csvStatePath": "./data/pair_info.csv",
+
+        "feeSlippage": {
+            "_note": "执行成本 / 滑点 / 价差阈值。单位全是小数（0.0002 = 2bp），不是 bp。费率改动会同时移动信号阈值与算法单阶梯。",
+            "_note_fee": "生产值：activeMaker 0.0002 / activeTaker 0.0006 / passiveMaker 0.0002 / passiveTaker 0.0006 / basicSlippage 0.0001，即 F_mt = 9bp、F_tt = 13bp。",
+            "_note_warn": "⚠️ 下面五个费率当前是 0（冒烟联调时的值）。真实交易前必须填回上面的生产值，否则往返成本被算成 0，策略会在任意微小价差上开仓、净亏手续费。",
+
+            "activeMakerFeeRate": "0",
+            "activeTakerFeeRate": "0",
+            "passiveMakerFeeRate": "0",
+            "passiveTakerFeeRate": "0",
+            "basicSlippage": "0",
+
+            "slippagePctMinMove": "0.5",
+            "ttAddPercent": "0.0003",
+            "spreadAdjPct": "0.8",
+            "minSpreadSpan": "0",
+            "minSpreadTarget": "-0.001",
+            "openProfitPct": "0.0001",
+            "openMaxFundingRate": "0.002"
+        },
+
+        "pairTrading": {
+            "_note": "策略参数。时间字段以秒为单位（结构体里是微秒，解析时换算）。",
+            "_note_quantile": "quantileUp/Dn 直接决定开平仓阈值：越极端（Up 越大 / Dn 越小）边界越靠外、越容易触发。",
+            "_note_minSamples": "spreadStatsMinSamples 是预热门槛：默认 5，攒够这么多样本才开始算阈值。调大 = 预热更久但统计更稳。",
+
+            "quantileUp": "0.92",
+            "quantileDn": "0.08",
+
+            "spreadStatsWindowSec": "86400",
+            "spreadStatsUpdateIntervalSec": "60",
+            "spreadStatsMinSamples": "5",
+            "spreadSampleIntervalMs": "5000",
+            "spreadFreshnessSec": "30",
+
+            "algoOrderTimeoutMs": "150000",
+            "modifyTimespanSec": "60",
+            "modifyShiftPct": "0.0002",
+
+            "exposureMaxLimit": "10",
+            "exposureMaxLimitCoff": "1.0",
+            "exposureCancelTimes": "4.0",
+
+            "volumeRecalcIntervalSec": "60",
+            "csvSaveIntervalSec": "10",
+
+            "reconcileTolRatio": "0.000001",
+            "reconcileWarnIntervalSec": "30",
+            "freezeOnOrphanAlgoOrder": "true",
+
+            "_note_algo": "算法单参数（原来硬编码在 PairTradingContext::BuildAlgoOrderJson 里）。",
+            "_note_algo_type": "报单类型写字符串：OT_LIMIT / OT_MARKET / OT_POST_ONLY / OT_FOK / OT_IOC。子单类型直接取自这三个值，而 BaseAlgoOrder 用它决定走 Maker 还是 Taker 撤单分支（OT_POST_ONLY = Maker）。",
+            "_note_algo_cancel": "撤单时间以**毫秒**为单位（结构体写进 BaseAlgoOrder 时 ×1000 变微秒）。撤单比例是小数：0.001 = 10bp。",
+
+            "ttActiveOrderType": "OT_LIMIT",
+            "mtActiveOrderType": "OT_POST_ONLY",
+            "passiveOrderType": "OT_LIMIT",
+
+            "activeDepthMakerCheck": "false",
+            "activeDepthTakerCheck": "false",
+            "passiveDepthMakerCheck": "false",
+            "passiveDepthTakerCheck": "false",
+
+            "activePriceTakerPct": "0",
+            "activePriceMakerPct": "0",
+            "passivePriceTakerPct": "0",
+            "passivePriceMakerPct": "0",
+            "passiveVolumePct": "0.5",
+
+            "activeMakerCancelOrderTimeMs": "5000",
+            "activeTakerCancelOrderTimeMs": "5000",
+            "passiveMakerCancelOrderTimeMs": "5000",
+            "passiveTakerCancelOrderTimeMs": "5000",
+            "activePassiveCancelOrderPct": "0.001",
+            "activeMakerCancelOrderPct": "0.001",
+            "activeTakerCancelOrderPct": "0.001",
+            "passiveMakerCancelOrderPct": "0.001",
+            "passiveTakerCancelOrderPct": "0.001",
+
+            "maxMTOrderSize": "1.0",
+            "maxTTOrderSize": "1.0",
+
+            "targetSpreadType": "TargetSpredPrice_NOW",
+            "activeVolumeCalcualteType": "ActiveVolumeCalcualteType_PassiveVolumePct",
+
+            "mtRebalanceSwitch": "true",
+            "ttRebalanceSwitch": "false",
+            "mtRebalanceFlag": "true",
+            "ttRebalanceFlag": "false",
+
+            "mtPriceTrendProtectFlag": "false",
+            "ttPriceTrendProtectFlag": "false",
+
+            "activePriceTickFlag": "false",
+            "activePriceTickNum": "0",
+            "passivePriceTickFlag": "false",
+            "passivePriceTickNum": "0"
+        },
+
+        "risk": {
+            "_note": "风控门槛。时间字段以秒为单位（结构体里是微秒）。",
+            "_note_forgo": "tierNForgoProfit 是渐进式平仓的让利幅度，单位是**绝对价差**（不是比例），必须与价差本身同量纲：缓冲带 5e-6、openProfitPct 1e-4。写成 0.01 这类值会把平仓触发价差直接推穿到反向。",
+            "_note_funding": "fundingAbnormalUsdt 是按祖先 max_amount = 30000 标定的固定 30 USDT；本工程 maxAmount = 1000 时几乎触发不了。",
+
+            "adlPositionThresholdUsdt": "2000",
+            "adlHighRankThreshold": "0.8",
+            "positionExceedDurationSec": "345600",
+
+            "minHoldDurationSec": "3600",
+            "spreadNoRegressionSec": "86400",
+
+            "fundingAbnormalUsdt": "30",
+            "tinyCloseThresholdUsdt": "25",
+            "tinyCloseScanIntervalSec": "60",
+
+            "tier1WaitSec": "1800",
+            "tier2WaitSec": "3600",
+            "tier3WaitSec": "7200",
+
+            "tier1ForgoProfit": "0.00002",
+            "tier2ForgoProfit": "0.00005",
+            "tier3ForgoProfit": "0.0001"
+        }
+
     }
 }

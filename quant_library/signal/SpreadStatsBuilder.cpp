@@ -2,6 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+// 显式包含：Build 末尾有一行调试打印。不写的话在真实工程里靠传递包含侥幸通过，
+// 换一个构建树就编译失败（tests 里踩过 'no member named cout in namespace std'）。
+// 频率是每个对子每次统计刷新一次（~60s），不是逐 tick，所以暂时不加开关。
+#include <iostream>
 
 namespace pt {
 
