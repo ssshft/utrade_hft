@@ -4,7 +4,6 @@
 #include "basic/AlgoOrderManager.h"
 #include "basic/QuantTrade.h"
 #include "basic/QuantDbp.h"
-#include "basic/QuantPub.h"
 #include "basic/Utility.h"
 #include "command_helper.h"
 #include "securitymanager.h"

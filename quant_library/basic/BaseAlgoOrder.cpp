@@ -2,7 +2,6 @@
 #include "SpreadManager.h"
 #include "AccountManager.h"
 #include "QuantTrade.h"
-#include "QuantPub.h"
 #include "Convert.h"
 #include "StrategyConfig.h"
 #include "algo/PairTradingContext.h"
