@@ -481,7 +481,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                     // 检查行情有效性
                     if (pdata->spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
                         // 行情有效支持开仓
-                        if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag) {
+                        if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag && tradingTypeOrder == stra::MAKER_TAKER) {
                             // MakerTaker延迟与滑点
                             if (pAlgoOrder->mtRebalanceFlag) {
                                 // 再平衡模式一种类型的订单只能有一个pairOrder
@@ -569,7 +569,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                             }
                         }
 
-                        if (!pAlgoOrder->ttSlipageFlag && !pAlgoOrder->ttSpreadFlag) {
+                        if (!pAlgoOrder->ttSlipageFlag && !pAlgoOrder->ttSpreadFlag && tradingTypeOrder == stra::TAKER_TAKER) {
                             if (pAlgoOrder->ttRebalanceFlag) {
                                 if (pAlgoOrder->pairOrderMgr.GetSizeByOrderType(stra::TAKER_TAKER) == 0) {
                                     // 如果进入再平衡模式，需要无配对单才可以报单
@@ -660,7 +660,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                 // 钓鱼单逻辑
                     if (pdata->spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
                         // 行情有效支持开仓
-                        if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag) {
+                        if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag && tradingTypeOrder == stra::MAKER_TAKER) {
                             // MakerTaker延迟与滑点
                             if (pAlgoOrder->mtRebalanceFlag) {
                                 // 再平衡模式一种类型的订单只能有一个pairOrder
@@ -788,7 +788,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                             }
                         }
 
-                        if (!pAlgoOrder->ttSlipageFlag && !pAlgoOrder->ttSpreadFlag) {
+                        if (!pAlgoOrder->ttSlipageFlag && !pAlgoOrder->ttSpreadFlag && tradingTypeOrder == stra::TAKER_TAKER) {
                             if (pAlgoOrder->ttRebalanceFlag) {
                                 if (pAlgoOrder->pairOrderMgr.GetSizeByOrderType(stra::TAKER_TAKER) == 0) {
                                     // 如果进入再平衡模式，需要无配对单才可以报单
@@ -917,7 +917,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                 }
                 else if (pAlgoOrder->algoType == stra::AlgoType_Rebalance && openOrderFlag) {
                     if (pdata->spreadEffective && !pAlgoOrder->systemDelayFlag && !pAlgoOrder->exchangeDelayFlag) {
-                        if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag) {
+                        if (!pAlgoOrder->mtSlipageFlag && !pAlgoOrder->mtSpreadFlag && tradingTypeOrder == stra::MAKER_TAKER) {
                             if (pAlgoOrder->mtRebalanceFlag) {
                                 if (pAlgoOrder->pairOrderMgr.GetSizeByOrderType(stra::MAKER_TAKER) == 0) {
                                     bool pass = LimitManager::Instance().PassLimit(pAlgoOrder->activeAccountId);
@@ -964,7 +964,7 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                         }
 
 
-                        if (!pAlgoOrder->ttSlipageFlag && !pAlgoOrder->ttSpreadFlag) {
+                        if (!pAlgoOrder->ttSlipageFlag && !pAlgoOrder->ttSpreadFlag && tradingTypeOrder == stra::TAKER_TAKER) {
                             if (pAlgoOrder->ttRebalanceFlag) {
                                 if (pAlgoOrder->pairOrderMgr.GetSizeByOrderType(stra::TAKER_TAKER) == 0) {
                                     bool pass = LimitManager::Instance().PassLimit(pAlgoOrder->activeAccountId);
@@ -1009,7 +1009,6 @@ void AlgoContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData* pdata
                                 }
                             }
                         }
-
                     }
                 }
             }

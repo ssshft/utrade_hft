@@ -719,6 +719,8 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
     pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
 
+    pAlgoOrder->tradingTypeOrder = stra::MAKER_TAKER;
+
     // 报单类型。判据最终落在**子单**的 orderType 上（BaseAlgoOrder.cpp:457
     // 用它决定走 Maker 还是 Taker 撤单分支），子单类型直接取自这里
     // （AlgoPairOrder.cpp:321-322 / 388-389 / 439-440 / 503-504）。

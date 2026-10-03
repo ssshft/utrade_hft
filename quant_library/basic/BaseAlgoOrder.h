@@ -16,13 +16,13 @@ struct BaseAlgoOrder {
     // char toAec[stra::NAME_LEN]{""};
     // char clientOrderId[stra::ID_LEN]{""};
 
-
     stra::CommandType commandType{stra::CommandType_MIN};
     int64_t insertTime{0};
     int64_t updateTime{0};
     int64_t cancelOrderTime{0};
 
     stra::AlgoType algoType{stra::AlgoType_MIN};
+    stra::TradingType tradingTypeOrder{stra::MAKER_TAKER};
     char algoStrategyName[stra::NAME_LEN]{""};
     int64_t algoOrderId{0};
     char pairInstrumentKey[stra::INST_KEY_LEN]{""};
