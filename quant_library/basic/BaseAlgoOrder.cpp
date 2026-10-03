@@ -455,6 +455,9 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                 if (pair_order.pairId <= 0) {
                     continue;
                 }
+
+                std::cout << "CancelOrderOnSpread ============= ===== activeMakerCancelOrderTime:" << activeMakerCancelOrderTime << "  nowTime - it->second.updateTime: " << nowTime - it->second.updateTime << std::endl;
+
                 if (it->second.isActiveOrder) {
                     // 主动腿订单撤单
                     if (it->second.orderType == OT_POST_ONLY){
