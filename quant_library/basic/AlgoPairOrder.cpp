@@ -704,6 +704,7 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
                 LOG_INFO("未报单: MAKER_TAKER: 开多/平多开关均关闭(mtOLSwitch/mtCLSwitch 都为 false) -> 不报单");
             }
         } else {
+            std::cout << "Create pairOrder OPEN_SHORT OPEN_LONG" << std::endl;
             if (mtOSSwitch) {
                 pairOrder = GetTargetPairOrder(tradingType, stra::OPEN_SHORT, pairOrderId);
             }
