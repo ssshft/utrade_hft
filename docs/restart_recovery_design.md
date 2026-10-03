@@ -610,6 +610,63 @@ currentAlgoOrderId
   > 这里只落了 `LOG_ERROR`。要接飞书需要补一次调用。
 - **中期（独立任务）**：把逐单 CSV 从"事件流"改成"当前在途清单"，启动时对每张在途单走一次 `QuantTrade::QueryOrder` → 若仍 `OS_NEW` / `OS_PARTFILLED` 就 `CancelOrder`。这条路能落地，但依赖 §3.2 说的 id 持久化。
 
+#### 5.4.1 ⚠️ 复查（2026-10-03）：`hasActiveAlgoOrder` 不该被"恢复"
+
+**现象**：上一轮有在途算法单时重启，之后**开仓单和平仓单都报不出去**，而且重启也解不掉。
+
+**根因不是 `hasActiveAlgoOrder` 本身，而是它下游的 `errorFlag`。** 逐步看：
+
+| 步骤 | 谁做的 | 结果 |
+|---|---|---|
+| 1 | `LoadSnapshot`（`PairInfoManager.cpp:352-353`） | `hasActiveAlgoOrder = true`（第 32 列）与 `errorFlag`（第 30 列）都恢复 |
+| 2 | `HandleOrphanAlgoOrders`（`PairTradingContext.cpp:121-141`，`Init` 内紧接 `LoadSnapshot`） | `LOG_ERROR` + 飞书；`freezeOnOrphanAlgoOrder`（`etc/config.json:60` = `"true"`）→ **`errorFlag = true`** |
+| 3 | `ScanFinishedAlgoOrders`（`PairTradingStrategy.cpp:589-611`，`on_timer` 每 `SCAN_INTERVAL_US` = 200ms 一次，**不受启动闸门限制**） | `algoContext.GetAlgoOrder(id) == nullptr` → `ClearActiveAlgoOrder` → `hasActiveAlgoOrder = false` ✅ **自愈** |
+| 4 | —— | **`errorFlag` 没有任何人清** ❌ |
+
+`errorFlag` 挡开仓（`CanOpen` 内 + `ProcessPairSignal:225` 的早退）与信号平仓（同一处早退）；
+而它唯一的清除路径 `ApplyCommand(PairCmd_RESUME)` **零生产调用点**
+（`AlgoContext::OnCommand:252` 的函数体整个是注释块，见 §6.1）——
+**所以冻结是永久的；而且 `errorFlag` 本身也在快照里，重启也解不掉，只有删快照。**
+
+**执行侧确实没有持久化**（这是"两边不一致"的来源）：`AlgoContext` 里没有任何 Save/Load，
+连 `pAlgoOrder->SaveToFile()` 都是注释掉的（`AlgoContext.cpp:1190`）。
+
+**但这个字段本来就不该恢复。** `hasActiveAlgoOrder` 的真值条件是"`AlgoContext` 里存在这张单"；
+重启后 `AlgoContext` 是空的，所以这个命题**按构造就是假**。恢复它 = 把一个已不成立的事实当事实用。
+
+本文档 §5.1 的表格自己就写着它"**只用于启动告警**"（`:291`），
+但实现把它恢复进了那个被 9 处读取的**运行时字段** ——
+"启动告警触发器"与"运行时占位闩锁"被混成了一个字段，这就是根源。
+
+**顺带：恢复它还会造出一个潜在竞态。** `satisfyTime` / `algoModifyTime` /
+`riskCloseOrderInFlight` **都没进快照**，重启后是 0，于是：
+
+- `CheckAlgoOrderTimeout:415` —— `idleUs = nowUs - 0` 巨大 → 对一张**不存在的单**发 `RequestCancelAlgoOrder`；
+- `ProcessModify:576` —— `nowUs - 0` 巨大 → 对一张**不存在的单**发 MODIFY。
+
+现在只被"启动闸门（`OnTimer` 第 0 步）+ 200ms 扫描"挡着 —— 能挡住纯属时序巧合。
+**不恢复这个标记，这类竞态根本不存在。**
+
+**方案对比**
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| **B（推荐，最小）** | 仍然存（保留告警里 `algoOrderId` 的诊断价值），但 `HandleOrphanAlgoOrders` **读完告警后立刻 `ClearActiveAlgoOrder`** | 约 3 行；**不动列格式**；老快照继续可读 |
+| A（更干净） | 快照新增一列 `orphanAlgoOrderSuspected`；`SaveSnapshot` 把 `hasActiveAlgoOrder` 写进新列；`LoadSnapshot` **不写** `hasActiveAlgoOrder` / `currentAlgoOrderId`，让它们保持默认 `false` / `0` | 列数 33 → 34。⚠️ 表头列数不符是**整份拒绝**（§5.1.5 的容错规则），老快照会读不进来 → **账本丢一次**，要配版本号/迁移才划算 |
+| C（独立必做，与 A/B 无关） | 给 `errorFlag` 一条**可达**的清除路径（§6.1：`OnTimer` 顶部轮询指令文件、接通 `ApplyCommand`）；**短期**把 `freezeOnOrphanAlgoOrder` 默认改成 `false`（只告警不冻结） | 见 §6.1 |
+
+**建议：B + C。**
+
+- 只做 B 不做 C：默认不冻结了，现象消失；但"敞口异常"（`CheckExposureAbnormal`）那条置位路径
+  仍然没有解冻手段，`errorFlag` 依然是一张单程票。
+- 只做 C 不做 B：`errorFlag` 可解冻了，但运行时闩锁仍然会短暂说谎，上面那两条竞态仍在。
+- A 的收益（字段名不再撒谎）是真的，但要先解决快照的**迁移**问题（版本号或列数兼容读），
+  否则第一次上线就会丢一次账本 —— 那比它治的病更贵。
+
+**回归用例**：`tests/market_to_algo` 的 **G5/G6** 现在断言的是"冻结 / 不冻结"这一层；
+方案 B 落地后要加一条 **G21**：快照里 `hasActiveAlgoOrder = true` → `Init` 之后
+`hasActiveAlgoOrder == false`（运行时可继续报单），而 `errorFlag` 仍按 `freezeOnOrphanAlgoOrder` 走。
+
 ### 5.5 `errorFlag`：实测语义与修法
 
 唯一写入方是 `CheckExposureAbnormal`（`PairTradingContext.cpp:416`），触发条件是

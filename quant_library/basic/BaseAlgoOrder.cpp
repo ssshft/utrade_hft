@@ -464,6 +464,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                         // 主动腿Maker
                         // 时间撤单
                         if (nowTime - it->second.updateTime > activeMakerCancelOrderTime) {
+                            std::cout << "CancelOrderOnSpread ============= ===== activeMakerCancelOrderTime:" << activeMakerCancelOrderTime << "  nowTime - it->second.updateTime: " << nowTime - it->second.updateTime << " it->second.price: " << it->second.price  << " pdata->activeBidPrice[0]:" << pdata->activeBidPrice[0] << std::endl;
 			                if ((it->second.direction == DT_LONG && it->second.price < pdata->activeBidPrice[0] - stra::MIN_FLOAT) || (it->second.direction == DT_SHORT && it->second.price > pdata->activeAskPrice[0] + stra::MIN_FLOAT)) {
                                 bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                                 if (cancel_flag) {
