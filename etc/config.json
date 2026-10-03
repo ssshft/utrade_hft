@@ -130,7 +130,7 @@
             "spreadNoRegressionSec": "86400",
 
             "fundingAbnormalUsdt": "30",
-            "tinyCloseThresholdUsdt": "25",
+            "tinyCloseThresholdUsdt": "5",
             "tinyCloseScanIntervalSec": "60",
 
             "tier1WaitSec": "1800",
