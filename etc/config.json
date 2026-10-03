@@ -108,10 +108,10 @@
             "passivePriceTickNum": "0"
         },
         "feeSlippage": {
-            "activeMakerFeeRate": "0",
+            "activeMakerFeeRate": "-0.001",
             "activeTakerFeeRate": "0",
             "passiveMakerFeeRate": "0",
-            "passiveTakerFeeRate": "0",
+            "passiveTakerFeeRate": "-0.001",
             "basicSlippage": "0",
             "slippagePctMinMove": "0.5",
             "ttAddPercent": "0.0003",
