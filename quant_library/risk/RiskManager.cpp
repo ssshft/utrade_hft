@@ -127,6 +127,8 @@ namespace pt {
             return r;
         }
 
+        LOG_INFO("CheckADLRisk reach adlHighRankThreshold pairInstrumentKey:{} current adlRank:{} adlHighRankThreshold:{}", pi.pairInstrumentKey, adlRank, m_cfg.adlHighRankThreshold);
+
         r.hasRisk = true;
         r.riskType = AbnormalClose_ADL;
         AdvanceTier(pi.adlClose, nowUs);
@@ -216,6 +218,8 @@ namespace pt {
             return r;
         }
 
+        LOG_INFO("CheckSpreadNoRegression noRegression pairInstrumentKey:{} noRegressionDuration:{} spreadNoRegressionDuration:{}", pi.pairInstrumentKey, noRegressionDuration, m_cfg.spreadNoRegressionDuration);
+
         r.hasRisk = true;
         r.riskType = AbnormalClose_SPREAD_REGRESSION;
         AdvanceTier(pi.spreadNoRegression, nowUs);
@@ -258,6 +262,8 @@ namespace pt {
         if (fundingRisk > -m_cfg.fundingAbnormalUsdt) {
             return r;
         }
+
+        LOG_INFO("CheckFundingAbnormal pairInstrumentKey:{} fundingRisk:{} fundingAbnormalUsdt:{}", pi.pairInstrumentKey, fundingRisk, m_cfg.fundingAbnormalUsdt);
 
         //触发资金费率异常
         r.hasRisk = true;
