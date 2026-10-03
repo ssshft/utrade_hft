@@ -441,6 +441,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
             }
         }
     } else {
+        std::cout << "CancelOrderOnSpread ================== activeMakerCancelOrderTime:" << activeMakerCancelOrderTime << std::endl;
         auto& allOrders = orderMgr.GetAllOrders();
         for (auto it = allOrders.begin(); it != allOrders.end(); ++it) {
             if (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED){
