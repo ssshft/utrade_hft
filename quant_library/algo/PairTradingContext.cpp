@@ -317,6 +317,8 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     // 已知残余风险（未兜底）：被动腿长期不成交时算法单会一直停在 CANCELLING，
     // 见 memory 2026-09-23「唯一残余风险：这个"等待"没有上界」。
     if (pi.hasActiveAlgoOrder) {
+        LOG_INFO("ProcessRisk RequestCancelAlgoOrder pairKey:{} algoOrderId:{}", pi.pairInstrumentKey, pi.currentAlgoOrderId);
+
         RequestCancelAlgoOrder(pi);
         return;
     }

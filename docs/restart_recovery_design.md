@@ -43,6 +43,18 @@
 > **接入点已定（§6.1.1）**：`OnCommand` 那条路确认**不再使用**；改为在 `OnTimer` 顶部
 > （启动闸门之前）**轮询指令文件** —— 对齐祖先 `load_manual_pair_info`
 > （`cc_pricespread_gb_ltp.py:1094-1098`）。文件格式与语义见 §6.1.1。
+>
+> ⚠️ **复查新发现 2（§5.4.1，2026-10-03）：`hasActiveAlgoOrder` 不该被恢复。**
+> 它只该当"启动告警触发器"，却被恢复进了运行时字段（被 9 处读取），
+> 与"`AlgoContext` 不持久化"叠加后会让策略侧短暂地说"有单在跑"。
+> 更麻烦的是它经由 `errorFlag` 造成**永久冻结**（叠加下面那条"没有清除路径"），
+> 症状 = **重启后开仓单和平仓单都报不出去，且重启也解不掉**。
+> 建议：读完告警立刻 `ClearActiveAlgoOrder`（不动列格式），见 §5.4.1 方案 B。
+>
+> ⚠️ **但"干脆不存 `errorFlag`"这条路走不通**（2026-10-03 追问）：症状确实会消失，
+> 可是孤儿单冻结的**跨重启记忆会一起被砍掉** —— 兜底扫描 1s 内清掉 `hasActiveAlgoOrder`、
+> 快照 10s 重写一次，之后重启既不再告警也不再冻结。冻结卡住是往**安全侧**失败（不开单），
+> 忘掉它是往**危险侧**失败（带不可信的账本继续交易）。要分两条写入路径看，见 §5.5 问题 1b。
 
 ---
 
@@ -287,8 +299,8 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 | 3 | **风控档位** | `adlClose` / `spreadNoRegression` / `fundingAbnormal` 各 6 个字段（`triggered`、`currentTier`、`startTime`、`tier1Times`、`tier2Times`、`tier3Times`） | 是"强平档位"的**跨轮次累积**状态（`AdvanceTier:43-60`、`OnAlgoFinished:318-332`、`GetCurrentTier:6-40`）。丢了 → 档位从 tier1 重来、`startTime` 归零让 `elapsed` 从 0 起算，等于每次重启都把风控的耐心重置一遍 |
 | 4 | **风控计时起点** | `positionExceedThresholdStartTime`、`spreadNoRegressionStartTime` | 同上，是"持仓超时 / 价差不回归"的计时起点（`RiskManager.cpp:104/112-113/163/195-196/311-312`）。丢了 = 时钟重置，4 天门槛要重新等。**注意 `positionStartTime`（2026-09-29 新增，最短持有期门槛）刻意不进快照** —— 它是运行态字段，重启后重新起算，方向是"推迟风控"，落在安全侧 |
 | 5 | **运维意图** | `autoFlag`、`stopFlag`、`closeFlag`、`profitPct` | 由 `ApplyCommand`（`PairInfoManager.cpp:466-506`）写入，是运维指令，没有任何自愈路径 |
-| 6 | **错误态** | `errorFlag` | 由 `CheckExposureAbnormal:416` 写入，语义是"该对子判死、留人工处理"。清除方 = `PairCmd_RESUME`（`PairInfoManager.cpp:481-490`，本次新增，见 §5.5）→ 不存的话，重启会让一个已判死的对子静默复活 |
-| 7 | **上一轮残留标记** | `hasActiveAlgoOrder`、`currentAlgoOrderId` | **只用于启动告警**（见 5.4）。重启后 `alogOrderManager` 是空的，恢复 id 本身没有意义 |
+| 6 | **错误态** | `errorFlag` | 由 `CheckExposureAbnormal:427/461`（**每 tick 重算**）与 `HandleOrphanAlgoOrders:137`（**只在 Init 跑一次**）写入，语义是"该对子判死、留人工处理"。清除方 = `PairCmd_RESUME`（`PairInfoManager.cpp:913-920`）→ 不存的话，重启会让一个已判死的对子静默复活。**⚠️ "到底存不存"必须分这两条写入路径看，结论不一样，见 §5.5 问题 1b** |
+| 7 | **上一轮残留标记** | `hasActiveAlgoOrder`、`currentAlgoOrderId` | **只用于启动告警**（见 5.4）。重启后 `alogOrderManager` 是空的，恢复 id 本身没有意义。⚠️ **但实现把它恢复进了运行时字段本身**，而不是一个独立的告警触发器 —— 这会让"策略说有单、执行侧没有"短暂成真，并经由 `errorFlag` 造成永久冻结。**2026-10-03 复查，见 §5.4.1（建议改为读完告警立刻 `ClearActiveAlgoOrder`）** |
 
 字段数：1（行键）+ 3 + 2 + 18 + 2 + 4 + 1 + 2 = **33 列**。
 
@@ -620,8 +632,50 @@ currentAlgoOrderId
 |---|---|---|
 | 1 | `LoadSnapshot`（`PairInfoManager.cpp:352-353`） | `hasActiveAlgoOrder = true`（第 32 列）与 `errorFlag`（第 30 列）都恢复 |
 | 2 | `HandleOrphanAlgoOrders`（`PairTradingContext.cpp:121-141`，`Init` 内紧接 `LoadSnapshot`） | `LOG_ERROR` + 飞书；`freezeOnOrphanAlgoOrder`（`etc/config.json:60` = `"true"`）→ **`errorFlag = true`** |
-| 3 | `ScanFinishedAlgoOrders`（`PairTradingStrategy.cpp:589-611`，`on_timer` 每 `SCAN_INTERVAL_US` = 200ms 一次，**不受启动闸门限制**） | `algoContext.GetAlgoOrder(id) == nullptr` → `ClearActiveAlgoOrder` → `hasActiveAlgoOrder = false` ✅ **自愈** |
+| 3 | `ScanFinishedAlgoOrders`（`PairTradingStrategy.cpp:589-611`，**每个定时器 tick 都跑一次**，见下方"自愈的确切路径"；**不受启动闸门限制**） | `algoContext.GetAlgoOrder(id) == nullptr` → `ClearActiveAlgoOrder` → `hasActiveAlgoOrder = false` ✅ **自愈** |
 | 4 | —— | **`errorFlag` 没有任何人清** ❌ |
+
+**自愈的确切路径（为什么它一定会被清掉）**
+
+`hasActiveAlgoOrder` 会被清掉，靠的是一条**兜底扫描**，而不是任何显式的恢复/校验逻辑：
+
+```
+框架主循环   base_strategy.h:115-119   now - utcTime >= timerInterval*1000 → on_timer(now)
+             etc/config.json:17        "timerInterval": 1000        ← 每秒一次
+   ↓
+PairTradingStrategy::on_timer:543      if (utcTime - m_lastScanUs >= SCAN_INTERVAL_US)   ← 200ms 只是节流阀
+   ↓
+ScanFinishedAlgoOrders:589-611         for each pi: if (!pi->hasActiveAlgoOrder) continue;
+                                       order = algoContext.GetAlgoOrder(pi->currentAlgoOrderId)
+   ↓
+AlgoContext::GetAlgoOrder:1647         → AlgoOrderManager::SeletAlgoOrderByAlgoOrderId:41
+   ↓                                   → mAlgoOrder.find(id)   ← 启动时这张表是空的（无持久化）
+   ↓                                   → 未命中 → 返回 nullptr（用的是 find，不是 operator[]，不会误插入）
+if (!order)                            → LOG_INFO("algo order not found, release pair")
+   ↓                                   → pim.ClearActiveAlgoOrder(pairKey)
+PairInfoManager.cpp:745-755            → currentAlgoOrderId = 0
+                                       → hasActiveAlgoOrder = false
+                                       → riskCloseOrderInFlight = false   ← 顺带清掉的第三个字段
+```
+
+三个要点：
+
+1. **延迟是"一个定时器 tick"（≈1s），不是 200ms。** `SCAN_INTERVAL_US = 200000`
+   （`include/strategy/PairTradingStrategy.h:51`）只是**节流阀**：在 `timerInterval` = 1000ms 的 tick 下，
+   `1000ms >= 200ms` 恒成立，节流阀**从不生效**，所以实际节奏 = 每次 tick 一次 = **每秒一次**。
+   真正约束延迟的是 `timerInterval`（`etc/config.json:17`），不是 200ms。
+2. **第一个 tick 就会清。** `m_lastScanUs{0}`（`PairTradingStrategy.h:50`）→ 首个 tick 上 `utcTime - 0`
+   是个天文数字 → 条件必然成立 → 扫描立刻跑。
+3. **它不受启动闸门限制。** 闸门（`m_phase = StartupPhase::Reconciling`）在 `PairTradingContext::OnTimer` 里，
+   管的是 `ProcessPairSignal` 的下单；而 `ScanFinishedAlgoOrders` 是 `PairTradingStrategy::on_timer` **直接**调的，
+   完全不看 phase，所以对账期间它照样在跑。
+
+> 这也解释了 `HandleOrphanAlgoOrders` 开头那条注释为什么必须存在（`PairTradingContext.cpp:118-120`）：
+> "⚠️ 必须在这里（Init）做：`PairTradingStrategy::ScanFinishedAlgoOrders` 第一次跑就会因为
+> '算法单在 `AlgoContext` 里找不到'而把 `hasActiveAlgoOrder` 清掉，之后再也看不出痕迹。"
+> —— 作者早就知道这个标记是**自毁**的，所以必须在第一个 tick 之前把痕迹读走。
+> 反过来说，`ScanFinishedAlgoOrders` 自己的注释写着"这里只处理漏网的情况，正常路径不会命中"（`:586-588`），
+> 而重启后它恰恰成了**唯一**会清这个标记的路径。
 
 `errorFlag` 挡开仓（`CanOpen` 内 + `ProcessPairSignal:225` 的早退）与信号平仓（同一处早退）；
 而它唯一的清除路径 `ApplyCommand(PairCmd_RESUME)` **零生产调用点**
@@ -644,22 +698,23 @@ currentAlgoOrderId
 - `CheckAlgoOrderTimeout:415` —— `idleUs = nowUs - 0` 巨大 → 对一张**不存在的单**发 `RequestCancelAlgoOrder`；
 - `ProcessModify:576` —— `nowUs - 0` 巨大 → 对一张**不存在的单**发 MODIFY。
 
-现在只被"启动闸门（`OnTimer` 第 0 步）+ 200ms 扫描"挡着 —— 能挡住纯属时序巧合。
+现在只被"启动闸门（`OnTimer` 第 0 步）+ 每秒一次的兜底扫描"挡着 —— 能挡住纯属时序巧合。
 **不恢复这个标记，这类竞态根本不存在。**
 
 **方案对比**
 
 | 方案 | 做法 | 代价 |
 |---|---|---|
-| **B（推荐，最小）** | 仍然存（保留告警里 `algoOrderId` 的诊断价值），但 `HandleOrphanAlgoOrders` **读完告警后立刻 `ClearActiveAlgoOrder`** | 约 3 行；**不动列格式**；老快照继续可读 |
+| **C（解症状的关键，独立必做）** | 给 `errorFlag` 一条**可达**的清除路径（§6.1：`OnTimer` 顶部轮询指令文件、接通 `ApplyCommand`）；**短期**把 `freezeOnOrphanAlgoOrder` 默认改成 `false`（只告警不冻结） | 见 §6.1。**"重启也解不掉"是它造成的 —— B 治不了这个** |
+| **B（推荐，最小）** | 仍然存（保留告警里 `algoOrderId` 的诊断价值），但 `HandleOrphanAlgoOrders` **读完告警后立刻 `ClearActiveAlgoOrder`** | 约 3 行；**不动列格式**；老快照继续可读。治的是"字段说谎 + 幻影 CANCEL/MODIFY 竞态" |
 | A（更干净） | 快照新增一列 `orphanAlgoOrderSuspected`；`SaveSnapshot` 把 `hasActiveAlgoOrder` 写进新列；`LoadSnapshot` **不写** `hasActiveAlgoOrder` / `currentAlgoOrderId`，让它们保持默认 `false` / `0` | 列数 33 → 34。⚠️ 表头列数不符是**整份拒绝**（§5.1.5 的容错规则），老快照会读不进来 → **账本丢一次**，要配版本号/迁移才划算 |
-| C（独立必做，与 A/B 无关） | 给 `errorFlag` 一条**可达**的清除路径（§6.1：`OnTimer` 顶部轮询指令文件、接通 `ApplyCommand`）；**短期**把 `freezeOnOrphanAlgoOrder` 默认改成 `false`（只告警不冻结） | 见 §6.1 |
+| D（"干脆不存 `errorFlag`"） | 快照不再写 / 不再读 `errorFlag` | 能解掉冻结，但会把**孤儿单冻结的跨重启记忆一起砍掉**（10s 后连告警都不会再打）→ 往**危险侧**失败。详见 §5.5 问题 1b |
 
-**建议：B + C。**
+**建议：B + C**（**不要 D**）。
 
-- 只做 B 不做 C：默认不冻结了，现象消失；但"敞口异常"（`CheckExposureAbnormal`）那条置位路径
-  仍然没有解冻手段，`errorFlag` 依然是一张单程票。
-- 只做 C 不做 B：`errorFlag` 可解冻了，但运行时闩锁仍然会短暂说谎，上面那两条竞态仍在。
+- 只做 B 不做 C：幻影闩锁和那两条竞态没了，但 `errorFlag` 照旧置位、照旧解不掉 → **症状不消失**。
+- 只做 C 不做 B：能解冻了（发 `RESUME`），但运行时闩锁仍会短暂说谎，那两条竞态仍在。
+- D 单独做：冻结确实没了，代价是孤儿单告警只剩 10s 记忆（§5.5 问题 1b）—— 不建议。
 - A 的收益（字段名不再撒谎）是真的，但要先解决快照的**迁移**问题（版本号或列数兼容读），
   否则第一次上线就会丢一次账本 —— 那比它治的病更贵。
 
@@ -687,23 +742,23 @@ currentAlgoOrderId
 与祖先 `status = ERROR`（留人工处理）的语义一致。
 
 > ⚠️ **前提（已解除）：`errorFlag` 曾经永远不会被置位。**
-> `CheckExposureAbnormal:392` 要求 `activeAvgPrice > 0 && passiveAvgPrice > 0`，
+> `CheckExposureAbnormal:437` 要求 `activeAvgPrice > 0 && passiveAvgPrice > 0`，
 > 而这两个字段的**唯一写入方**曾在**死掉的** `UpdateOnPosition:216` / `:225` 里（见 §5.3.4）
-> → 恒为 `-1.0` → 这个检查每次都在 `:392` 提前 return。
+> → 恒为 `-1.0` → 这个检查每次都在 `:437` 提前 return。
 > **`UpdateOnPosition` 的分隔符已修，这条路活了 → `errorFlag` 从此可以被置位。**
 > 所以下面三条现在是**真实生效**的路径，不再是纸面分析。
 
 **问题 1（必要）：没有清除路径 —— ⚠️ 代码已加，但当前不可达。**
-`ApplyCommand`（`PairInfoManager.cpp:703-750`）原来四个分支都不碰 `errorFlag`，
+`ApplyCommand`（`PairInfoManager.cpp:899-920`）原来四个分支都不碰 `errorFlag`，
 连 `PairCmd_RESUME` 也不清。置位后只能重启进程 —— 而快照若又把它恢复了，连重启都救不回来。
 
 > ⚠️ **2026-09-27 复查结论：`ApplyCommand` 零调用点，所以下面的分支走不到。**
-> `PairTradingStrategy::on_command`（`:102-104`）只转发给 `algoContext.OnCommand`，
-> 而后者（`AlgoContext.cpp:233`）**整个函数体被 `/* */` 注释掉** —— 是空函数。
+> `PairTradingStrategy::on_command`（`:535-537`）只转发给 `algoContext.OnCommand`，
+> 而后者（`AlgoContext.cpp:252`）**整个函数体被 `/* */` 注释掉** —— 是空函数。
 > → `PairCmd_RESUME` 发不出去 → **`errorFlag` 目前没有可达的清除路径**。
 > 唯一出路是删快照 + 重启（安全，但未文档化）。详见 §6.1。
 
-> **改动**（`PairInfoManager.cpp:481-490`，`PairCmd_RESUME` 分支）：
+> **改动**（`PairInfoManager.cpp:913-920`，`PairCmd_RESUME` 分支）：
 >
 > ```cpp
 > case PairCmd_RESUME:
@@ -728,6 +783,43 @@ currentAlgoOrderId
 >
 > **状态**：源码已改，但**未编译验证** —— 本机无 `fmt`、构建树配在部署机 `/workspace`，
 > 需在部署机上 `make` 确认。
+
+**问题 1b：那"干脆不存 `errorFlag`"行不行？—— 分两条写入路径看，结论不一样。**
+
+`errorFlag` 有两个写入方，它们的**可重算性完全不同**：
+
+| 写入方 | 何时跑 | 条件能不能重算 | 不持久化的后果 |
+|---|---|---|---|
+| `CheckExposureAbnormal:461` | **每个 tick**（`OnTimer` 第 4 步，`:1119`；无 `autoFlag` 门槛。⚠️ 但 `OnTimer` **第 0 步的启动闸门会整体跳过第 1–6 步**（`IsTradingReady()` 不成立就直接 `return`），所以对账完成前它不跑） | ✅ 能 —— 条件就是 `netExposure > exposureCancelTimes × ttTargetVolume`（`:455`），每 tick 重新求值 | **几乎无损失**。闸门放行后，只要两条腿的持仓 / 均价 / `ttTargetVolume` 到位（对账本身就要求两腿持仓到齐），紧接着那个 tick 就会重新置位；条件真解决了就让它复活，也符合语义 |
+| `HandleOrphanAlgoOrders:137` | **只在 `Init` 跑一次** | ❌ 不能 —— 它的输入是"快照里 `hasActiveAlgoOrder == true`"，而那个标记 **1 个 tick 后就被兜底扫描清掉**（§5.4.1），10s 后连快照都重写成 `false` | **静默丢掉安全信号**，见下 |
+
+孤儿单那条的时序（假设不存 `errorFlag`）：
+
+```
+t=0    重启。快照里 hasActiveAlgoOrder = true
+       → HandleOrphanAlgoOrders 告警 + errorFlag = true         冻结成立
+t≈1s   兜底扫描清掉 hasActiveAlgoOrder = false
+t≈10s  快照重写（csvSaveIntervalSec = 10）→ 该列变 false，errorFlag 也不落盘
+t=T    再重启：快照里 hasActiveAlgoOrder = false
+       → 不告警、不冻结 → 孤儿单风险静默消失，连告警都不会再打
+```
+
+也就是说：**不存 `errorFlag` 会把"永久冻结"换成"最多记 10 秒的冻结"。**
+而孤儿单冻结的存在理由恰恰是"交易所侧可能残留子单、账本不可信、等人工确认" ——
+10s 后自动忘掉，等于这个保护基本失效。
+
+> **关键在失败方向**：`errorFlag` 卡住是**往安全侧失败**（不开单，代价是错过行情），
+> 忘掉它是**往危险侧失败**（带着不可信的账本继续交易）。所以不能只按"哪个省事"来选。
+
+**建议**：
+
+- **敞口那条：可以不存。** 它每 tick 重算，持久化本来就是冗余 —— 这部分同意"不存"。
+- **孤儿单那条：必须单独留一份"可疑"记忆**，别搭 `errorFlag` 的便车。可以放独立小文件
+  （与"重启免预热"那次的 `data/spread_stats.csv` 同一套路），这样**不用动 33 列**、
+  老快照也不会被整份拒绝。清除方式 = 运维 `RESUME` 或删该文件。
+- **但更该先做的是 §5.4.1 的方案 C**：给 `errorFlag` 一条**可达**的清除路径。
+  "重启也解不掉"的根因是**闩锁没有放气阀**，不是"被持久化了" —— 阀装上以后，
+  想解冻发一条 `RESUME` 即可，持久化本身就不再是陷阱。
 
 **问题 2（已澄清）：触发条件不会误报 —— 因为 `UpdateOnBalance` 那两条写入其实是空转。**
 
@@ -931,8 +1023,8 @@ C++ 侧建议改成**一次性**：
 
 误判窗口本身很窄：`pre_stop` 是优雅停机，快照记的就是停机瞬间的真值；若那时真有在途单，
 交易所侧确实可能有活着的子单，冻结是**对的**。真正的误判只发生在
-"单已终态、但 `ClearActiveAlgoOrder` 还没跑"（`ScanFinishedAlgoOrders` 每 200ms 一次）——
-窗口 ≤200ms。
+"单已终态、但 `ClearActiveAlgoOrder` 还没跑"（`ScanFinishedAlgoOrders` 每个定时器 tick 跑一次）——
+窗口 ≤ `timerInterval`（1s，见 §5.4.1"自愈的确切路径"）。
 
 但**代价**因为 §6.1 从"发一条 RESUME"放大成"删快照 + 重启"。在命令链路接通前，
 建议先只告警（`LOG_ERROR` 已经打全了 `pairKey` / `algoOrderId` / `pairTotalVolume`），

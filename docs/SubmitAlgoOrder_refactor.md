@@ -655,7 +655,7 @@ bool ttRebalanceSwitch{true};
 ```
 
 而唯一把结果告诉 `PairTradingContext` 的通道是策略层的轮询
-`PairTradingStrategy::ScanFinishedAlgoOrders`（每 200ms 一次，`PairTradingStrategy.cpp:134`），
+`PairTradingStrategy::ScanFinishedAlgoOrders`（每个定时器 tick 一次 ≈1s，`PairTradingStrategy.cpp:589-611`），
 它靠 `algoContext.GetAlgoOrder(id)` 判断算法单是否终结。算法单在同一 tick 就被删掉，
 策略层**永远只能命中 `if (!order)` 分支**，而该分支里
 

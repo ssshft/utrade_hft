@@ -551,7 +551,9 @@ if (now - utcTime >= timerInterval * 1000) {     // timerInterval 单位 ms，ge
 
 `timerInterval` 来自 `etc/config.json` 的 `op.timerInterval`，当前是 **1000**（`base_strategy.h:146`）。
 
-`PairTradingStrategy::on_timer` 在此基础上再叠一层 200ms 的兜底扫描（`PairTradingStrategy.cpp:106-123`）：
+`PairTradingStrategy::on_timer` 在此基础上再叠一层兜底扫描（`PairTradingStrategy.cpp:539-551`）：
+注意 `SCAN_INTERVAL_US = 200000` 只是**节流阀** —— 在 `timerInterval` = 1000ms 的 tick 下
+`1000ms >= 200ms` 恒成立，节流阀从不生效，所以实际节奏 = **每个 tick 一次**（≈1s），不是 200ms：
 
 ```cpp
 algoContext.OnTimer(utcTime);
