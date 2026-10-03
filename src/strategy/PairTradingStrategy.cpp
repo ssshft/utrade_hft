@@ -197,15 +197,15 @@ void PairTradingStrategy::pre_start(Config* config) {
         }
 
         if (s.HasMember("activeDepthTakerCheck"))  {
-            m_ptCfg.activeDepthTakerCheck  = (s["activeDepthTakerCheck"].GetString()  == std::string("true"));
+            m_ptCfg.activeDepthTakerCheck  = s["activeDepthTakerCheck"].GetBool();
         }
 
         if (s.HasMember("passiveDepthMakerCheck")) {
-            m_ptCfg.passiveDepthMakerCheck = (s["passiveDepthMakerCheck"].GetString() == std::string("true"));
+            m_ptCfg.passiveDepthMakerCheck = s["passiveDepthMakerCheck"].GetBool();
         }
 
         if (s.HasMember("passiveDepthTakerCheck")) {
-            m_ptCfg.passiveDepthTakerCheck = (s["passiveDepthTakerCheck"].GetString() == std::string("true"));
+            m_ptCfg.passiveDepthTakerCheck = s["passiveDepthTakerCheck"].GetBool();
         }
 
         // 价格偏移比例
@@ -301,33 +301,33 @@ void PairTradingStrategy::pre_start(Config* config) {
 
         // rebalance：MT 与 TT 分开配
         if (s.HasMember("mtRebalanceSwitch")) {
-            m_ptCfg.mtRebalanceSwitch = (s["mtRebalanceSwitch"].GetString() == std::string("true"));
+            m_ptCfg.mtRebalanceSwitch = s["mtRebalanceSwitch"].GetBool();
         }
 
         if (s.HasMember("ttRebalanceSwitch")) {
-            m_ptCfg.ttRebalanceSwitch = (s["ttRebalanceSwitch"].GetString() == std::string("true"));
+            m_ptCfg.ttRebalanceSwitch = s["ttRebalanceSwitch"].GetBool();
         }
 
         if (s.HasMember("mtRebalanceFlag")) {
-            m_ptCfg.mtRebalanceFlag = (s["mtRebalanceFlag"].GetString()   == std::string("true"));
+            m_ptCfg.mtRebalanceFlag = s["mtRebalanceFlag"].GetBool();
         }
 
         if (s.HasMember("ttRebalanceFlag")) {
-            m_ptCfg.ttRebalanceFlag   = (s["ttRebalanceFlag"].GetString()   == std::string("true"));
+            m_ptCfg.ttRebalanceFlag   = s["ttRebalanceFlag"].GetBool();
         } 
 
         // 价格趋势保护
         if (s.HasMember("mtPriceTrendProtectFlag")) {
-            m_ptCfg.mtPriceTrendProtectFlag = (s["mtPriceTrendProtectFlag"].GetString() == std::string("true"));
+            m_ptCfg.mtPriceTrendProtectFlag = s["mtPriceTrendProtectFlag"].GetBool();
         }
 
         if (s.HasMember("ttPriceTrendProtectFlag")) {
-            m_ptCfg.ttPriceTrendProtectFlag = (s["ttPriceTrendProtectFlag"].GetString() == std::string("true"));
+            m_ptCfg.ttPriceTrendProtectFlag = s["ttPriceTrendProtectFlag"].GetBool();
         }
 
         // 价格 tick 偏移
         if (s.HasMember("activePriceTickFlag")) {
-            m_ptCfg.activePriceTickFlag = (s["activePriceTickFlag"].GetString()  == std::string("true"));
+            m_ptCfg.activePriceTickFlag = s["activePriceTickFlag"].GetBool();
         }
 
         if (s.HasMember("activePriceTickNum")) {
@@ -335,7 +335,7 @@ void PairTradingStrategy::pre_start(Config* config) {
         }
 
         if (s.HasMember("passivePriceTickFlag")) {
-            m_ptCfg.passivePriceTickFlag = (s["passivePriceTickFlag"].GetString() == std::string("true"));
+            m_ptCfg.passivePriceTickFlag = s["passivePriceTickFlag"].GetBool();
         }
 
         if (s.HasMember("passivePriceTickNum")) {

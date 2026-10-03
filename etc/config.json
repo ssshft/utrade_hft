@@ -94,17 +94,17 @@
             "targetSpreadType": "TargetSpredPrice_NOW",
             "activeVolumeCalcualteType": "ActiveVolumeCalcualteType_PassiveVolumePct",
 
-            "mtRebalanceSwitch": "true",
-            "ttRebalanceSwitch": "false",
-            "mtRebalanceFlag": "true",
-            "ttRebalanceFlag": "false",
+            "mtRebalanceSwitch": true,
+            "ttRebalanceSwitch": false,
+            "mtRebalanceFlag": true,
+            "ttRebalanceFlag": false,
 
-            "mtPriceTrendProtectFlag": "false",
-            "ttPriceTrendProtectFlag": "false",
+            "mtPriceTrendProtectFlag": false,
+            "ttPriceTrendProtectFlag": false,
 
-            "activePriceTickFlag": "false",
+            "activePriceTickFlag": false,
             "activePriceTickNum": "0",
-            "passivePriceTickFlag": "false",
+            "passivePriceTickFlag": false,
             "passivePriceTickNum": "0"
         },
         "feeSlippage": {

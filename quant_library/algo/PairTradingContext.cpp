@@ -128,15 +128,14 @@ void PairTradingContext::HandleOrphanAlgoOrders() {
 
         // 交易所侧可能残留上一轮的子单，而我们没有"列在途单/全撤"的能力（TradeClient 只有
         // query_account / add_new_order / cancel_order / query_order）-> 只能告警 + 人工确认。
-        LOG_ERROR("孤儿单告警: pairKey:{} 上一轮算法单未终结 algoOrderId:{} —— "
-                  "交易所侧可能残留子单，账本(pairTotalVolume:{})不可信，请人工确认",
-                  pi->pairInstrumentKey, pi->currentAlgoOrderId, pi->pairTotalVolume);
+        std::string msg = fmt::format("孤儿单告警: pairKey:{} 上一轮算法单未终结 algoOrderId:{} —— 交易所侧可能残留子单，账本(pairTotalVolume:{})不可信，请人工确认", pi->pairInstrumentKey, pi->currentAlgoOrderId, pi->pairTotalVolume);
+        LOG_ERROR(msg);
+        LarkRebot::GetInstance().SendMsg(msg);
 
         if (m_cfg.freezeOnOrphanAlgoOrder) {
             // 复用 errorFlag 的"判死、停自动、留人工处理"语义（它现在有清除路径：PairCmd_RESUME）
             pi->errorFlag = true;
-            LOG_ERROR("孤儿单冻结: pairKey:{} errorFlag = true（运维确认交易所已清干净后发 PairCmd_RESUME 复活）",
-                      pi->pairInstrumentKey);
+            LOG_ERROR("孤儿单冻结: pairKey:{} errorFlag = true（运维确认交易所已清干净后发 PairCmd_RESUME 复活）", pi->pairInstrumentKey);
         }
     }
 }
