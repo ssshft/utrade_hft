@@ -286,6 +286,7 @@ namespace pt {
             r.isTinyClose = true;
             r.needForceClose = true;
             r.reason = "tiny position < " + std::to_string(m_cfg.tinyCloseThresholdUsdt) + " USDT";
+            LOG_INFO("CheckTinyClose pairInstrumentKey:{} reason:{}", pi.pairInstrumentKey, r.reason);
             return r;
         }
 

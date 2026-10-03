@@ -123,7 +123,7 @@
         },
         "risk": {
             "adlPositionThresholdUsdt": "2000",
-            "adlHighRankThreshold": "0.8",
+            "adlHighRankThreshold": "4",
             "positionExceedDurationSec": "345600",
 
             "minHoldDurationSec": "3600",

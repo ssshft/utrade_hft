@@ -45,7 +45,7 @@
         double fundingAbnormalUsdt{30.0};
 
         // 碎单
-        double tinyCloseThresholdUsdt{25};
+        double tinyCloseThresholdUsdt{5};
         int64_t tinyCloseScanIntervalUs{60LL * 1000000LL};
 
         // 渐进式平仓等待时间
