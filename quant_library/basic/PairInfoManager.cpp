@@ -839,7 +839,7 @@ void PairInfoManager::RecalcVolumeParams(double maxAmount, double targetAmount, 
 
         pi.maxVolume = std::max(pi.maxVolume, std::abs(pi.pairTotalVolume));
 
-        LOG_INFO("pairInfo ttTargetVolume:{} mtTargetVolume:{} maxVolume:{} minVolume:{} maxExposure:{}", pi.ttTargetVolume, pi.mtTargetVolume, pi.maxVolume, pi.minVolume, maxExposure);
+        LOG_INFO("pairInfo pairInstrumentKey:{} ttTargetVolume:{} mtTargetVolume:{} maxVolume:{} minVolume:{} maxExposure:{}", pi.pairInstrumentKey, pi.ttTargetVolume, pi.mtTargetVolume, pi.maxVolume, pi.minVolume, pi.maxExposure);
     }
 }
 
