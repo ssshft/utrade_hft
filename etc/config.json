@@ -26,26 +26,6 @@
         "targetAmount": "1000",
         "csvStatePath": "./data/pair_info.csv",
 
-        "feeSlippage": {
-            "_note": "执行成本 / 滑点 / 价差阈值。单位全是小数（0.0002 = 2bp），不是 bp。费率改动会同时移动信号阈值与算法单阶梯。",
-            "_note_fee": "生产值：activeMaker 0.0002 / activeTaker 0.0006 / passiveMaker 0.0002 / passiveTaker 0.0006 / basicSlippage 0.0001，即 F_mt = 9bp、F_tt = 13bp。",
-            "_note_warn": "⚠️ 下面五个费率当前是 0（冒烟联调时的值）。真实交易前必须填回上面的生产值，否则往返成本被算成 0，策略会在任意微小价差上开仓、净亏手续费。",
-
-            "activeMakerFeeRate": "0",
-            "activeTakerFeeRate": "0",
-            "passiveMakerFeeRate": "0",
-            "passiveTakerFeeRate": "0",
-            "basicSlippage": "0",
-
-            "slippagePctMinMove": "0.5",
-            "ttAddPercent": "0.0003",
-            "spreadAdjPct": "0.8",
-            "minSpreadSpan": "0",
-            "minSpreadTarget": "-0.001",
-            "openProfitPct": "0.0001",
-            "openMaxFundingRate": "0.002"
-        },
-
         "pairTrading": {
             "_note": "策略参数。时间字段以秒为单位（结构体里是微秒，解析时换算）。",
             "_note_quantile": "quantileUp/Dn 直接决定开平仓阈值：越极端（Up 越大 / Dn 越小）边界越靠外、越容易触发。",
@@ -87,10 +67,10 @@
             "mtActiveOrderType": "OT_POST_ONLY",
             "passiveOrderType": "OT_LIMIT",
 
-            "activeDepthMakerCheck": "false",
-            "activeDepthTakerCheck": "false",
-            "passiveDepthMakerCheck": "false",
-            "passiveDepthTakerCheck": "false",
+            "activeDepthMakerCheck": false,
+            "activeDepthTakerCheck": false,
+            "passiveDepthMakerCheck": false,
+            "passiveDepthTakerCheck": false,
 
             "activePriceTakerPct": "0",
             "activePriceMakerPct": "0",
@@ -127,12 +107,21 @@
             "passivePriceTickFlag": "false",
             "passivePriceTickNum": "0"
         },
-
+        "feeSlippage": {
+            "activeMakerFeeRate": "0",
+            "activeTakerFeeRate": "0",
+            "passiveMakerFeeRate": "0",
+            "passiveTakerFeeRate": "0",
+            "basicSlippage": "0",
+            "slippagePctMinMove": "0.5",
+            "ttAddPercent": "0.0003",
+            "spreadAdjPct": "0.8",
+            "minSpreadSpan": "0",
+            "minSpreadTarget": "-0.001",
+            "openProfitPct": "0.0001",
+            "openMaxFundingRate": "0.002"
+        },
         "risk": {
-            "_note": "风控门槛。时间字段以秒为单位（结构体里是微秒）。",
-            "_note_forgo": "tierNForgoProfit 是渐进式平仓的让利幅度，单位是**绝对价差**（不是比例），必须与价差本身同量纲：缓冲带 5e-6、openProfitPct 1e-4。写成 0.01 这类值会把平仓触发价差直接推穿到反向。",
-            "_note_funding": "fundingAbnormalUsdt 是按祖先 max_amount = 30000 标定的固定 30 USDT；本工程 maxAmount = 1000 时几乎触发不了。",
-
             "adlPositionThresholdUsdt": "2000",
             "adlHighRankThreshold": "0.8",
             "positionExceedDurationSec": "345600",
@@ -152,6 +141,5 @@
             "tier2ForgoProfit": "0.00005",
             "tier3ForgoProfit": "0.0001"
         }
-
     }
 }

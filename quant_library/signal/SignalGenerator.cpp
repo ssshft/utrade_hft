@@ -43,17 +43,32 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     //   早退一挡，量字段就永远停在 0，直到窗口重新预热完 —— 等于一天没省。
     //
     // 分开写之后：maxVolume 一变就重算，与分位数是否就绪无关。
-    {
-        const double mv = pi.maxVolume;
-        op.ttOLStartVolume = 0.0;   op.ttOLEndVolume = -mv;
-        op.ttCLStartVolume = -mv;   op.ttCLEndVolume = 0.0;
-        op.ttOSStartVolume = 0.0;   op.ttOSEndVolume = mv;
-        op.ttCSStartVolume = mv;    op.ttCSEndVolume = 0.0;
-        op.mtOLStartVolume = 0.0;   op.mtOLEndVolume = -mv;
-        op.mtCLStartVolume = -mv;   op.mtCLEndVolume = 0.0;
-        op.mtOSStartVolume = 0.0;   op.mtOSEndVolume = mv;
-        op.mtCSStartVolume = mv;    op.mtCSEndVolume = 0.0;
-    }
+    
+    const double mv = pi.maxVolume;
+    op.ttOLStartVolume = 0.0;   
+    op.ttOLEndVolume = -mv;
+
+    op.ttCLStartVolume = -mv;  
+    op.ttCLEndVolume = 0.0;
+
+    op.ttOSStartVolume = 0.0;  
+    op.ttOSEndVolume = mv;
+
+    op.ttCSStartVolume = mv;   
+    op.ttCSEndVolume = 0.0;
+
+    op.mtOLStartVolume = 0.0;  
+    op.mtOLEndVolume = -mv;
+
+    op.mtCLStartVolume = -mv;
+    op.mtCLEndVolume = 0.0;
+    
+    op.mtOSStartVolume = 0.0;   
+    op.mtOSEndVolume = mv;
+
+    op.mtCSStartVolume = mv;    
+    op.mtCSEndVolume = 0.0;
+    
 
     if (!ls.IsValid()) {
         return;

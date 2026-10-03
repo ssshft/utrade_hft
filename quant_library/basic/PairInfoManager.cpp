@@ -953,6 +953,4 @@ const std::vector<std::string>* PairInfoManager::FindPairsByInstrument(const std
     return it != m_instrToPairs.end() ? &it->second : nullptr;
 }
 
-
-
 }

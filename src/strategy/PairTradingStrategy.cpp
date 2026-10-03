@@ -57,169 +57,12 @@ void PairTradingStrategy::pre_start(Config* config) {
         m_ptCfg.csvStatePath = op["csvStatePath"].GetString();
     }
 
-    // =======================================================================
-    // 可调参数：op 段下的三个子对象（都可以不写）
-    //
-    // 全部在这里逐字段读 —— 每个 key 先 HasMember 再赋值，所以**配置里没写的
-    // key 保持结构体默认值**（只覆盖、不清零），可以只写想调的那几个。
-    // 值解析不出来（比如 "abc"）会让 std::stod/stoll 抛异常、启动直接失败 ——
-    // 这是有意的：配置写错就该在启动时炸，别带着一个"看起来对"的值跑起来。
-    //
-    //   op.feeSlippage -> m_ptCfg.feeSlippage  推给 SignalGenerator::SetConfig
-    //   op.risk        -> m_ptCfg.risk         推给 RiskManager::SetConfig
-    //   op.pairTrading -> m_ptCfg 本身         含算法单参数，BuildAlgoOrderJson 直接读
-    //
-    // 这两个 SetConfig 在改造前是**死接口**（全仓库零个生产调用点），
-    // 所有阈值/费率/门槛只能改头文件重新编译。现在改 etc/config.json 即可。
-    //
-    // 取值一律 `Value.GetString()` 再交给 std::stod / std::stoll / std::stoi：
-    // config.json 是用 `Parse<kParseNumbersAsStringsFlag>` 解析的，数值写
-    // `"1000"` 或 `1000` 读出来都是字符串。布尔字段没有对应的 std 转换函数，
-    // 直接和 "true" 比字符串。
-    // ⚠️ 所以布尔字段在 config.json 里**必须写成带引号的 "true"/"false"**：
-    //    写成裸 true 是原生 bool，`GetString()` 会触发 rapidjson 的
-    //    RAPIDJSON_ASSERT(IsString()) —— 那是断言失败不是异常，进程直接挂。
-    // =======================================================================
-
-    // ---- 1) op.feeSlippage -> m_ptCfg.feeSlippage，再推给 SignalGenerator ----
-    // 执行成本。这五个费率必须与算法单的 takerTakerFs / makerTakerFs 同源：
-    // CalcExecCost 用它们算 F，BuildAlgoOrderJson 又把同一个 F 写进算法单。
-    // 改这里的值会同时移动信号阈值与算法单阶梯，是**一次改两边**的参数。
-    if (op.HasMember("feeSlippage")) {
-        auto& s = op["feeSlippage"];
-        auto& c = m_ptCfg.feeSlippage;
-
-        if (s.HasMember("activeMakerFeeRate"))  {
-            c.activeMakerFeeRate  = std::stod(s["activeMakerFeeRate"].GetString());
-        }
-
-        if (s.HasMember("activeTakerFeeRate"))  {
-            c.activeTakerFeeRate  = std::stod(s["activeTakerFeeRate"].GetString());
-        }
-
-        if (s.HasMember("passiveMakerFeeRate")) {
-            c.passiveMakerFeeRate = std::stod(s["passiveMakerFeeRate"].GetString());
-        }   
-
-        if (s.HasMember("passiveTakerFeeRate")) {
-            c.passiveTakerFeeRate = std::stod(s["passiveTakerFeeRate"].GetString());
-        }
-
-        if (s.HasMember("basicSlippage")) {
-            c.basicSlippage = std::stod(s["basicSlippage"].GetString());
-        } 
-
-        if (s.HasMember("slippagePctMinMove")) {
-            c.slippagePctMinMove  = std::stod(s["slippagePctMinMove"].GetString());
-        }
-
-        if (s.HasMember("ttAddPercent")) {
-            c.ttAddPercent = std::stod(s["ttAddPercent"].GetString());
-        }
-
-        if (s.HasMember("spreadAdjPct")) {
-            c.spreadAdjPct = std::stod(s["spreadAdjPct"].GetString());
-        } 
-
-        if (s.HasMember("minSpreadSpan")) {
-            c.minSpreadSpan = std::stod(s["minSpreadSpan"].GetString());
-        }   
-
-        if (s.HasMember("minSpreadTarget")) {
-            c.minSpreadTarget = std::stod(s["minSpreadTarget"].GetString());
-        } 
-
-        if (s.HasMember("openProfitPct")) {
-            c.openProfitPct = std::stod(s["openProfitPct"].GetString());
-        } 
-
-        if (s.HasMember("openMaxFundingRate"))  {
-            c.openMaxFundingRate = std::stod(s["openMaxFundingRate"].GetString());
-        }
-
-        pt::SignalGenerator::Instance().SetConfig(c);
-    }
-
-    // ---- 2) op.risk -> m_ptCfg.risk，再推给 RiskManager ----
-    // 时间字段在配置里写**秒**、结构体里是微秒，所以这里 ×1000000。
-    // 写微秒的话 4 天是 345600000000，肉眼没法核对。
-    if (op.HasMember("risk")) {
-        auto& s = op["risk"];
-        auto& c = m_ptCfg.risk;
-
-        // ADL
-        if (s.HasMember("adlPositionThresholdUsdt")) {
-            c.adlPositionThresholdUsdt = std::stod(s["adlPositionThresholdUsdt"].GetString());
-        }
-
-        if (s.HasMember("adlHighRankThreshold")) {
-            c.adlHighRankThreshold = std::stod(s["adlHighRankThreshold"].GetString());
-        }
-
-        if (s.HasMember("positionExceedDurationSec")) {
-            c.positionExceedDuration  = std::stoll(s["positionExceedDurationSec"].GetString()) * 1000000LL;
-        }
-
-        // 价差不回归
-        if (s.HasMember("minHoldDurationSec")) {
-            c.minHoldDurationUs = std::stoll(s["minHoldDurationSec"].GetString()) * 1000000LL;
-        }
-
-        if (s.HasMember("spreadNoRegressionSec")) {
-            c.spreadNoRegressionDuration = std::stoll(s["spreadNoRegressionSec"].GetString()) * 1000000LL;
-        }
-
-        // 资金费率异常（绝对金额，USDT）
-        if (s.HasMember("fundingAbnormalUsdt")) {
-            c.fundingAbnormalUsdt = std::stod(s["fundingAbnormalUsdt"].GetString());
-        }
-
-        // 碎单
-        if (s.HasMember("tinyCloseThresholdUsdt"))  {
-            c.tinyCloseThresholdUsdt  = std::stod(s["tinyCloseThresholdUsdt"].GetString());
-        }
-
-        if (s.HasMember("tinyCloseScanIntervalSec")) {
-            c.tinyCloseScanIntervalUs = std::stoll(s["tinyCloseScanIntervalSec"].GetString()) * 1000000LL;
-        }
-
-        // 渐进式平仓：等待时长（秒 -> 微秒）
-        if (s.HasMember("tier1WaitSec")) {
-            c.tier1WaitUs = std::stoll(s["tier1WaitSec"].GetString()) * 1000000LL;
-        }
-
-        if (s.HasMember("tier2WaitSec")) {
-            c.tier2WaitUs = std::stoll(s["tier2WaitSec"].GetString()) * 1000000LL;
-        }
-
-        if (s.HasMember("tier3WaitSec")) {
-            c.tier3WaitUs = std::stoll(s["tier3WaitSec"].GetString()) * 1000000LL;
-        }
-
-        // 渐进式平仓：让利幅度。单位是**绝对价差**（不是比例），量纲必须与价差本身
-        // 对齐（缓冲带 5e-6、openProfitPct 1e-4、祖先 modify_shift_pct 2e-4）。
-        if (s.HasMember("tier1ForgoProfit")) {
-            c.tier1ForgoProfit = std::stod(s["tier1ForgoProfit"].GetString());
-        }
-
-        if (s.HasMember("tier2ForgoProfit")) {
-            c.tier2ForgoProfit = std::stod(s["tier2ForgoProfit"].GetString());
-        }
-
-        if (s.HasMember("tier3ForgoProfit")) {
-            c.tier3ForgoProfit = std::stod(s["tier3ForgoProfit"].GetString());
-        }
-
-        pt::RiskManager::Instance().SetConfig(c);
-    }
-
-    // ---- 3) op.pairTrading -> m_ptCfg（策略参数 + 算法单参数，直接用，不用推送）----
     if (op.HasMember("pairTrading")) {
         auto& s = op["pairTrading"];
 
         // 敞口
         if (s.HasMember("exposureMaxLimit")) {
-            m_ptCfg.exposureMaxLimit     = std::stod(s["exposureMaxLimit"].GetString());
+            m_ptCfg.exposureMaxLimit = std::stod(s["exposureMaxLimit"].GetString());
         }
 
         if (s.HasMember("exposureMaxLimitCoff")) {
@@ -281,7 +124,7 @@ void PairTradingStrategy::pre_start(Config* config) {
         }
 
         if (s.HasMember("modifyShiftPct")) {
-            m_ptCfg.modifyShiftPct    = std::stod(s["modifyShiftPct"].GetString());
+            m_ptCfg.modifyShiftPct = std::stod(s["modifyShiftPct"].GetString());
         }
 
         // 周期任务
@@ -303,7 +146,7 @@ void PairTradingStrategy::pre_start(Config* config) {
         }
 
         if (s.HasMember("freezeOnOrphanAlgoOrder"))  {
-            m_ptCfg.freezeOnOrphanAlgoOrder  = (s["freezeOnOrphanAlgoOrder"].GetString() == std::string("true"));
+            m_ptCfg.freezeOnOrphanAlgoOrder = (s["freezeOnOrphanAlgoOrder"].GetString() == std::string("true"));
         }
 
         // ---- 算法单参数 ----
@@ -350,7 +193,7 @@ void PairTradingStrategy::pre_start(Config* config) {
 
         // 盘口深度检查
         if (s.HasMember("activeDepthMakerCheck"))  {
-            m_ptCfg.activeDepthMakerCheck  = (s["activeDepthMakerCheck"].GetString()  == std::string("true"));
+            m_ptCfg.activeDepthMakerCheck = s["activeDepthMakerCheck"].GetBool();
         }
 
         if (s.HasMember("activeDepthTakerCheck"))  {
@@ -500,6 +343,131 @@ void PairTradingStrategy::pre_start(Config* config) {
         }
     }
 
+    if (op.HasMember("feeSlippage")) {
+        auto& s = op["feeSlippage"];
+        auto& c = m_ptCfg.feeSlippage;
+
+        if (s.HasMember("activeMakerFeeRate"))  {
+            c.activeMakerFeeRate  = std::stod(s["activeMakerFeeRate"].GetString());
+        }
+
+        if (s.HasMember("activeTakerFeeRate"))  {
+            c.activeTakerFeeRate  = std::stod(s["activeTakerFeeRate"].GetString());
+        }
+
+        if (s.HasMember("passiveMakerFeeRate")) {
+            c.passiveMakerFeeRate = std::stod(s["passiveMakerFeeRate"].GetString());
+        }   
+
+        if (s.HasMember("passiveTakerFeeRate")) {
+            c.passiveTakerFeeRate = std::stod(s["passiveTakerFeeRate"].GetString());
+        }
+
+        if (s.HasMember("basicSlippage")) {
+            c.basicSlippage = std::stod(s["basicSlippage"].GetString());
+        } 
+
+        if (s.HasMember("slippagePctMinMove")) {
+            c.slippagePctMinMove  = std::stod(s["slippagePctMinMove"].GetString());
+        }
+
+        if (s.HasMember("ttAddPercent")) {
+            c.ttAddPercent = std::stod(s["ttAddPercent"].GetString());
+        }
+
+        if (s.HasMember("spreadAdjPct")) {
+            c.spreadAdjPct = std::stod(s["spreadAdjPct"].GetString());
+        } 
+
+        if (s.HasMember("minSpreadSpan")) {
+            c.minSpreadSpan = std::stod(s["minSpreadSpan"].GetString());
+        }   
+
+        if (s.HasMember("minSpreadTarget")) {
+            c.minSpreadTarget = std::stod(s["minSpreadTarget"].GetString());
+        } 
+
+        if (s.HasMember("openProfitPct")) {
+            c.openProfitPct = std::stod(s["openProfitPct"].GetString());
+        } 
+
+        if (s.HasMember("openMaxFundingRate"))  {
+            c.openMaxFundingRate = std::stod(s["openMaxFundingRate"].GetString());
+        }
+
+        pt::SignalGenerator::Instance().SetConfig(c);
+    }
+
+    if (op.HasMember("risk")) {
+        auto& s = op["risk"];
+        auto& c = m_ptCfg.risk;
+
+        // ADL
+        if (s.HasMember("adlPositionThresholdUsdt")) {
+            c.adlPositionThresholdUsdt = std::stod(s["adlPositionThresholdUsdt"].GetString());
+        }
+
+        if (s.HasMember("adlHighRankThreshold")) {
+            c.adlHighRankThreshold = std::stod(s["adlHighRankThreshold"].GetString());
+        }
+
+        if (s.HasMember("positionExceedDurationSec")) {
+            c.positionExceedDuration  = std::stoll(s["positionExceedDurationSec"].GetString()) * 1000000LL;
+        }
+
+        // 价差不回归
+        if (s.HasMember("minHoldDurationSec")) {
+            c.minHoldDurationUs = std::stoll(s["minHoldDurationSec"].GetString()) * 1000000LL;
+        }
+
+        if (s.HasMember("spreadNoRegressionSec")) {
+            c.spreadNoRegressionDuration = std::stoll(s["spreadNoRegressionSec"].GetString()) * 1000000LL;
+        }
+
+        // 资金费率异常（绝对金额，USDT）
+        if (s.HasMember("fundingAbnormalUsdt")) {
+            c.fundingAbnormalUsdt = std::stod(s["fundingAbnormalUsdt"].GetString());
+        }
+
+        // 碎单
+        if (s.HasMember("tinyCloseThresholdUsdt"))  {
+            c.tinyCloseThresholdUsdt  = std::stod(s["tinyCloseThresholdUsdt"].GetString());
+        }
+
+        if (s.HasMember("tinyCloseScanIntervalSec")) {
+            c.tinyCloseScanIntervalUs = std::stoll(s["tinyCloseScanIntervalSec"].GetString()) * 1000000LL;
+        }
+
+        // 渐进式平仓：等待时长（秒 -> 微秒）
+        if (s.HasMember("tier1WaitSec")) {
+            c.tier1WaitUs = std::stoll(s["tier1WaitSec"].GetString()) * 1000000LL;
+        }
+
+        if (s.HasMember("tier2WaitSec")) {
+            c.tier2WaitUs = std::stoll(s["tier2WaitSec"].GetString()) * 1000000LL;
+        }
+
+        if (s.HasMember("tier3WaitSec")) {
+            c.tier3WaitUs = std::stoll(s["tier3WaitSec"].GetString()) * 1000000LL;
+        }
+
+        // 渐进式平仓：让利幅度。单位是**绝对价差**（不是比例），量纲必须与价差本身
+        // 对齐（缓冲带 5e-6、openProfitPct 1e-4、祖先 modify_shift_pct 2e-4）。
+        if (s.HasMember("tier1ForgoProfit")) {
+            c.tier1ForgoProfit = std::stod(s["tier1ForgoProfit"].GetString());
+        }
+
+        if (s.HasMember("tier2ForgoProfit")) {
+            c.tier2ForgoProfit = std::stod(s["tier2ForgoProfit"].GetString());
+        }
+
+        if (s.HasMember("tier3ForgoProfit")) {
+            c.tier3ForgoProfit = std::stod(s["tier3ForgoProfit"].GetString());
+        }
+
+        pt::RiskManager::Instance().SetConfig(c);
+    }
+
     // 生效值打日志。实盘最怕"改了配置没生效"或"生效了但不是你以为的那份"，
     // 尤其是费率 —— 它同时决定信号阈值与算法单阶梯，错了会直接亏钱。
     // 这里打的是**解析之后**的值（不是文件里的原文），所以能直接对着核对。
@@ -549,16 +517,10 @@ void PairTradingStrategy::pre_start(Config* config) {
 
 void PairTradingStrategy::pre_stop() {
     if (!m_ptCfg.csvStatePath.empty()) {
-        // 停机前落一次快照（原子写），崩溃/被杀时最坏只丢一个保存周期
         pt::PairInfoManager::Instance().SaveSnapshot(m_ptCfg.csvStatePath);
     }
 
-    // 显式停掉落库线程并 flush 缓冲区。
-    // 只靠 ~WriteFileContent() 不够：exit() 里的静态析构顺序跨 TU 未定义，
-    // 万一 contentQueue（BaseAlgoOrder.cpp 里的全局对象）先被析构，
-    // 写线程还在跑就会访问已析构对象。
     WriteFileContent::GetInstance().Stop();
-
     BaseStrategy::pre_stop();
 }
 
