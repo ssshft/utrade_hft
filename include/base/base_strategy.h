@@ -22,12 +22,11 @@ public:
         std::string tradeConfigStr = crypto::read_file("/inc/trade_config.json");
         rapidjson::Document d;
         rapidjson::Value &tradeConfig = d.Parse<rapidjson::kParseNumbersAsStringsFlag>(tradeConfigStr.c_str());
-        int utrade2TbTCommandSHM = std::stoi(tradeConfig["OMS"]["Utrade2TbTCommandSHM"].GetString());
-        std::string tb2UtradeRCommandSHM = tradeConfig["OMS"]["Tb2UtradeRCommandSHM"].GetString();
 
-        tradeClient = new om::TradeClient(utrade2TbTCommandSHM);
-        rcmdQueue = std::make_shared<pubsub::SPMCSubscriber<pubsub::RCommand>>(tb2UtradeRCommandSHM.c_str());
-   
+        utrade2TbTCommandSHM = std::stoi(tradeConfig["OMS"]["Utrade2TbTCommandSHM"].GetString());
+  
+        tb2TradeRcmd = new Tb2UtradeRcmd(tradeConfig["OMS"]["Tb2UtradeRCommandSHM"].GetString());
+
         if (tradeConfig.HasMember("DBP")) {
             auto mpath = tradeConfig["DBP"]["mpath"].GetString();
             auto dpath = tradeConfig["DBP"]["dpath"].GetString();
@@ -62,9 +61,28 @@ public:
     }
 
     virtual void pre_stop() {
+
+    }
+
+    ~BaseStrategy() {
         if (dbpreader) {
             delete dbpreader;
             dbpreader = nullptr;
+        }
+
+        if (smc) {
+            delete smc;
+            smc = nullptr;
+        }
+
+        if (tb2TradeRcmd) {
+            delete tb2TradeRcmd;
+            tb2TradeRcmd = nullptr;
+        }
+
+        if (tradeClient) {
+            delete tradeClient;
+            tradeClient = nullptr;
         }
     }
 
@@ -79,7 +97,7 @@ private:
  
         while (1) {
             try {
-                if (rcmdQueue->pop(rcmd)) {
+                if (tb2TradeRcmd->tryPop(rcmd)) {
                     if (crypto::convert_rcmd_2_ordertrade(rcmd, orderResponse)) {
                         auto found = _strategyIds.find(orderResponse.strategyId);
                         if (found != _strategyIds.end()) {
@@ -143,14 +161,18 @@ protected:
 
         timerInterval = stoi(configValue["op"]["timerInterval"].GetString());
 
+        std::vector<std::string> vSid;
         if (configValue["op"].HasMember("strategyIds")) {
             for (rapidjson::SizeType i = 0; i < configValue["op"]["strategyIds"].Size(); i++) {
                 auto strategyId = configValue["op"]["strategyIds"][i].GetString();
                 if (!crypto::str_cmp(strategyId, "")) {
                     _strategyIds[strategyId] = strategyId;
+                    vSid.push_back(strategyId);
                 }
             }
         }
+
+        tradeClient = new om::TradeClient(utrade2TbTCommandSHM, vSid);
     }
 
     //定时触发
@@ -176,8 +198,8 @@ protected:
 
 protected:
     dbp::DbpReader* dbpreader{nullptr};
-    std::shared_ptr<pubsub::SPMCSubscriber<pubsub::RCommand>> rcmdQueue{nullptr};
-    Config* config{nullptr};
+    Tb2UtradeRcmd* tb2TradeRcmd{nullptr};
+    std::string utrade2TbTCommandSHM{""};
     om::TradeClient* tradeClient{nullptr};
     int timerInterval{1}; //ms
     std::unordered_map<std::string, std::string> _strategyIds;
