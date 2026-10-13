@@ -12,6 +12,7 @@
 #include "concurrent_queue.h"
 #include "securitymanager.h"
 #include <unordered_map>
+#include "SpinBackoff.h"
 
 using namespace pubsub;
 using namespace md;
@@ -94,10 +95,12 @@ private:
         pubsub::Balance balance;
         pubsub::OrderResponse orderResponse;
         pubsub::TotalAccount totalAccount;
- 
+        unsigned step = 0;
         while (1) {
+            bool idle = true;
             try {
                 if (tb2TradeRcmd->tryPop(rcmd)) {
+                    idle = false;
                     if (crypto::convert_rcmd_2_ordertrade(rcmd, orderResponse)) {
                         auto found = _strategyIds.find(orderResponse.strategyId);
                         if (found != _strategyIds.end()) {
@@ -127,7 +130,9 @@ private:
                 }
 
                 if (dbpreader) {
-                    dbpreader->FetchLast();
+                    if (dbpreader->FetchLast()) {
+                        idle = false;
+                    }
                 }
                     
                 auto now = crypto::getCurrentTime();
@@ -140,9 +145,12 @@ private:
                 LOG_ERROR("{}", e.what());
             }
 
-        #ifdef NEED_SLEEP
-            std::this_thread::sleep_for(std::chrono::microseconds(1));
-        #endif
+            if (idle) {
+                spin::backoff(step);
+            }
+            else {
+                step = 0;
+            }
         }
     }
 
