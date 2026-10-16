@@ -22,6 +22,7 @@
 #include "dbp/include.h"
 #include "time_util.h"
 #include "securitymanager.h"
+#include "LarkRebot.h"   // 真实头 :12 也 include 它（PairTradingContext.cpp 用 LarkRebot 发告警）
 #include <string>
 
 struct BaseAlgoOrder {
@@ -31,6 +32,11 @@ struct BaseAlgoOrder {
     int64_t cancelOrderTime{0};
 
     stra::AlgoType algoType{stra::AlgoType_MIN};
+    // ⚠️ 这一行原来是漏的（桩漂移）：真实头 BaseAlgoOrder.h:25 有它，
+    //    而 PairTradingContext.cpp 的 BuildAlgoOrderJson 会写
+    //    `pAlgoOrder->tradingTypeOrder = stra::MAKER_TAKER;` -> 未声明成员。
+    //    位置照抄真实头（algoType 之后、algoStrategyName 之前）。
+    stra::TradingType tradingTypeOrder{stra::MAKER_TAKER};
     char algoStrategyName[stra::NAME_LEN]{""};
     int64_t algoOrderId{0};
     char pairInstrumentKey[stra::INST_KEY_LEN]{""};

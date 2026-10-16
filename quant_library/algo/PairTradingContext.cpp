@@ -2,13 +2,14 @@
  * 核心流程：
  * OnSpread:
  * 1. 更新 pi.rtSpread
- * 2. AccumulateSpreadSample --》喂一条价差样本进 24h 滚动窗口（降频）
+ * 2. AccumulateSpreadSample --》按 spreadSampleIntervalMs 降频后投给 T_signal
+ *    （样本窗口与分位数计算都在 T_signal 上，本线程不碰）
  * 3. 机会条件快照 --》UpdateSatisfyTime（对每个对子都算，与有没有在跑的单无关）
  * 4. CheckSignal --》有信号 --》SubmitAlgoOrder
  * 
  * OnTimer:
  * 1. 周期性 RecalcVolumeParams
- * 2. 周期性 刷新价差统计 Prune/Build --》UpdateLargeStats --》立即 RecalcOrderParams
+ * 2. 消费 T_signal 算好的价差统计 --》UpdateLargeStats --》立即 RecalcOrderParams
  * 3. 周期性 CheckRisk --> 有风险 --》SubmitAlgoOrder (强制平仓)
  *    强平单在途期间 ProcessRisk 不撤它（pi.riskCloseOrderInFlight），否则会被自己的撤单逻辑撤掉
  * 4. 周期性 撤单触发检查 --》CheckAlgoOrderTimeout / CheckExposureAbnormal --》RequestCancelAlgoOrder
@@ -34,7 +35,10 @@
 #include "basic/AlgoPairOrder.h"
 #include <atomic>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstring>
+#include <thread>
 
 
 namespace pt {
@@ -44,6 +48,8 @@ PairTradingContext* PairTradingContext::s_instance = nullptr;
 PairTradingContext::PairTradingContext() = default;
 
 PairTradingContext::~PairTradingContext() {
+    StopSignalThread();
+
     if (s_instance == this) {
         s_instance = nullptr;
     }
@@ -112,7 +118,77 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     // 上一轮有算法单未终结 -> 交易所侧可能仍有子单在成交，账本不可信（§5.4）
     HandleOrphanAlgoOrders();
 
+    // 启动分位数计算线程（T_signal）。放在 Init 最后：此时 m_cfg 已经拷好，
+    // 它对 m_cfg 只读；它也不碰 PairInfo / DbpReader，所以和启动闸门无先后依赖。
+    StartSignalThread();
+
     LOG_WARN("启动闸门: Reconciling —— 交易冻结，等两腿持仓推送到位后对账（pairs:{}）", cfg.pairKeys.size());
+}
+
+// ---------------------------------------------------------------------------
+// T_signal：分位数计算线程
+// 它唯一的职责是把 SpreadStatsBuilder::Prune + Build（885 µs/对子）从行情线程搬走。
+// 只吃 m_sampleQ 的样本、吐 m_statsQ 的统计。
+void PairTradingContext::StartSignalThread() {
+    if (m_signalRun.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    m_signalRun.store(true, std::memory_order_relaxed);
+    m_signalThread = std::thread(&PairTradingContext::signal_work, this);
+}
+
+void PairTradingContext::StopSignalThread() {
+    if (!m_signalRun.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    m_signalRun.store(false, std::memory_order_relaxed);
+
+    if (m_signalThread.joinable()) {
+        m_signalThread.join();
+    }
+}
+
+void PairTradingContext::signal_work() {
+    // 建统计的周期从本线程启动时刻起算。
+    // ⚠️ 不能像原来那样从 0 起算 —— 那样第一轮就会立刻 Build，
+    //    而此时窗口里只有启动闸门期间的几条样本（见 docs/thread_split_design.md §8.8）。
+    int64_t lastStatsUpdateUs = crypto::getCurrentTime();
+
+    while (m_signalRun.load(std::memory_order_relaxed)) {
+        int64_t nowUs = crypto::getCurrentTime();
+
+        SpreadSampleMsg sm;
+        while (m_sampleQ.pop(sm)) {
+            auto it = m_spreadWindows.find(sm.pairKey);
+            if (it == m_spreadWindows.end()) {
+                SpreadStatsBuilder builder;
+                builder.SetWindowUs(static_cast<int64_t>(m_cfg.spreadStatsWindowSec) * 1000000LL);
+                it = m_spreadWindows.emplace(sm.pairKey, std::move(builder)).first;
+            }
+            it->second.Add(sm.s);
+        }
+
+        // 2. 到点就重算分位数，把结果发布回行情线程
+        if (nowUs - lastStatsUpdateUs > static_cast<int64_t>(m_cfg.spreadStatsUpdateIntervalSec) * 1000000LL) {
+            for (auto& kv : m_spreadWindows) {
+                SpreadStatsBuilder& builder = kv.second;
+                builder.Prune(nowUs); // 先按 24h 窗口淘汰过期样本
+
+                const SpreadStats stats = builder.Build(m_cfg.quantileUp, m_cfg.quantileDn, static_cast<size_t>(m_cfg.spreadStatsMinSamples));
+
+                SpreadStatsMsg out{};
+                std::strncpy(out.pairKey, kv.first.c_str(), stra::INST_KEY_LEN - 1);
+                out.st = stats;
+                m_statsQ.push(out);
+            }
+
+            lastStatsUpdateUs = nowUs;
+        }
+
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+    }
 }
 
 // 快照里 hasActiveAlgoOrder == true 的启动处理。
@@ -158,35 +234,32 @@ void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData
 }
 
 void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, const dbp::DbpData* pdata) {
-    // generateTs 是价差生成时间，单位 us，
+    // generateTs 是价差生成时间，单位 us
     const int64_t ts = pdata->generateTs;
 
-    auto it = m_spreadWindows.find(pairKey);
-    if (it == m_spreadWindows.end()) {
-        SpreadWindow win;
-        win.builder.SetWindowUs(static_cast<int64_t>(m_cfg.spreadStatsWindowSec) * 1000000LL);
-        it = m_spreadWindows.emplace(pairKey, std::move(win)).first;
-    }
-    SpreadWindow& win = it->second;
-
-    if (m_cfg.spreadSampleIntervalMs > 0 && win.lastSampleTs > 0) {
+    // 降频门控仍然在行情线程：它只依赖一个 int64（m_lastSampleTs），不需要样本窗口。
+    // 这样跨线程量 = 每对子每 spreadSampleIntervalMs(5s) 一条 32 B 样本，
+    // 而不是每 tick 一条（每 tick 那条在这里被挡掉了，代价是两次比较）。
+    int64_t& lastTs = m_lastSampleTs[pairKey];
+    if (m_cfg.spreadSampleIntervalMs > 0 && lastTs > 0) {
         const int64_t minGapUs = static_cast<int64_t>(m_cfg.spreadSampleIntervalMs) * 1000LL;
-        if (ts - win.lastSampleTs < minGapUs) {
+        if (ts - lastTs < minGapUs) {
             return;
         }
     }
+    lastTs = ts;
 
-    SpreadSample s;
-    s.ts = ts;
-    s.sba = static_cast<float>(pdata->spreadBidAsk);
-    s.sbb = static_cast<float>(pdata->spreadBidBid);
-    s.sab = static_cast<float>(pdata->spreadAskBid);
-    s.saa = static_cast<float>(pdata->spreadAskAsk);
-    s.abv = static_cast<float>(pdata->activeBidVolume[0]);
-    s.aav = static_cast<float>(pdata->activeAskVolume[0]);
+    SpreadSampleMsg msg{};
+    std::strncpy(msg.pairKey, pairKey.c_str(), stra::INST_KEY_LEN - 1);
+    msg.s.ts  = ts;
+    msg.s.sba = pdata->spreadBidAsk;
+    msg.s.sbb = pdata->spreadBidBid;
+    msg.s.sab = pdata->spreadAskBid;
+    msg.s.saa = pdata->spreadAskAsk;
+    msg.s.abv = pdata->activeBidVolume[0];
+    msg.s.aav = pdata->activeAskVolume[0];
 
-    win.builder.Add(s);
-    win.lastSampleTs = ts;
+    m_sampleQ.push(msg);
 }
 
 void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
@@ -962,13 +1035,6 @@ void PairTradingContext::OnTotalAccount(const pubsub::TotalAccount& totalAccount
     PairInfoManager::Instance().UpdateOnTotalAccount(totalAccount);
 }
 
-// ⚠️ 已废弃（2026-09-29）：本函数现在**没有任何读取方**。
-//   "价差不回归"风控已改用 SignalGenerator::CloseSpreadReached（与执行端平仓阈值同源同轴），
-//   不再依赖 openSmallSpread* / smallStats。而 smallStats 全工程本来就没有生产者
-//   （PairInfoManager::UpdateSmallStats 零调用者），所以本函数的 IsValid() 守卫从来
-//   没通过过 —— 两个字段恒为 NaN。保留函数 + 快照两列只是为了不改动 CSV 列布局，
-//   待快照格式统一迁移时连同 smallStats / UpdateSmallStats 一起删除。
-//
 // 建仓瞬间的小周期分位数快照（价差不回归风控的基准，祖先的 *_q_open）。
 // 只取一次：字段从 NAN 变成有效值之后不再覆盖；完全平仓时由
 // RiskManager::OnAlgoFinished 复位成 NAN，下一轮建仓重新取。
@@ -1074,37 +1140,24 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
         m_lastVolumeRecalcUs = nowUs;
     }
 
-    // 2. 刷新价差统计（每 spreadStatsUpdateIntervalSec 秒，默认60s）
-    //    统计一更新就立刻重算 orderParams，保证用到的分位数不是陈旧的
-    if (nowUs - m_lastSpreadStatsUpdateUs > static_cast<int64_t>(m_cfg.spreadStatsUpdateIntervalSec) * 1000000LL) {
-        for (PairInfo* pi : pim.GetAllPairInfos()) {
-            const std::string pairKey(pi->pairInstrumentKey);
-
-            auto it = m_spreadWindows.find(pairKey);
-            if (it == m_spreadWindows.end()) {
-                continue;
-            }
-
-            SpreadStatsBuilder& builder = it->second.builder;
-            builder.Prune(nowUs); // 先按 24h 窗口淘汰过期样本
-
-            const SpreadStats stats = builder.Build(m_cfg.quantileUp, m_cfg.quantileDn, static_cast<size_t>(m_cfg.spreadStatsMinSamples));
-            pim.UpdateLargeStats(pairKey, stats);
-
-            sg.RecalcOrderParams(*pi);
+    // 2. 应用 T_signal 算好的价差统计（每 spreadStatsUpdateIntervalSec 秒一轮，默认60s）
+    SpreadStatsMsg msg;
+    bool updated = false;
+    while (m_statsQ.pop(msg)) {
+        PairInfo* pi = pim.GetPairInfo(msg.pairKey);
+        if (!pi) {
+            continue;
         }
 
-        // 2b. 顺手把这一轮的统计落盘 —— 下一轮重启直接顶上，不用再等预热。
-        //     跟着统计刷新周期走（默认 60s），不额外加定时器：
-        //     统计本来就只在这个点变，多存几次没有意义。
-        //     一个有效统计都没有时 SaveSpreadStats 自己会跳过（保留上一份好值）。
-        if (!m_cfg.spreadStatsStatePath.empty()) {
-            pim.SaveSpreadStats(m_cfg.spreadStatsStatePath);
-        }
-
-        m_lastSpreadStatsUpdateUs = nowUs;
+        pim.UpdateLargeStats(msg.pairKey, msg.st);
+        sg.RecalcOrderParams(*pi);
+        updated = true;
     }
 
+    if (updated && !m_cfg.spreadStatsStatePath.empty()) {
+        pim.SaveSpreadStats(m_cfg.spreadStatsStatePath);
+    }
+    
     // 3. 风控检查 (每次定时器触发)
     for (PairInfo* pi : pim.GetAllPairInfos()) {
         ProcessRisk(*pi, nowUs);

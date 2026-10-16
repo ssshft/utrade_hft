@@ -150,14 +150,6 @@ void PairTradingStrategy::pre_start(Config* config) {
         }
 
         // ---- 算法单参数 ----
-        // 这些字段原来硬编码在 PairTradingContext::BuildAlgoOrderJson 里，现在就是
-        // 本段的普通字段，由 BuildAlgoOrderJson 直接读，没有中间结构体。
-
-        // 报单类型。用现成的 OrderTypeStr2EnumMap，但必须 find：
-        // operator[] 在 key 不存在时会**插入**一个默认值（OT_MIN 哨兵），
-        // 子单会带着哨兵类型报出去。find 之后还要显式拒掉 OT_MIN。
-        // 判据最终落在**子单**的 orderType 上（BaseAlgoOrder.cpp:457 用它决定走
-        // Maker 还是 Taker 撤单分支），子单类型直接取自这三个值。
         if (s.HasMember("ttActiveOrderType")) {
             const std::string t = s["ttActiveOrderType"].GetString();
             auto it = OrderTypeStr2EnumMap.find(t);
@@ -516,6 +508,8 @@ void PairTradingStrategy::pre_start(Config* config) {
 }
 
 void PairTradingStrategy::pre_stop() {
+    ptContext.StopSignalThread();
+
     if (!m_ptCfg.csvStatePath.empty()) {
         pt::PairInfoManager::Instance().SaveSnapshot(m_ptCfg.csvStatePath);
     }
@@ -556,7 +550,6 @@ void PairTradingStrategy::on_timer(const int64_t& utcTime) {
 }
 
 void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum) {
-    std::cout << "pdata--------- " << topic->__name  << "  " << pdata->activeAskPrice[0] << "  " << pdata->activeBidPrice[0] << std::endl;
     algoContext.OnSpread(topic, pdata);
     ptContext.OnSpread(topic, pdata);
 }

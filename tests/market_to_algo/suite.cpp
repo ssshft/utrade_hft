@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bitset>
 #include <cerrno>
 #include <chrono>
@@ -46,6 +47,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <numeric>
 #include <optional>
 #include <random>
@@ -54,6 +56,7 @@
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <typeinfo>
@@ -68,6 +71,13 @@
 //    libc++ 上通常还能过，libstdc++（Ubuntu 服务器用的 g++）更容易炸。
 //    所以这里先把 std 头**一次包含足**，让项目头里的 include 全部命中 include guard。
 //    上面这份清单是「按需 + 冗余」的：不要求精确，多包含几个没有代价。
+//
+//    boost 同理，而且更要紧：PairTradingContext.h 现在 include 了
+//    <boost/lockfree/spsc_queue.hpp>（分位数计算的分线程通道用它做 SPSC 队列）。
+//    boost 头里 `private:` 极多，绝不能在 `private` 已被改写成 `public` 时第一次解析。
+//    这里先包含掉，宏生效期间那次 include 就命中 guard 了。
+//    （header-only，不需要链 boost 库；macOS 上没有 boost 时 run.sh 会用等价桩顶上。）
+#include <boost/lockfree/spsc_queue.hpp>
 
 // Utility.h 放在宏之外：它只有 splitString 与三个 id 生成器，没有需要提权的私有成员。
 // A16 直接调 GenerateStrategyAlgoPairId()，所以要在这里可见
@@ -223,6 +233,28 @@ static void Boot(Fx& fx, const std::string& csv = "", const std::string& statsPa
 static void GoTrading(Fx& fx) {
     fx.ctx.m_phase = PairTradingContext::StartupPhase::Trading;
     fx.ctx.m_startupTimeUs = 1;
+}
+
+// ---------------------------------------------------------------------------
+// 把 T_signal 该做的一轮，在**调用线程**里同步跑掉。
+//
+// 为什么需要它：分位数计算（SpreadStatsBuilder::Prune + Build，实测 885 µs/对子）已经从
+// 行情线程搬到 T_signal 上（见 docs/thread_split_design.md §8）。而 D4 / G17 / G19 / G20
+// 的断言形态是「喂够样本 -> OnTimer -> 统计就该建立、orderParams 就该被重算」——
+// T_signal 是异步线程，测试里既不能等 spreadStatsUpdateIntervalSec（默认 60s），
+// 也不能依赖另一个线程的调度顺序，所以只能显式驱动一轮。
+//
+// ⚠️ 必须先 StopSignalThread：RunSignalOnce 会碰 m_spreadWindows 与 m_statsQ，
+//    它们的所有权约定是「单线程」（后者还是 SPSC 队列），两个线程同时进去就是数据竞争。
+//    本函数只做「停线程 + 手工推一轮」；生产路径由 signal_work() 自己按真实时间循环调
+//    RunSignalOnce，走的是同一段逻辑。
+//
+// lastStatsUpdateUs 传 0 就能让那一轮的「到点没」门控必然成立（nowUs - 0 > 60e6），
+// 等价于以前那个已删掉的 force 形参。
+static void PumpSignal(PairTradingContext& ctx, int64_t nowUs) {
+    ctx.StopSignalThread();
+    int64_t lastStatsUpdateUs = 0; // 0 -> nowUs - 0 > 60e6 必然成立
+    ctx.RunSignalOnce(nowUs, lastStatsUpdateUs);
 }
 
 // ---------------------------------------------------------------------------
@@ -986,6 +1018,7 @@ static void TestD_Timer() {
             fx.ctx.OnSpread(&topic, &d);
         }
         const int64_t t0 = 1000 * SEC + 10 * SEC;
+        PumpSignal(fx.ctx, t0);                             // T_signal 是异步线程，测试里显式驱动一轮
         fx.ctx.OnTimer(t0);
         CHECK(pi.largeStats.IsValid(), "D4 样本足够 -> largeStats 建立");
         CHECK(pi.orderParams.ttOLStartSpread != 12345.0, "D4 统计一更新就重算 orderParams（哨兵被覆盖）");
@@ -1345,12 +1378,18 @@ static void TestF_Risk() {
     }
 
     // F5 碎单风控
+    //
+    // ⚠️ 阈值是 RiskManager 的**当前默认值 5**（RiskManager.h:48 `tinyCloseThresholdUsdt{5}`，
+    //    etc/config.json 也是 "5"）。旧版本这个默认是 25，注释里那句"< 25 USDT"和原来用的
+    //    -0.1（= 10 USDT）都是阈值还是 25 时留下的 —— 阈值改成 5 之后 10 USDT 已经不满足
+    //    "碎单"了，用例没跟着改，所以一直在红。
+    //    这里按当前阈值造场景：0.04 * 100 = 4 USDT < 5。
     {
         Fx fx; Boot(fx); GoTrading(fx);
-        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -0.1);
-        pi.rtSpread.activePriceTema = 100.0;      // 市值 = 0.1 * 100 = 10 USDT < 25
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -0.04);
+        pi.rtSpread.activePriceTema = 100.0;      // 市值 = 0.04 * 100 = 4 USDT < 5
         RiskCheckResult r = RiskManager::Instance().CheckRisk(pi, t0);
-        CHECK(r.hasRisk && r.isTinyClose && r.needForceClose, "F5 持仓市值 < 25 USDT -> 碎单强平");
+        CHECK(r.hasRisk && r.isTinyClose && r.needForceClose, "F5 持仓市值 < 5 USDT -> 碎单强平");
     }
 
     // F6 档位升级：撤单 -> OnAlgoFinished -> tierNTimes++ -> 下一档
@@ -1834,6 +1873,7 @@ static void TestG_Restart() {
                                           now - (4 - i) * SEC);
                 fx.ctx.OnSpread(&topic, &d);
             }
+            PumpSignal(fx.ctx, now + SEC);              // 显式驱动 T_signal 一轮（见 PumpSignal 注释）
             fx.ctx.OnTimer(now + SEC);
 
             CHECK(pi.largeStats.IsValid(), "G17 第一轮：样本足够 -> largeStats 建立");
@@ -1896,6 +1936,7 @@ static void TestG_Restart() {
                                           now - (4 - i) * SEC);
                 fx.ctx.OnSpread(&topic, &d);
             }
+            PumpSignal(fx.ctx, now + SEC);              // 显式驱动 T_signal 一轮（见 PumpSignal 注释）
             fx.ctx.OnTimer(now + SEC);
             std::ifstream ifs(good);
             std::stringstream ss; ss << ifs.rdbuf();
@@ -1944,6 +1985,7 @@ static void TestG_Restart() {
                 dbp::DbpData d = MakeData(kLo, kHi, kHi, kLo, now - (4 - i) * SEC);
                 fx.ctx.OnSpread(&topic, &d);
             }
+            PumpSignal(fx.ctx, now + SEC);              // 显式驱动 T_signal 一轮（见 PumpSignal 注释）
             fx.ctx.OnTimer(now + SEC);
             CHECK(pi.largeStats.IsValid(), "G20 前置：第一轮建立统计");
         }

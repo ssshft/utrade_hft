@@ -13,7 +13,12 @@
 #include <string>
 
 // Swallow fmt-style arguments; proves the call sites compile without a formatter.
-template <typename... A> inline void log_sink(const char*, A&&...) {}
+//
+// ⚠️ 第一个参数**也必须**是万能引用，不能固定成 `const char*`：
+//    生产代码里有 `LOG_ERROR(msg)` 这种"整条消息已经是 std::string"的调用
+//    （PairTradingContext.cpp 的孤儿单告警）。固定成 const char* 就编译不过 ——
+//    这是本套件之前跑不起来的原因之一（桩漂移）。
+template <typename... A> inline void log_sink(A&&...) {}
 
 #define LOG_DEBUG(...) log_sink(__VA_ARGS__)
 #define LOG_INFO(...)  log_sink(__VA_ARGS__)

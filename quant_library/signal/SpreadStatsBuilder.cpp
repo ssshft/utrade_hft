@@ -2,10 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
-// 显式包含：Build 末尾有一行调试打印。不写的话在真实工程里靠传递包含侥幸通过，
-// 换一个构建树就编译失败（tests 里踩过 'no member named cout in namespace std'）。
-// 频率是每个对子每次统计刷新一次（~60s），不是逐 tick，所以暂时不加开关。
-#include <iostream>
+
+// ⚠️ 原来这里显式包含 <iostream>，只为了 Build 末尾那一行 std::cout 调试打印。
+//    2026-10-16 把那行删了 —— Build 现在跑在 T_signal 上（每对子每 60s 一次），
+//    在异步线程里往 stdout 打统计既没用又会污染日志，所以包含一并去掉。
 
 namespace pt {
 
@@ -108,7 +108,6 @@ SpreadStats SpreadStatsBuilder::Build(double quantileUp, double quantileDn, size
     }
     st.avgDepthVolume = depthSum / static_cast<double>(n);
 
-    std::cout << "SpreadStatsBuilder: ----------------- " << " st.bidAskUQ:" << st.bidAskUQ << " st.bidAskDQ:" << st.bidAskDQ << " st.bidBidUQ:" << st.bidBidUQ  <<  " st.bidBidDQ:" << st.bidBidDQ <<  " st.askBidUQ:" << st.askBidUQ << " st.askBidDQ:" << st.askBidDQ << " st.askAskUQ:" << st.askAskUQ << " st.askAskDQ:" << st.askAskDQ << std::endl;
     st.valid = true;
     return st;
 }

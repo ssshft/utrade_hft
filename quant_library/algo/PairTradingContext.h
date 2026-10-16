@@ -14,10 +14,32 @@
 #include "../signal/SignalGenerator.h"
 #include "../signal/SpreadStatsBuilder.h"
 #include "../risk/RiskManager.h"
+#include <atomic>
+#include <cstring>
+#include <thread>
 #include <unordered_map>
+#include <boost/lockfree/spsc_queue.hpp>
 
 
 namespace pt {
+
+// 行情线程 → T_signal：一条降频后的价差样本（每对子每 spreadSampleIntervalMs 一条）
+struct SpreadSampleMsg {
+    char         pairKey[stra::INST_KEY_LEN]{""};
+    SpreadSample s;
+};
+
+// T_signal → 行情线程：算好的分位数快照（每对子每 spreadStatsUpdateIntervalSec 一条）
+struct SpreadStatsMsg {
+    char        pairKey[stra::INST_KEY_LEN]{""};
+    SpreadStats st;
+};
+
+// 容量：样本队列按"每 5s 每对子一条"算，256 槽 ≈ 20 对子时 64s 的积压余量；
+// 统计队列每 60s 才一条，32 槽足够。满了丢**最新**那条（boost 语义），
+// 正常永远触发不到 —— 两者都只用于观测。
+using SpreadSampleQueue = boost::lockfree::spsc_queue<SpreadSampleMsg, boost::lockfree::capacity<256>>;
+using SpreadStatsQueue  = boost::lockfree::spsc_queue<SpreadStatsMsg,  boost::lockfree::capacity<32>>;
 
 struct PairTradingConfig {
     // 对子清单。**平铺**在 op 段（`op.pairKeys`），不在 `op.pairTrading` 里 ——
@@ -230,6 +252,8 @@ public:
 
     void OnTimer(int64_t nowUs);
 
+    void StopSignalThread();
+
     PairInfoManager& GetPairInfoManager() {
         return PairInfoManager::Instance();
     }
@@ -243,7 +267,6 @@ private:
     AlgoCommandCallback m_algoCommandCb;
     AlgoOrderModifyCallback m_algoOrderModifyCb;
 
-    int64_t m_lastSpreadStatsUpdateUs{0};
     int64_t m_lastVolumeRecalcUs{0};
     int64_t m_lastCsvSaveUs{0};
 
@@ -287,15 +310,28 @@ private:
     // 快照里 hasActiveAlgoOrder == true 的启动处理（告警 + 可选冻结），§5.4
     void HandleOrphanAlgoOrders();
 
-    // 每个币对一份 24h 滚动价差样本窗口
-    // lastSampleTs 用于按 spreadSampleIntervalMs 降频采样，控制内存
-    struct SpreadWindow {
-        SpreadStatsBuilder builder;
-        int64_t lastSampleTs{0};
-    };
-    std::unordered_map<std::string, SpreadWindow> m_spreadWindows;
+    // ---- T_signal：分位数计算线程（只做 Prune + Build，别的一概不碰）----
+    // 由 Init 启动、StopSignalThread 停止。它**不写 PairInfo**，也不碰 DbpReader。
+    void StartSignalThread();
+    void signal_work();
 
-    // 从 OnSpread 的原始行情里抽一条价差样本，写入对应币对的滚动窗口
+    std::thread       m_signalThread;
+    std::atomic<bool> m_signalRun{false};
+
+    SpreadSampleQueue m_sampleQ;   // T_market -> T_signal（价差样本）
+    SpreadStatsQueue  m_statsQ;    // T_signal -> T_market（分位数快照）
+
+    // 每个币对的降频采样计时，**行情线程独占**。
+    // 只依赖一个 int64，所以不需要样本窗口 —— 窗口在 m_spreadWindows 里，归 T_signal。
+    std::unordered_map<std::string, int64_t> m_lastSampleTs;
+
+    // 每个币对一份 24h 滚动价差样本窗口，**T_signal 独占**（行情线程一行都不碰）。
+    // 值类型从原来的 SpreadWindow{builder,lastSampleTs} 收窄成 SpreadStatsBuilder：
+    // lastSampleTs 是行情线程的降频状态，已经搬到 m_lastSampleTs。
+    std::unordered_map<std::string, SpreadStatsBuilder> m_spreadWindows;
+
+    // 从 OnSpread 的原始行情里抽一条价差样本，按 spreadSampleIntervalMs 降频后
+    // 非阻塞投给 T_signal（这里不再碰样本窗口）
     void AccumulateSpreadSample(const std::string& pairKey, const dbp::DbpData* pdata);
 
     void ProcessPairSignal(PairInfo& pi);

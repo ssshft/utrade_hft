@@ -14,11 +14,15 @@
 #       quant_library/signal/SignalGenerator.cpp/.h
 #       quant_library/signal/SpreadStatsBuilder.cpp/.h
 #       quant_library/risk/RiskManager.cpp/.h
+#   - 真实公共头（软链）：仓库顶层 include/SpinBackoff.h（当前已无人 include，保留备用）
 #   - 桩（stubs/，只补执行端和外部依赖）：
 #       basic/DataStruct.h         stra:: 常量/枚举/AlgoOrderModify + LOG_*
 #       basic/BaseAlgoOrder.h      字段集与真实头一致，方法声明去掉
 #       basic/AlgoPairOrder.h      只留构造函数
-#       ext/**                     dbp / pubsub / securitymanager / fmt / json
+#       basic/LarkRebot.h          飞书告警：接口照抄真实头，实现留空
+#       ext/**                     dbp / pubsub / securitymanager / fmt / json / log_engine
+#   - boost：spsc_queue.hpp 是 header-only。系统里有真 boost 就用真的（服务器），
+#            没有就用 stubs/noboost 下的等价桩（macOS）—— 见下面的探测逻辑。
 #
 # 执行端（AlgoContext / BaseAlgoOrder 的报单与撤单）不参与 —— 那部分已经在
 # OnCommand 里单独测过，不属于本套件的范围。
@@ -35,6 +39,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"   # 仓库根：顶层 include/ 在这里（utrade_hft 的上一级）
 QL="$REPO/quant_library"
 TREE="${TMPDIR:-/tmp}/ptsuite_build"
 
@@ -84,6 +89,19 @@ if [[ "${1:-}" == "-v" ]]; then
     EXTRA_FLAGS=(-Wall -Wextra -Wno-unused-parameter)
 fi
 
+# ---- boost 探测 ------------------------------------------------------------
+# PairTradingContext.h 用 boost::lockfree::spsc_queue 做「分位数计算分线程」的 SPSC 通道
+# （见 docs/thread_split_design.md §8/§9）。它是 header-only，不需要链库，但头必须找得到：
+#   · Ubuntu 服务器：系统自带 boost -> 用真的；
+#   · macOS 开发机：没有 boost -> 用 stubs/noboost 下的等价桩。
+# 桩目录**只在探测失败时**才进 -I，否则 -I 会先于系统路径命中，把服务器上真的 boost 挡掉。
+BOOST_INC=()
+if ! echo '#include <boost/lockfree/spsc_queue.hpp>' \
+        | "$CXX" -std=c++17 -x c++ -fsyntax-only - >/dev/null 2>&1; then
+    echo "==> 系统里没有 boost/lockfree/spsc_queue.hpp -> 用 stubs/noboost 的等价桩"
+    BOOST_INC=(-I "$HERE/stubs/noboost")
+fi
+
 echo "==> 编译器: $CXX"
 "$CXX" --version 2>&1 | head -1
 
@@ -109,12 +127,19 @@ ln -sf "$QL/risk/RiskManager.cpp"       "$TREE/risk/RiskManager.cpp"
 ln -sf "$QL/algo/PairTradingContext.h"   "$TREE/algo/PairTradingContext.h"
 ln -sf "$QL/algo/PairTradingContext.cpp" "$TREE/algo/PairTradingContext.cpp"
 
+# 真实公共头（软链）：仓库顶层 include/ 下的，不属于 quant_library。
+# 本套件当前**不再** include SpinBackoff.h —— signal_work 的低频等待已从
+# spin::backoff_sleep 改成 std::this_thread::sleep_for（见 PairTradingContext.cpp）。
+# 软链留着：include/ 是 utrade_hft 与兄弟模块共享的层，将来若恢复 spin:: 退避，
+# 这里不用再改。
+ln -sf "$ROOT/include/SpinBackoff.h"     "$TREE/ext/SpinBackoff.h"
+
 cp "$HERE/suite.cpp" "$TREE/suite.cpp"
 mkdir -p "$TREE/out"
 
 echo "==> 编译"
 cd "$TREE"
-"$CXX" -std=c++17 -pthread -I . -I ext ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
+"$CXX" -std=c++17 -pthread -I . -I ext ${BOOST_INC[@]+"${BOOST_INC[@]}"} ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
     -o "$TREE/suite" \
     suite.cpp \
     algo/PairTradingContext.cpp \
