@@ -362,7 +362,7 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
 }
 
 bool WriteSpreadStatsFile(const std::string& path, const std::vector<SpreadStatsMsg>& v) {
-    if (v.size <= 0) {
+    if (v.size() <= 0) {
         return false; // 一个有效统计都没有 -> 保留磁盘上已有的那份
     }
 
@@ -371,7 +371,7 @@ bool WriteSpreadStatsFile(const std::string& path, const std::vector<SpreadStats
     oss << std::setprecision(17);
     oss << kSpreadStatsHeader << "\n";
 
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < v.size(); ++i) {
         const SpreadStatsMsg& r = rows[i];
         oss << r.pairKey << ","
             << r.st.bidAskUQ << "," << r.st.bidAskDQ << ","
