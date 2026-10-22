@@ -38,6 +38,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <thread>
 
 
@@ -125,7 +126,7 @@ void PairTradingContext::StartSignalThread() {
     }
 
     m_signalRun.store(true, std::memory_order_relaxed);
-    m_signalThread = std::thread(&PairTradingContext::signal_work, this);
+    m_signalThread = std::thread(&PairTradingContext::SignalWork, this);
 }
 
 void PairTradingContext::StopSignalThread() {
@@ -140,13 +141,15 @@ void PairTradingContext::StopSignalThread() {
     }
 }
 
-void PairTradingContext::signal_work() {
+void PairTradingContext::SignalWork() {
     // 建统计的周期从本线程启动时刻起算。
+    // ⚠️ 不能从 0 起算 —— 那样第一轮就会立刻 Build，而此时窗口里只有启动闸门期间的
     int64_t lastStatsUpdateUs = crypto::getCurrentTime();
 
     while (m_signalRun.load(std::memory_order_relaxed)) {
         int64_t nowUs = crypto::getCurrentTime();
 
+        // 1. 吃掉所有新样本
         SpreadSampleMsg sm;
         while (m_sampleQ.pop(sm)) {
             auto it = m_spreadWindows.find(sm.pairKey);
@@ -158,8 +161,10 @@ void PairTradingContext::signal_work() {
             it->second.Add(sm.s);
         }
 
-        // 2. 到点就重算分位数，把结果发布回行情线程
+        // 2. 到点就重算分位数，把结果发布回行情线程；**顺手把这一轮的结果落盘**。
         if (nowUs - lastStatsUpdateUs > static_cast<int64_t>(m_cfg.spreadStatsUpdateIntervalSec) * 1000000LL) {
+            std::vector<SpreadStatsMsg> rows;
+
             for (auto& kv : m_spreadWindows) {
                 SpreadStatsBuilder& builder = kv.second;
                 builder.Prune(nowUs); // 先按 24h 窗口淘汰过期样本
@@ -167,9 +172,23 @@ void PairTradingContext::signal_work() {
                 const SpreadStats stats = builder.Build(m_cfg.quantileUp, m_cfg.quantileDn, static_cast<size_t>(m_cfg.spreadStatsMinSamples));
 
                 SpreadStatsMsg out{};
-                std::strncpy(out.pairKey, kv.first.c_str(), stra::INST_KEY_LEN - 1);
+                std::strncpy(out.pairKey, kv.first.c_str(), stra::INST_KEY_LEN);
                 out.st = stats;
                 m_statsQ.push(out);
+
+                // 与 SaveSpreadStats 同一条规则：无效统计不写。
+                // 否则预热期每轮都会把磁盘上的 last-known-good 刷成空表头。
+                if (stats.IsValid()) {
+                    rows.push_back(out);
+                }
+            }
+
+            if (!m_cfg.spreadStatsStatePath.empty() && !rows.empty()) {
+                try {
+                    WriteSpreadStatsFile(m_cfg.spreadStatsStatePath, rows);
+                } catch (const std::exception& e) {
+                    LOG_ERROR("写价差统计失败 path:{} rows:{} err:{}", m_cfg.spreadStatsStatePath, rows.size(), e.what());
+                }
             }
 
             lastStatsUpdateUs = nowUs;
@@ -1104,7 +1123,6 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
 
     // 2. 应用 T_signal 算好的价差统计（每 spreadStatsUpdateIntervalSec 秒一轮，默认60s）
     SpreadStatsMsg msg;
-    bool updated = false;
     while (m_statsQ.pop(msg)) {
         PairInfo* pi = pim.GetPairInfo(msg.pairKey);
         if (!pi) {
@@ -1113,11 +1131,6 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
 
         pim.UpdateLargeStats(msg.pairKey, msg.st);
         sg.RecalcOrderParams(*pi);
-        updated = true;
-    }
-
-    if (updated && !m_cfg.spreadStatsStatePath.empty()) {
-        pim.SaveSpreadStats(m_cfg.spreadStatsStatePath);
     }
     
     // 3. 风控检查 (每次定时器触发)

@@ -23,18 +23,6 @@
 
 namespace pt {
 
-// 行情线程 → T_signal：一条降频后的价差样本（每对子每 spreadSampleIntervalMs 一条）
-struct SpreadSampleMsg {
-    char         pairKey[stra::INST_KEY_LEN]{""};
-    SpreadSample s;
-};
-
-// T_signal → 行情线程：算好的分位数快照（每对子每 spreadStatsUpdateIntervalSec 一条）
-struct SpreadStatsMsg {
-    char        pairKey[stra::INST_KEY_LEN]{""};
-    SpreadStats st;
-};
-
 // 容量：样本队列按"每 5s 每对子一条"算，256 槽 ≈ 20 对子时 64s 的积压余量；
 // 统计队列每 60s 才一条，32 槽足够。满了丢**最新**那条（boost 语义），
 // 正常永远触发不到 —— 两者都只用于观测。
@@ -78,15 +66,6 @@ struct PairTradingConfig {
     RiskConfig       risk;
 
     // ---- 以下全部走 `op.pairTrading` 段 ----
-
-    // ---- 腿报单类型（OrderType 枚举，配置里写字符串）----
-    // 判据落在**子单**的 orderType 上（BaseAlgoOrder.cpp:457 的
-    // `it->second.orderType == OT_POST_ONLY` 决定走 Maker 还是 Taker 撤单分支），
-    // 子单类型直接取自这里（AlgoPairOrder.cpp:321-322 / 388-389 / 439-440 / 503-504）。
-    //   主动腿：TT 用 OT_LIMIT（穿价限价，效果是吃单但把最差成交价钉住）
-    //           MT 用 OT_POST_ONLY（必须挂单，否则会被交易所当吃单拒掉）
-    //   被动腿：恒 OT_LIMIT
-    // ⚠️ 2026-10-01 改过（4f3e2a5）：原来是 TT=OT_MARKET / MT=OT_LIMIT / 被动=OT_MARKET。
     OrderType ttActiveOrderType{OT_LIMIT};
     OrderType mtActiveOrderType{OT_POST_ONLY};
     OrderType passiveOrderType{OT_LIMIT};
@@ -131,7 +110,6 @@ struct PairTradingConfig {
         stra::ActiveVolumeCalcualteType_PassiveVolumePct};
 
     // ---- rebalance（主动腿成交后是否用 rebalance 模式补被动腿）----
-    // ⚠️ 2026-10-01 改过（4f3e2a5）：TT 的两个由 true 改成 false，MT 两个保持 true。
     bool mtRebalanceSwitch{true};
     bool ttRebalanceSwitch{false};
     bool mtRebalanceFlag{true};
@@ -307,10 +285,10 @@ private:
     // 快照里 hasActiveAlgoOrder == true 的启动处理（告警 + 可选冻结），§5.4
     void HandleOrphanAlgoOrders();
 
-    // ---- T_signal：分位数计算线程（只做 Prune + Build，别的一概不碰）----
+    // ---- T_signal：分位数计算线程（只做 Prune + Build + 统计落盘，别的一概不碰）----
     // 由 Init 启动、StopSignalThread 停止。它**不写 PairInfo**，也不碰 DbpReader。
     void StartSignalThread();
-    void signal_work();
+    void SignalWork();
 
     std::thread       m_signalThread;
     std::atomic<bool> m_signalRun{false};

@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -219,6 +220,50 @@ int main() {
         std::printf("  => 格式化约占 %.0f%%，IO(open/flush/rename) 约占 %.0f%%。\n",
                     100.0 * tStream / snap500, 100.0 * (snap500 - tStream) / snap500);
         std::printf("     两个都不是「可以忽略」的量级，所以正确做法是整段搬走，而不是只换格式化函数。\n");
+    }
+
+    // 对照 3：把"取数"单独量出来 —— 也就是把落盘搬到写线程后，主线程还要付的那部分。
+    // 形状严格照 PairInfoManager::CollectSpreadStats 的写法：
+    //   遍历 m_pairKeys -> m_pairInfoMap.find -> 跳过无效 -> 拷 216 B POD 行。
+    // 注意：这是**代理实现**（真正的那份还没写），只用来量"取数 vs 格式化"的比例。
+    {
+        FillWorld(500);
+        auto& pim = pt::PairInfoManager::Instance();
+
+        struct Row {                    // 与拟议的 SpreadStatsRow 同尺寸
+            char    key[stra::INST_KEY_LEN];
+            double  q[8];
+            int     count;
+            double  avgDepthVolume;
+            int64_t calcTs;
+        };
+        std::printf("\n取数（主线程要付的那部分，500 行，sizeof(Row)=%zu B）:\n", sizeof(Row));
+
+        std::vector<Row> rows(500);
+        const double tCollect = medianUs(500, [&] {
+            int n = 0;
+            for (const auto& pk : pim.m_pairKeys) {
+                if (n >= 500) break;
+                auto it = pim.m_pairInfoMap.find(pk);
+                if (it == pim.m_pairInfoMap.end()) continue;
+                const pt::SpreadStats& st = it->second.largeStats;
+                if (!st.IsValid()) continue;
+                Row& r = rows[static_cast<size_t>(n++)];
+                std::memcpy(r.key, it->second.pairInstrumentKey, sizeof(r.key));
+                r.q[0] = st.bidAskUQ; r.q[1] = st.bidAskDQ;
+                r.q[2] = st.bidBidUQ; r.q[3] = st.bidBidDQ;
+                r.q[4] = st.askBidUQ; r.q[5] = st.askBidDQ;
+                r.q[6] = st.askAskUQ; r.q[7] = st.askAskDQ;
+                r.count = st.count;
+                r.avgDepthVolume = st.avgDepthVolume;
+                r.calcTs = st.calcTs;
+            }
+            if (n == 0xdeadbeef) std::printf("x");
+        });
+        std::printf("  取数到 POD 数组            : %7.1f us   (map.find x500 + 拷贝 %.0f KB)\n",
+                    tCollect, 500.0 * sizeof(Row) / 1024.0);
+        std::printf("  原来整段（格式化+落盘）    : %7.1f us\n", snap500);
+        std::printf("  => 搬到写线程后主线程只剩 %.1f%% 的代价。\n", 100.0 * tCollect / snap500);
     }
 
     return 0;

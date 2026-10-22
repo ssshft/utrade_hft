@@ -1877,7 +1877,7 @@ static void TestG_Restart() {
             fx.ctx.OnTimer(now + SEC);
 
             CHECK(pi.largeStats.IsValid(), "G17 第一轮：样本足够 -> largeStats 建立");
-            CHECK(std::ifstream(stats).good(), "G17 第一轮：OnTimer 顺手把统计落盘");
+            CHECK(std::ifstream(stats).good(), "G17 第一轮：T_signal 一轮顺手把统计落盘");
 
             ttOLStart = pi.orderParams.ttOLStartSpread;
             bidBidUQ  = pi.largeStats.bidBidUQ;

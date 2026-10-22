@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -360,54 +361,34 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
     return restored;
 }
 
-
-bool PairInfoManager::SaveSpreadStats(const std::string& path) {
-    if (path.empty()) {
-        return false;
+bool WriteSpreadStatsFile(const std::string& path, const std::vector<SpreadStatsMsg>& v) {
+    if (v.size <= 0) {
+        return false; // 一个有效统计都没有 -> 保留磁盘上已有的那份
     }
 
-    // 先在内存里拼好整份内容，再决定要不要落盘 —— 关键点：
-    // **一个有效统计都没有时不写**。预热期每轮都会走到这里，若无脑 truncate，
-    // 上一份 last-known-good 会在重启前的最后几轮里被刷成空表头，
-    // 于是"重启后直接顶上"这个功能永远生效不了。
+    // 先在内存里拼好整份内容，再决定要不要落盘
     std::ostringstream oss;
     oss << std::setprecision(17);
     oss << kSpreadStatsHeader << "\n";
 
-    int rows = 0;
-    for (const auto& pk : m_pairKeys) {
-        auto it = m_pairInfoMap.find(pk);
-        if (it == m_pairInfoMap.end()) {
-            continue;
-        }
-        const PairInfo& p = it->second;
-        const SpreadStats& st = p.largeStats;
-
-        if (!st.IsValid()) {
-            continue; // 还没建立起来（或刚被一次无效 Build 覆盖）-> 不覆盖旧值
-        }
-
-        oss << p.pairInstrumentKey << ","
-            << st.bidAskUQ << "," << st.bidAskDQ << ","
-            << st.bidBidUQ << "," << st.bidBidDQ << ","
-            << st.askBidUQ << "," << st.askBidDQ << ","
-            << st.askAskUQ << "," << st.askAskDQ << ","
-            << st.count << "," << st.avgDepthVolume << ","
-            << st.calcTs << "\n";
-        ++rows;
-    }
-
-    if (rows == 0) {
-        return false; // 保留磁盘上已有的那份
+    for (int i = 0; i < n; ++i) {
+        const SpreadStatsMsg& r = rows[i];
+        oss << r.pairKey << ","
+            << r.st.bidAskUQ << "," << r.st.bidAskDQ << ","
+            << r.st.bidBidUQ << "," << r.st.bidBidDQ << ","
+            << r.st.askBidUQ << "," << r.st.askBidDQ << ","
+            << r.st.askAskUQ << "," << r.st.askAskDQ << ","
+            << r.st.count << "," << r.st.avgDepthVolume << ","
+            << r.st.calcTs << "\n";
     }
 
     EnsureParentDir(path);
 
-    // 与 SaveSnapshot 同款：写临时文件 + rename 原子替换
+    //写临时文件 + rename 原子替换
     const std::string tmpPath = path + ".tmp";
     std::ofstream ofs(tmpPath, std::ios::trunc);
     if (!ofs) {
-        LOG_ERROR("SaveSpreadStats: open failed: {}", tmpPath);
+        LOG_ERROR("WriteSpreadStatsFile: open failed: {}", tmpPath);
         return false;
     }
     ofs << oss.str();
@@ -416,17 +397,16 @@ bool PairInfoManager::SaveSpreadStats(const std::string& path) {
     ofs.close();
 
     if (!writeOk) {
-        LOG_ERROR("SaveSpreadStats: write failed: {}", tmpPath);
+        LOG_ERROR("WriteSpreadStatsFile: write failed: {}", tmpPath);
         return false;
     }
     if (std::rename(tmpPath.c_str(), path.c_str()) != 0) {
-        LOG_ERROR("SaveSpreadStats: rename {} -> {} failed: {}", tmpPath, path, std::strerror(errno));
+        LOG_ERROR("WriteSpreadStatsFile: rename {} -> {} failed: {}", tmpPath, path, std::strerror(errno));
         return false;
     }
 
     return true;
 }
-
 
 int PairInfoManager::LoadSpreadStats(const std::string& path, int maxStaleSec) {
     if (path.empty()) {
