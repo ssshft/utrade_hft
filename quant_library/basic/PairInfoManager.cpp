@@ -372,7 +372,7 @@ bool WriteSpreadStatsFile(const std::string& path, const std::vector<SpreadStats
     oss << kSpreadStatsHeader << "\n";
 
     for (int i = 0; i < v.size(); ++i) {
-        const SpreadStatsMsg& r = rows[i];
+        const SpreadStatsMsg& r = v[i];
         oss << r.pairKey << ","
             << r.st.bidAskUQ << "," << r.st.bidAskDQ << ","
             << r.st.bidBidUQ << "," << r.st.bidBidDQ << ","
