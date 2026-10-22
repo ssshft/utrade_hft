@@ -5,6 +5,9 @@
 #include "Convert.h"
 #include "StrategyConfig.h"
 #include "algo/PairTradingContext.h"
+// CancelOrderOnSpread 里有 std::cout 即时诊断。必须自己 include：
+// libstdc++ 会经其它头顺带带进 <iostream>，libc++ 不会 ⇒ 只有部署机编得过。
+#include <iostream>
 
 
 CONTENTQUEUE contentQueue;
@@ -215,7 +218,7 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder) {
                 if (pairOrder.passiveOrderType == OT_POST_ONLY) {
                     passivePrice = pairOrder.passiveTargetPrice * (1 - passiveMakerSlippage) * (1 - passiveMakerFeeRate);
                 } else {
-                    passivePrice = pairOrder.passiveTargetPrice * (1 + passiveTakerSlippage) * (1 - passiveTakerFeeRate);
+                    passivePrice = pairOrder.passiveTargetPrice * (1 - passiveTakerSlippage) * (1 - passiveTakerFeeRate);
                 }
             }
         } else {

@@ -285,9 +285,6 @@ private:
 
     // 每个账户"最近一次持仓批次结束"的时间（pubsub::Position::isLast == true）。
     // 用途：区分"该腿确实没持仓"和"该腿的推送还没到"。
-    // ⚠️ 必须按 accountId 分开记：isLast 是**单账户单次应答**的批次尾标记
-    //    （tb 适配器写成 `isLast = (i + 1 == pending.size())`），
-    //    用全局一个标记会把"主动腿账户的批次到了"误当成"被动腿也到了"。
     // Init 时是空的，所以任何一条记录必然是本次启动之后收到的。
     std::unordered_map<int, int64_t> m_positionBatchDoneUs;
 

@@ -75,8 +75,6 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     auto& pim = PairInfoManager::Instance();
     pim.Init(cfg.pairKeys, cfg.activeAccountId, cfg.passiveAccountId, smc);
 
-    // 恢复上一轮的"策略自己那本账"。原实现把成功/失败打反了（成功打 WARN、失败打 INFO），
-    // 且 LoadFromCSV 是个一行都不写的坏桩 —— 这里一并修正。
     if (!cfg.csvStatePath.empty()) {
         const int restored = pim.LoadSnapshot(cfg.csvStatePath);
         if (restored < 0) {
@@ -86,13 +84,7 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
         }
     }
 
-    // 恢复价差统计（**重启免预热**）。
-    // largeStats 不落在 pair_info.csv 里（它是派生字段，见 PairInfoManager.h），
-    // 所以正常流程下重启后必须重新攒够 spreadStatsMinSamples 个样本才算出第一组
-    // 分位数 —— 在那之前 RecalcOrderParams 直接早退，一单都发不出去。
-    // 这里把上一轮算好的分位数捞回来，够新就直接顶上。
-    // 捞回来之后必须**立刻重算一次 orderParams**：orderParams 是从 largeStats
-    // 推出来的，只恢复 largeStats 而不重算，阈值仍然是默认值，等于没恢复。
+    // 恢复价差统计（**重启免预热**） 重算一次 orderParams
     if (!cfg.spreadStatsStatePath.empty() && cfg.spreadStatsMaxStaleSec > 0) {
         const int restoredStats = pim.LoadSpreadStats(cfg.spreadStatsStatePath, cfg.spreadStatsMaxStaleSec);
         if (restoredStats > 0) {
@@ -102,8 +94,7 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
                     continue; // 这一对子没恢复成功 -> 让它走正常预热
                 }
                 sg.RecalcOrderParams(*pi);
-                LOG_INFO("重启免预热: pairKey:{} 已恢复价差统计（样本数:{} 统计时刻:{}）-> 无需等待预热即可报单",
-                         pi->pairInstrumentKey, pi->largeStats.count, pi->largeStats.calcTs);
+                LOG_INFO("重启免预热: pairKey:{} 已恢复价差统计（样本数:{} 统计时刻:{}）-> 无需等待预热即可报单", pi->pairInstrumentKey, pi->largeStats.count, pi->largeStats.calcTs);
             }
         }
     }
@@ -118,8 +109,7 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     // 上一轮有算法单未终结 -> 交易所侧可能仍有子单在成交，账本不可信（§5.4）
     HandleOrphanAlgoOrders();
 
-    // 启动分位数计算线程（T_signal）。放在 Init 最后：此时 m_cfg 已经拷好，
-    // 它对 m_cfg 只读；它也不碰 PairInfo / DbpReader，所以和启动闸门无先后依赖。
+    // 启动分位数计算线程（T_signal
     StartSignalThread();
 
     LOG_WARN("启动闸门: Reconciling —— 交易冻结，等两腿持仓推送到位后对账（pairs:{}）", cfg.pairKeys.size());
@@ -152,8 +142,6 @@ void PairTradingContext::StopSignalThread() {
 
 void PairTradingContext::signal_work() {
     // 建统计的周期从本线程启动时刻起算。
-    // ⚠️ 不能像原来那样从 0 起算 —— 那样第一轮就会立刻 Build，
-    //    而此时窗口里只有启动闸门期间的几条样本（见 docs/thread_split_design.md §8.8）。
     int64_t lastStatsUpdateUs = crypto::getCurrentTime();
 
     while (m_signalRun.load(std::memory_order_relaxed)) {
@@ -423,9 +411,6 @@ void PairTradingContext::RequestCancelAlgoOrder(const PairInfo& pi) const {
         return;
     }
 
-    // 这里不打日志：ProcessRisk 每个 tick 都会走到这里，直到算法单终结、对子被释放为止，
-    // 打日志会刷屏。真正发生状态跃迁的地方（AlgoContext::SubmitAlgoOrder 的 CANCEL 分支）
-    // 已经有一条日志。
     m_algoOrderModifyCb(pi.currentAlgoOrderId, stra::CommandType_CANCEL, nullptr);
 }
 
@@ -442,16 +427,10 @@ namespace {
 }
 
 void PairTradingContext::UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose) const {
-    // 祖先的三个 satisfy_time 写入点：
-    //   open_satisfy_index（:922）  = 一大串开仓前置条件同时成立
-    //   manual_index（:930）        = status==READY & auto_flag==False & !stop_flag
-    //   close_satisfy_index（:936） = (except_close_long|except_close_short) & 价差合格 & !stop_flag & 敞口合格
-    // C++ 侧用 CanOpen/CanClose 承担那串前置条件，用 CheckSignal 承担"价差已穿越入口阈值"。
     const bool openSatisfied = canOpen && HasOpenSignal(sig);
     const bool closeSatisfied = canClose && HasCloseSignal(sig);
 
     // 手动对子（autoFlag == false）没有信号也要续命，否则 CheckAlgoOrderTimeout 会撤它的单。
-    // 祖先 :930 就是干这个的；虽然 :1018-1020 已经跳过手动单，这里是双保险，保持与祖先一致。
     const bool manualReady = !pi.autoFlag && !pi.stopFlag;
 
     if (openSatisfied || closeSatisfied || manualReady) {
@@ -492,10 +471,8 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
         return;
     }
 
-    LOG_INFO("CheckAlgoOrderTimeout: pairKey:{} algoOrderId:{} idleSec:{} > {}s -> cancel",
-             pi.pairInstrumentKey, pi.currentAlgoOrderId,
-             static_cast<double>(idleUs) / 1000000.0,
-             static_cast<double>(m_cfg.algoOrderTimeoutMs) / 1000.0);
+    LOG_INFO("CheckAlgoOrderTimeout: pairKey:{} algoOrderId:{} idleSec:{} > {}s -> cancel", pi.pairInstrumentKey, pi.currentAlgoOrderId, static_cast<double>(idleUs) / 1000000.0, static_cast<double>(m_cfg.algoOrderTimeoutMs) / 1000.0);
+
     RequestCancelAlgoOrder(pi);
 }
 
@@ -524,8 +501,7 @@ void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
 
     // 祖先 :1081：(activeRealPosition*active_multiple + passiveRealPosition*passive_multiple).abs()
     //              / active_multiple > 4 * ttTargetVolume
-    const double netExposure = std::abs(pi.activeRealPosition * activeMultiple +
-                                        pi.passiveRealPosition * pi.passiveParam.multiple) / activeMultiple;
+    const double netExposure = std::abs(pi.activeRealPosition * activeMultiple + pi.passiveRealPosition * pi.passiveParam.multiple) / activeMultiple;
     const double threshold = m_cfg.exposureCancelTimes * pi.ttTargetVolume;
     if (netExposure <= threshold) {
         return;
@@ -931,16 +907,6 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     //   ② AlgoPairOrder::CreatePairOrder 在同一侧两个开关都打开时**优先试开仓**
     //      （:653-661 / :640-648，MT 同构），于是"平仓单"会先挂出 OPEN 子单 ——
     //      轻则平不掉，重则加仓。
-    // 开仓开关只看价差和 closeFlag（SignalGenerator.cpp:120-126），不判持仓，
-    // 所以持仓期间完全可能是 true，尤其在强平触发时（持仓正亏着，价差朝不利方向走）。
-    //
-    // 只清开仓开关，**不动平仓开关**：C++ 有独立的 TT 平仓路径
-    // （ProcessPairSignal 按 sig.ttCLSignal 派发 "TT","CL"），祖先那套"平仓只走 MT"
-    // （ttCL/ttCS=false、mtCL/mtCS=true）在这里会把 TT 平仓打断，属于另一个设计问题。
-    //
-    // 附带效果：CreatePairOrder 里 -minVolume < expectVolume < minVolume 的中间带分支
-    // （:665-674 / :702-711）只试开仓开关、从不试平仓。清掉之后这里返回空单 ->
-    // 不再挂新子单 -> allPairOrders 归零 -> 正好触发 FILLED，平仓的收尾也就顺了。
     if (isClose) {
         pAlgoOrder->ttOLSwitch = false;
         pAlgoOrder->ttOSSwitch = false;
@@ -1114,10 +1080,6 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     auto& sg = SignalGenerator::Instance();
 
     // 0. 启动闸门：对账完成前，OnTimer 的一切动作全部跳过
-    //    （ProcessRisk / CheckAlgoOrderTimeout / CheckExposureAbnormal / ProcessModify
-    //     四个入口都只从这里调用，所以在这一处挡住就够了）。
-    //    注意价差统计窗口（下面第 2 步）也一起跳过 —— 但它在 OnSpread 里继续积累样本，
-    //    所以放行后第一轮 Build 就能拿到足够样本，不需要重新等 24h。
     if (!IsTradingReady()) {
         if (!TryReconcile(nowUs)) {
             return;

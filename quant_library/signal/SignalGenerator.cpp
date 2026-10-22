@@ -26,17 +26,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     const auto& ls = pi.largeStats;
 
     // ---- 量字段：只依赖 pi.maxVolume，与分位数**无关** ----
-    //
-    // 必须写在下面 `ls.IsValid()` 早退**之前**。这两个输入是互相独立的，
-    // 就绪时刻也不同：分位数来自行情窗口（要攒样本），maxVolume 来自腿价
-    // （第一条行情到就有）。原来它们混在同一个早退后面，于是出现下面这个坑：
-    //
-    //   重启恢复分位数 -> Init 里算一次 orderParams，但那一刻腿价还没有、
-    //   maxVolume = 0 -> ttOLEndVolume = 0 -> 开仓判据
-    //   `vol > ttOLEndVolume + 1e-9` 退化成 `0 > 1e-9` -> **一单都开不出去**；
-    //   而下一轮统计刷新会把 largeStats 刷成无效（窗口刚重启，样本不够），
-    //   早退一挡，量字段就永远停在 0，直到窗口重新预热完 —— 等于一天没省。
-    //
     // 分开写之后：maxVolume 一变就重算，与分位数是否就绪无关。
     
     const double mv = pi.maxVolume;
@@ -154,13 +143,13 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     op.mtCLSwitch = op.mtCSSwitch = true;
 
 
-    // 流动性风险，禁止开仓
+    // 流动性风险，禁止开仓 离强平价近时不开仓
     if (pi.activeLiquidStatus > 0 || pi.passiveLiquidStatus > 0 || pi.activeMarginStatus > 0 || pi.passiveMarginStatus > 0) {
         op.ttOLSwitch = op.ttOSSwitch = false;
         op.mtOLSwitch = op.mtOSSwitch = false;
     }
 
-    // 资金费率过大：禁止开仓
+    // 资金费率过大：禁止开仓 有待考量
     double aFR = std::isnan(pi.rtSpread.activeFundingRate) ? 0.0 : pi.rtSpread.activeFundingRate;
     double pFR = std::isnan(pi.rtSpread.passiveFundingRate) ? 0.0 : pi.rtSpread.passiveFundingRate;
     if ( std::abs(aFR) > m_cfg.openMaxFundingRate || std::abs(pFR) > m_cfg.openMaxFundingRate) {
@@ -178,7 +167,6 @@ SignalResult SignalGenerator::CheckSignal(const PairInfo& pi) const {
     return CheckSignalForSatisfy(pi);
 }
 
-// 不带"对子已被占用"早退的版本，见头文件注释
 SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
     SignalResult result;
 

@@ -3,6 +3,10 @@
 #include "AccountManager.h"
 #include "QuantTrade.h"
 #include "Convert.h"
+// 本文件下面用了 std::cout 做拆单分支的即时诊断输出。必须自己 include：
+// libstdc++ 会经其它头把 <iostream> 顺带带进来，libc++（clang/macOS）不会 ⇒
+// 只在部署机编得过、本机编不过。这是"本机不能验证执行层"的原因之一。
+#include <iostream>
 
 
 AlgoPairOrder::AlgoPairOrder() : BaseAlgoOrder() {

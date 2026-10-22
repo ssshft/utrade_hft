@@ -244,18 +244,6 @@ namespace pt {
         // RealTimeSpread 的这两个字段默认 0.0（不是 NaN），isnan 只是防御性写法
         const double aFR = std::isnan(pi.rtSpread.activeFundingRate) ? 0.0 : pi.rtSpread.activeFundingRate;
         const double pFR = std::isnan(pi.rtSpread.passiveFundingRate) ? 0.0 : pi.rtSpread.passiveFundingRate;
-
-        // 照搬祖先 report_helper.py:107-109 的公式：
-        //     funding_risk = positionValue * (passiveFundingRate - activeFundingRate)
-        // positionValue 是**带符号**的（祖先 :790/793），方向完全由它的符号承载，
-        // 所以既不能取绝对值，也不能再对结果取负。
-        // 与祖先 :664 的 open_long_funding_profit = aFR - pFR 同向：
-        //   positionValue < 0（多）-> funding_risk = |pv| * (aFR - pFR)
-        // 符号约定：> 0 为收取（盈利），< 0 为支付（亏损）。
-        //
-        // 原实现有两个错：① `aFR - (-pFR)` 把 pFR 的符号写反（应为 -pFR）；
-        // ② 空头分支的 `netFundingCost = -netFundingCost` 自我抵消，两分支结果相同，
-        // 多空方向被抹平；再叠加 CalcPositionValue() 的 std::abs，方向信息彻底丢失。
         const double fundingRisk = pi.CalcSignedPositionValue() * (pFR - aFR);
 
         // 阈值对齐祖先 report_helper.py:111 的固定 30 USDT
