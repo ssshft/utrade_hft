@@ -29,17 +29,6 @@
 
 namespace pt {
 
-// 单个价差样本
-struct SpreadSample {
-    int64_t ts{0};
-    double sba{0.f}; // spreadBidAsk
-    double sbb{0.f}; // spreadBidBid
-    double sab{0.f}; // spreadAskBid
-    double saa{0.f}; // spreadAskAsk
-    double abv{0.f}; // activeBidVolume[0]
-    double aav{0.f}; // activeAskVolume[0]
-};
-
 class SpreadStatsBuilder {
 public:
     // 窗口长度，单位微秒。默认 24h

@@ -36,6 +36,17 @@ namespace pt {
         int calcType{0}; //u本位/币本位
     };
 
+    // 单个价差样本
+    struct SpreadSample {
+        int64_t ts{0};
+        double sba{0.f}; // spreadBidAsk
+        double sbb{0.f}; // spreadBidBid
+        double sab{0.f}; // spreadAskBid
+        double saa{0.f}; // spreadAskAsk
+        double abv{0.f}; // activeBidVolume[0]
+        double aav{0.f}; // activeAskVolume[0]
+    };
+
     // 价差统计快照
     struct SpreadStats {
         // 默认 NaN 而非 0：统计尚未建立时必须让 IsValid() 为 false。
@@ -61,6 +72,18 @@ namespace pt {
         bool IsValid() const {
             return valid && count > 0 && !std::isnan(bidBidUQ);
         }
+    };
+
+    // 行情线程 → T_signal：一条降频后的价差样本（每对子每 spreadSampleIntervalMs 一条）
+    struct SpreadSampleMsg {
+        char  pairKey[stra::INST_KEY_LEN]{""};
+        SpreadSample s;
+    };
+
+    // T_signal → 行情线程：算好的分位数快照（每对子每 spreadStatsUpdateIntervalSec 一条）
+    struct SpreadStatsMsg {
+        char pairKey[stra::INST_KEY_LEN]{""};
+        SpreadStats st;
     };
 
     // 实时价差快照

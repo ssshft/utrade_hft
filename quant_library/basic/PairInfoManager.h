@@ -19,18 +19,6 @@
 
  namespace pt {
 
-    // 行情线程 → T_signal：一条降频后的价差样本（每对子每 spreadSampleIntervalMs 一条）
-    struct SpreadSampleMsg {
-        char pairKey[stra::INST_KEY_LEN]{""};
-        SpreadSample s;
-    };
-
-    // T_signal → 行情线程：算好的分位数快照（每对子每 spreadStatsUpdateIntervalSec 一条）
-    struct SpreadStatsMsg {
-        char pairKey[stra::INST_KEY_LEN]{""};
-        SpreadStats st;
-    };
-
     bool WriteSpreadStatsFile(const std::string& path, const std::vector<SpreadStatsMsg>& v);
 
     class PairInfoManager {
