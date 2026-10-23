@@ -290,6 +290,17 @@ private:
     void StartSignalThread();
     void SignalWork();
 
+    // T_signal 的**一轮**：吃样本 -> 到点就 Build + 落盘。SignalWork() 循环调的就是它。
+    //
+    // 为什么单独抽成一个函数（不是为了好看）：测试不能等 spreadStatsUpdateIntervalSec
+    // （默认 60s），也不能依赖另一条线程的调度顺序，只能 StopSignalThread() 之后手工推一轮。
+    // 抽出来才能保证**生产与测试走同一段代码** —— 否则测试验的是抄在 .inc 里的另一份实现，
+    // 源码一改就静默失配。
+    //
+    // ⚠️ 只允许 T_signal 自己（或测试在停掉该线程后）调用：它碰 m_spreadWindows，
+    //    并向 m_statsQ（SPSC）push，两个线程同时进来就是数据竞争。
+    void RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs);
+
     std::thread       m_signalThread;
     std::atomic<bool> m_signalRun{false};
 

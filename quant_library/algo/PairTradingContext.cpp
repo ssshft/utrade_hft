@@ -147,54 +147,56 @@ void PairTradingContext::SignalWork() {
     int64_t lastStatsUpdateUs = crypto::getCurrentTime();
 
     while (m_signalRun.load(std::memory_order_relaxed)) {
-        int64_t nowUs = crypto::getCurrentTime();
-
-        // 1. 吃掉所有新样本
-        SpreadSampleMsg sm;
-        while (m_sampleQ.pop(sm)) {
-            auto it = m_spreadWindows.find(sm.pairKey);
-            if (it == m_spreadWindows.end()) {
-                SpreadStatsBuilder builder;
-                builder.SetWindowUs(static_cast<int64_t>(m_cfg.spreadStatsWindowSec) * 1000000LL);
-                it = m_spreadWindows.emplace(sm.pairKey, std::move(builder)).first;
-            }
-            it->second.Add(sm.s);
-        }
-
-        // 2. 到点就重算分位数，把结果发布回行情线程；**顺手把这一轮的结果落盘**。
-        if (nowUs - lastStatsUpdateUs > static_cast<int64_t>(m_cfg.spreadStatsUpdateIntervalSec) * 1000000LL) {
-            std::vector<SpreadStatsMsg> rows;
-
-            for (auto& kv : m_spreadWindows) {
-                SpreadStatsBuilder& builder = kv.second;
-                builder.Prune(nowUs); // 先按 24h 窗口淘汰过期样本
-
-                const SpreadStats stats = builder.Build(m_cfg.quantileUp, m_cfg.quantileDn, static_cast<size_t>(m_cfg.spreadStatsMinSamples));
-
-                SpreadStatsMsg out{};
-                std::strncpy(out.pairKey, kv.first.c_str(), stra::INST_KEY_LEN);
-                out.st = stats;
-                m_statsQ.push(out);
-
-                // 与 SaveSpreadStats 同一条规则：无效统计不写。
-                // 否则预热期每轮都会把磁盘上的 last-known-good 刷成空表头。
-                if (stats.IsValid()) {
-                    rows.push_back(out);
-                }
-            }
-
-            if (!m_cfg.spreadStatsStatePath.empty() && !rows.empty()) {
-                try {
-                    WriteSpreadStatsFile(m_cfg.spreadStatsStatePath, rows);
-                } catch (const std::exception& e) {
-                    LOG_ERROR("写价差统计失败 path:{} rows:{} err:{}", m_cfg.spreadStatsStatePath, rows.size(), e.what());
-                }
-            }
-
-            lastStatsUpdateUs = nowUs;
-        }
-
+        RunSignalOnce(crypto::getCurrentTime(), lastStatsUpdateUs);
         std::this_thread::sleep_for(std::chrono::seconds(2));
+    }
+}
+
+// T_signal 的一轮。生产由 SignalWork() 循环调；测试停掉线程后手工推（见头文件注释）。
+void PairTradingContext::RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs) {
+    // 1. 吃掉所有新样本
+    SpreadSampleMsg sm;
+    while (m_sampleQ.pop(sm)) {
+        auto it = m_spreadWindows.find(sm.pairKey);
+        if (it == m_spreadWindows.end()) {
+            SpreadStatsBuilder builder;
+            builder.SetWindowUs(static_cast<int64_t>(m_cfg.spreadStatsWindowSec) * 1000000LL);
+            it = m_spreadWindows.emplace(sm.pairKey, std::move(builder)).first;
+        }
+        it->second.Add(sm.s);
+    }
+
+    // 2. 到点就重算分位数，把结果发布回行情线程；**顺手把这一轮的结果落盘**。
+    if (nowUs - lastStatsUpdateUs > static_cast<int64_t>(m_cfg.spreadStatsUpdateIntervalSec) * 1000000LL) {
+        std::vector<SpreadStatsMsg> rows;
+
+        for (auto& kv : m_spreadWindows) {
+            SpreadStatsBuilder& builder = kv.second;
+            builder.Prune(nowUs); // 先按 24h 窗口淘汰过期样本
+
+            const SpreadStats stats = builder.Build(m_cfg.quantileUp, m_cfg.quantileDn, static_cast<size_t>(m_cfg.spreadStatsMinSamples));
+
+            SpreadStatsMsg out{};
+            std::strncpy(out.pairKey, kv.first.c_str(), stra::INST_KEY_LEN);
+            out.st = stats;
+            m_statsQ.push(out);
+
+            // 与 SaveSpreadStats 同一条规则：无效统计不写。
+            // 否则预热期每轮都会把磁盘上的 last-known-good 刷成空表头。
+            if (stats.IsValid()) {
+                rows.push_back(out);
+            }
+        }
+
+        if (!m_cfg.spreadStatsStatePath.empty() && !rows.empty()) {
+            try {
+                WriteSpreadStatsFile(m_cfg.spreadStatsStatePath, rows);
+            } catch (const std::exception& e) {
+                LOG_ERROR("写价差统计失败 path:{} rows:{} err:{}", m_cfg.spreadStatsStatePath, rows.size(), e.what());
+            }
+        }
+
+        lastStatsUpdateUs = nowUs;
     }
 }
 

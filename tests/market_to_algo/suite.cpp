@@ -1949,8 +1949,12 @@ static void TestG_Restart() {
         // 全新世界、统计快照关掉 -> largeStats 必然无效
         Fx fx; Boot(fx);
         CHECK(!fx.pi()->largeStats.IsValid(), "G19 前置：新世界没有有效统计");
-        const bool wrote = PairInfoManager::Instance().SaveSpreadStats(stats);
-        CHECK(!wrote, "G19 无有效统计 -> SaveSpreadStats 返回 false");
+        // 直接验落盘函数本身：空列表必须返回 false 且**一个字节都不动**。
+        // （落盘已从 PairInfoManager 的方法变成自由函数 WriteSpreadStatsFile，
+        //   它只认"有效统计的列表"，不再自己去 largeStats 里挑 —— 挑的活归 T_signal。）
+        const std::vector<pt::SpreadStatsMsg> none;
+        const bool wrote = pt::WriteSpreadStatsFile(stats, none);
+        CHECK(!wrote, "G19 无有效统计 -> WriteSpreadStatsFile 返回 false");
 
         std::ifstream ifs(stats);
         std::stringstream ss; ss << ifs.rdbuf();

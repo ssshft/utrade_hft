@@ -5,10 +5,11 @@
 //     cd utrade_hft/tests/thread_cost && ./run.sh
 //
 // 被测对象（全部来自真实源码 quant_library/basic/PairInfoManager.cpp，零改写）：
-//   1. SaveSnapshot      —— OnTimer 第 6 步，每 csvSaveIntervalSec(默认10s) 一次
-//   2. SaveSpreadStats   —— OnTimer 第 2 步，每轮统计更新(默认60s) 一次
-//   3. GetAllPairInfos   —— OnTimer 里被调用 5 次/秒（返回 vector<PairInfo*> 按值）
-//   4. 拼 pair 键        —— BaseAlgoOrder::PairOrderTrade 每报一单拼一次
+//   1. SaveSnapshot          —— OnTimer 第 6 步，每 csvSaveIntervalSec(默认10s) 一次
+//   2. WriteSpreadStatsFile  —— T_signal 每轮统计更新(默认60s) 一次（已搬离执行线程）
+//   3. GetAllPairInfos       —— OnTimer 里被调用 5 次/秒（返回 vector<PairInfo*> 按值）
+//   4. 拼 pair 键            —— BaseAlgoOrder::PairOrderTrade 每报一单拼一次
+//   5. 取数到 POD 行         —— 落盘搬走后，执行线程**仍然要付**的那部分（快照 / 统计各一份）
 //
 // 为什么用「真实源码 + 桩」而不是抄一份同构代码：
 //   同构代码只能证明「同构代码很慢」，证明不了生产代码很慢。这里链的是
@@ -104,6 +105,24 @@ void FillWorld(int n) {
     }
 }
 
+// 把 FillWorld 造出来的世界收成 WriteSpreadStatsFile 要的形状（只收有效统计，
+// 与生产里 RunSignalOnce 的过滤规则一致）。
+std::vector<pt::SpreadStatsMsg> BuildStatsMsgs() {
+    auto& pim = pt::PairInfoManager::Instance();
+    std::vector<pt::SpreadStatsMsg> v;
+    v.reserve(pim.m_pairKeys.size());
+    for (const auto& pk : pim.m_pairKeys) {
+        auto it = pim.m_pairInfoMap.find(pk);
+        if (it == pim.m_pairInfoMap.end()) continue;
+        if (!it->second.largeStats.IsValid()) continue;
+        pt::SpreadStatsMsg m{};
+        std::snprintf(m.pairKey, sizeof(m.pairKey), "%s", it->second.pairInstrumentKey);
+        m.st = it->second.largeStats;
+        v.push_back(m);
+    }
+    return v;
+}
+
 } // namespace
 
 int main() {
@@ -117,20 +136,21 @@ int main() {
     const std::string csvPath   = std::string(dir) + "/pair_info.csv";
     const std::string statsPath = std::string(dir) + "/spread_stats.csv";
 
-    std::printf("对子数   SaveSnapshot(us)   SaveSpreadStats(us)   GetAllPairInfos(us)\n");
-    std::printf("--------------------------------------------------------------------\n");
+    std::printf("对子数   SaveSnapshot(us)   WriteSpreadStats(us)   GetAllPairInfos(us)\n");
+    std::printf("---------------------------------------------------------------------\n");
 
     double snap500 = 0.0;   // 供下面「500 行拆解」对比用，不写死常数
     for (int n : {50, 200, 500, 1000}) {
         FillWorld(n);
         auto& pim = pt::PairInfoManager::Instance();
+        const std::vector<pt::SpreadStatsMsg> msgs = BuildStatsMsgs();
 
         // 预热一次：让 ofstream 的内部缓冲、页缓存、目录项都进入稳态
         pim.SaveSnapshot(csvPath);
-        pim.SaveSpreadStats(statsPath);
+        pt::WriteSpreadStatsFile(statsPath, msgs);
 
         const double tSnap  = medianUs(15, [&] { pim.SaveSnapshot(csvPath); });
-        const double tStats = medianUs(15, [&] { pim.SaveSpreadStats(statsPath); });
+        const double tStats = medianUs(15, [&] { pt::WriteSpreadStatsFile(statsPath, msgs); });
         const double tAll   = medianUs(200, [&] {
             std::vector<pt::PairInfo*> v = pim.GetAllPairInfos();
             // 防止编译器把整个调用优化掉
@@ -262,6 +282,66 @@ int main() {
         });
         std::printf("  取数到 POD 数组            : %7.1f us   (map.find x500 + 拷贝 %.0f KB)\n",
                     tCollect, 500.0 * sizeof(Row) / 1024.0);
+        std::printf("  原来整段（格式化+落盘）    : %7.1f us\n", snap500);
+        std::printf("  => 搬到写线程后主线程只剩 %.1f%% 的代价。\n", 100.0 * tCollect / snap500);
+    }
+
+    // 对照 4：SaveSnapshot 搬走之后，执行线程仍然要付的那部分 —— 33 列取数到 POD 行。
+    // 形状照拟议的 CollectSnapshotRows：遍历 m_pairKeys -> find -> memcpy 键 + 逐字段赋值。
+    // 注意：这是**代理实现**（真正的那份还没写），只用来量"取数 vs 格式化+IO"的比例。
+    {
+        FillWorld(500);
+        auto& pim = pt::PairInfoManager::Instance();
+
+        struct SnapshotRow {            // 与拟议的 SnapshotRow 同布局
+            char    key[stra::INST_KEY_LEN];
+            double  d[5];               // 持仓账本 3 个 + 建仓基准 2 个
+            int64_t abn[3][6];          // 3 个 AbnormalCloseState × 6 个字段
+            int64_t t[2];               // 两处风控计时
+            int8_t  b[5];               // autoFlag/stopFlag/closeFlag/errorFlag/hasActiveAlgoOrder
+            double  profitPct;
+            int64_t algoOrderId;
+        };
+        std::printf("\n取数（主线程要付的那部分，500 行，sizeof(SnapshotRow)=%zu B）:\n", sizeof(SnapshotRow));
+
+        std::vector<SnapshotRow> rows(500);
+        const double tCollect = medianUs(500, [&] {
+            int n = 0;
+            for (const auto& pk : pim.m_pairKeys) {
+                if (n >= 500) break;
+                auto it = pim.m_pairInfoMap.find(pk);
+                if (it == pim.m_pairInfoMap.end()) continue;
+                const pt::PairInfo& p = it->second;
+                SnapshotRow& r = rows[static_cast<size_t>(n++)];
+                std::memcpy(r.key, p.pairInstrumentKey, sizeof(r.key));
+                r.d[0] = p.pairTotalVolume;
+                r.d[1] = p.pairActiveTotalPrice;
+                r.d[2] = p.pairPassiveTotalPrice;
+                r.d[3] = p.openSmallSpreadBidBidUQ;
+                r.d[4] = p.openSmallSpreadAskAskDQ;
+                const pt::AbnormalCloseState* abn[3] = {&p.adlClose, &p.spreadNoRegression, &p.fundingAbnormal};
+                for (int k = 0; k < 3; ++k) {
+                    r.abn[k][0] = abn[k]->triggered ? 1 : 0;
+                    r.abn[k][1] = abn[k]->currentTier;
+                    r.abn[k][2] = abn[k]->startTime;
+                    r.abn[k][3] = abn[k]->tier1Times;
+                    r.abn[k][4] = abn[k]->tier2Times;
+                    r.abn[k][5] = abn[k]->tier3Times;
+                }
+                r.t[0] = p.positionExceedThresholdStartTime;
+                r.t[1] = p.spreadNoRegressionStartTime;
+                r.b[0] = p.autoFlag ? 1 : 0;
+                r.b[1] = p.stopFlag ? 1 : 0;
+                r.b[2] = p.closeFlag ? 1 : 0;
+                r.b[3] = p.errorFlag ? 1 : 0;
+                r.b[4] = p.hasActiveAlgoOrder ? 1 : 0;
+                r.profitPct    = p.profitPct;
+                r.algoOrderId  = p.currentAlgoOrderId;
+            }
+            if (n == 0xdeadbeef) std::printf("x");
+        });
+        std::printf("  33 列取数到 POD 数组       : %7.1f us   (map.find x500 + 拷贝 %.0f KB)\n",
+                    tCollect, 500.0 * sizeof(SnapshotRow) / 1024.0);
         std::printf("  原来整段（格式化+落盘）    : %7.1f us\n", snap500);
         std::printf("  => 搬到写线程后主线程只剩 %.1f%% 的代价。\n", 100.0 * tCollect / snap500);
     }
