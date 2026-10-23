@@ -1167,18 +1167,11 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 启动对账（docs/restart_recovery_design.md §5.2 / §5.3）
-//
+// 启动对账
 // 前提：pairTotalVolume 就是主动腿持仓（带符号，负 = 多），所以对账就是与
 // activeRealPosition 直接相等比较，不需要任何换算。被动腿不参与主判据。
-// ---------------------------------------------------------------------------
-
-// 对账单个对子（调用前保证两腿持仓信息都已知）。返回 true 表示该对子已一致。
-// 注意：activeRealPosition 也可能是"账户批次里根本没有这条腿"推出来的默认 0 ——
-// 那正是我们要的语义（该腿空仓）。
 bool PairTradingContext::ReconcilePair(PairInfo& pi) {
-    const double real   = pi.activeRealPosition;  // 主动腿实时持仓（带符号；未推送 = 默认 0 = 空仓）
+    const double real = pi.activeRealPosition;  // 主动腿实时持仓（带符号；未推送 = 默认 0 = 空仓）
     const double ledger = pi.pairTotalVolume;     // 策略自己的账本（算法单回调累积）
 
     const double tol = std::max(1e-9, std::abs(real) * m_cfg.reconcileTolRatio);
@@ -1186,13 +1179,11 @@ bool PairTradingContext::ReconcilePair(PairInfo& pi) {
     // 判据：量在容差内 且 符号相同（量级相同但多空翻转必须算不一致）
     const bool sameSign = (ledger >= 0.0) == (real >= 0.0);
     if (std::abs(ledger - real) <= tol && sameSign) {
-        LOG_INFO("Reconcile ok: pairKey:{} pairTotalVolume:{} activeRealPosition:{}",
-                 pi.pairInstrumentKey, ledger, real);
+        LOG_INFO("Reconcile ok: pairKey:{} pairTotalVolume:{} activeRealPosition:{}", pi.pairInstrumentKey, ledger, real);
         return true;
     }
 
-    LOG_ERROR("Reconcile MISMATCH: pairKey:{} 账本 pairTotalVolume:{} vs 实时 activeRealPosition:{} "
-              "(tol:{}) -> 以系统推送为准", pi.pairInstrumentKey, ledger, real, tol);
+    LOG_ERROR("Reconcile MISMATCH: pairKey:{} 账本 pairTotalVolume:{} vs 实时 activeRealPosition:{} (tol:{}) -> 以系统推送为准", pi.pairInstrumentKey, ledger, real, tol);
 
     if (std::abs(real) <= 1e-9) {
         // 交易所是空仓 -> 账本作废，并把"持仓期间"的状态一起归零。
@@ -1263,6 +1254,5 @@ bool PairTradingContext::TryReconcile(int64_t nowUs) {
     m_phase = StartupPhase::Trading;
     return true;
 }
-
 
 }
