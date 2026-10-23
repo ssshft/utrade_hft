@@ -1134,21 +1134,57 @@ static void TestD_Timer() {
         CHECK(fx.modifyCalls.empty(), "D10 清空后不再改参");
     }
 
-    // D11 快照落盘周期
+    // D11 快照落盘周期（异步：OnTimer 只"发布"，写文件在 T_signal 上）
+    //
+    // 改这个功能要守的不变量：
+    //   ① 周期门控还是 csvSaveIntervalSec —— 断言 m_lastCsvSaveUs 与 m_snapPublishCount，
+    //      这两个都在交易线程上，确定性。
+    //   ② **发布出去的东西真的能变成文件**，而且内容与同步 SaveSnapshot 逐字节相同
+    //      （两条路径共用 WritePairInfoRecordFile，一旦谁改了列序/精度，这条立刻红）。
+    //   ③ 队列放不下时整批跳过（LOG_ERROR），绝不写半批 —— 容量按 4095 个对子设，正常走不到。
     {
         const std::string csv = "/tmp/ptsuite/out/timer_snapshot.csv";
         std::remove(csv.c_str());
         Fx fx; Boot(fx, csv); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         const int64_t t0 = 1000 * SEC;
+
+        auto readAll = [](const std::string& p) {
+            std::ifstream ifs(p);
+            std::stringstream ss; ss << ifs.rdbuf();
+            return ss.str();
+        };
+
         fx.ctx.OnTimer(t0);
-        CHECK(fx.ctx.m_lastCsvSaveUs == t0, "D11 首轮落一次快照");
+        CHECK(fx.ctx.m_lastCsvSaveUs == t0, "D11 首轮到点 -> 发布一次快照");
+        CHECK(fx.ctx.m_snapPublishCount == 1, "D11 首轮发布了 1 批");
+
+        // 落盘跑在 T_signal 上：先停掉它（join），再手工排空 —— 这样 stat() 不会和
+        // 后台那一轮 RunSignalOnce 赛跑，D11 才是确定性的。
+        // （RunSignalOnce 末尾就调 DrainSnapshotOnce，所以生产与这里走的是同一段代码。）
+        fx.ctx.StopSignalThread();
+        fx.ctx.DrainSnapshotOnce();
         struct stat st{};
         CHECK(::stat(csv.c_str(), &st) == 0 && st.st_size > 0, "D11 快照文件已写出");
+
+        // ③ 异步路径与同步路径的输出必须逐字节相同
+        const std::string sync = "/tmp/ptsuite/out/timer_snapshot_sync.csv";
+        std::remove(sync.c_str());
+        PairInfoManager::Instance().SaveSnapshot(sync);
+        const std::string a = readAll(csv);
+        CHECK(!a.empty() && a == readAll(sync), "D11 异步落盘与 SaveSnapshot 逐字节相同");
+
         fx.ctx.OnTimer(t0 + 5 * SEC);
-        CHECK(fx.ctx.m_lastCsvSaveUs == t0, "D11 未到 csvSaveIntervalSec -> 不重复落盘");
+        CHECK(fx.ctx.m_lastCsvSaveUs == t0, "D11 未到 csvSaveIntervalSec -> 不重复发布");
+        CHECK(fx.ctx.m_snapPublishCount == 1, "D11 未到点 -> 没多发布一批");
+
         fx.ctx.OnTimer(t0 + 11 * SEC);
-        CHECK(fx.ctx.m_lastCsvSaveUs == t0 + 11 * SEC, "D11 到点 -> 再落一次");
+        CHECK(fx.ctx.m_lastCsvSaveUs == t0 + 11 * SEC, "D11 到点 -> 再发布一次");
+        CHECK(fx.ctx.m_snapPublishCount == 2, "D11 到点 -> 累计发布 2 批");
+
+        // 收尾：把第二批也排空（线程已停，只能手工推），确认这条路是通的
+        CHECK(fx.ctx.DrainSnapshotOnce(), "D11 停线程后仍能手工排空一批");
+        CHECK(readAll(csv) == a, "D11 第二轮内容与第一轮一致（状态没变）");
     }
 }
 

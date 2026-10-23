@@ -74,6 +74,59 @@ namespace pt {
         }
     };
 
+    // ------------------------------------------------------------------
+    // 落库用的一行（33 列）。**纯 POD、无 NSDMI**，两个用途：
+    //   ① 交易线程把 PairInfo 拷成它（MakePairInfoRecord），避免别的线程直接读 PairInfo；
+    //   ② 它能塞进 lockfree SPSC 队列（要求元素可平凡拷贝/平凡析构）。
+    //
+    // ⚠️ 故意不写 `{}` 默认成员初值：写了之后 `PairInfoRecord r;` 会先清零一遍 33 列，
+    //    构造时又全字段覆盖一遍 —— 500 行白写 120 KB（实测 +18 µs）。
+    //    去掉之后：普通变量是"未初始化"，由 MakePairInfoRecord 填满；
+    //    哨兵仍然用 `PairInfoRecord{}`（聚合值初始化 ⇒ 全零），语义不变。
+    // ⚠️ 字段顺序**不是**文件列序（见 kSnapshotHeader）：这里按语义分组，
+    //    写文件时按表头顺序取值。改任何一边都要跑 G2/G6 的往返用例。
+    // ------------------------------------------------------------------
+    struct PairInfoRecord {
+        char pairKey[stra::INST_KEY_LEN];    // 第 1 列，同时当队列里的"批结束"哨兵用（空串）
+        double pairTotalVolume;
+        double pairActiveTotalPrice;
+        double pairPassiveTotalPrice;
+        double openSmallSpreadBidBidUQ;
+        double openSmallSpreadAskAskDQ;
+
+        bool adlTriggered;
+        int adlTier;
+        int64_t adlStartTime;
+        int adlTier1Times;
+        int adlTier2Times;
+        int adlTier3Times;
+
+        bool noRegressionTriggered;
+        int noRegressionTier;
+        int64_t noRegressionStartTime;
+        int noRegressionTier1Times;
+        int noRegressionTier2Times;
+        int noRegressionTier3Times;
+
+        bool fundingTriggered;
+        int fundingTier;
+        int64_t fundingStartTime;
+        int fundingTier1Times;
+        int fundingTier2Times;
+        int fundingTier3Times;
+    
+        int64_t positionExceedThresholdStartTime;
+        int64_t spreadNoRegressionStartTime;
+        bool autoFlag;
+        bool stopFlag;
+        bool closeFlag;
+        bool errorFlag;
+        bool hasActiveAlgoOrder;
+
+        double  profitPct;
+        int64_t algoOrderId;
+    };
+
     // 行情线程 → T_signal：一条降频后的价差样本（每对子每 spreadSampleIntervalMs 一条）
     struct SpreadSampleMsg {
         char  pairKey[stra::INST_KEY_LEN]{""};

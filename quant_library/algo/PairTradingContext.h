@@ -16,6 +16,7 @@
 #include "../risk/RiskManager.h"
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <thread>
 #include <unordered_map>
 #include <boost/lockfree/spsc_queue.hpp>
@@ -23,11 +24,10 @@
 
 namespace pt {
 
-// 容量：样本队列按"每 5s 每对子一条"算，256 槽 ≈ 20 对子时 64s 的积压余量；
-// 统计队列每 60s 才一条，32 槽足够。满了丢**最新**那条（boost 语义），
-// 正常永远触发不到 —— 两者都只用于观测。
 using SpreadSampleQueue = boost::lockfree::spsc_queue<SpreadSampleMsg, boost::lockfree::capacity<256>>;
 using SpreadStatsQueue  = boost::lockfree::spsc_queue<SpreadStatsMsg,  boost::lockfree::capacity<256>>;
+using PairInfoQueue = boost::lockfree::spsc_queue<PairInfoRecord, boost::lockfree::capacity<1024>>;
+
 
 struct PairTradingConfig {
     // 对子清单。**平铺**在 op 段（`op.pairKeys`），不在 `op.pairTrading` 里 ——
@@ -176,7 +176,7 @@ struct PairTradingConfig {
     std::string csvStatePath{"data/pair_info.csv"};
 
     int volumeRecalcIntervalSec{60};     // 1min 重算仓位参数
-    int csvSaveIntervalSec{10};        // 快照落盘周期（原 300s；只有几十行，收紧以缩小崩溃窗口）
+    int csvSaveIntervalSec{10};        // 快照落盘周期
 
     // ---- 启动对账（docs/restart_recovery_design.md §5.2）----
     // 对账判据容差：|pairTotalVolume - activeRealPosition| <= max(1e-9, |activeRealPosition| * ratio)
@@ -301,7 +301,7 @@ private:
     //    并向 m_statsQ（SPSC）push，两个线程同时进来就是数据竞争。
     void RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs);
 
-    std::thread       m_signalThread;
+    std::thread m_signalThread;
     std::atomic<bool> m_signalRun{false};
 
     SpreadSampleQueue m_sampleQ;   // T_market -> T_signal（价差样本）
@@ -315,6 +315,11 @@ private:
     // 值类型从原来的 SpreadWindow{builder,lastSampleTs} 收窄成 SpreadStatsBuilder：
     // lastSampleTs 是行情线程的降频状态，已经搬到 m_lastSampleTs。
     std::unordered_map<std::string, SpreadStatsBuilder> m_spreadWindows;
+
+    
+    PairInfoQueue m_snapQ;   // T_market -> T_signal（空 pairKey = 一批结束）
+    std::vector<PairInfoRecord> m_snapScratch; // 交易线程独占：收行的暂存（resize 一次，之后零分配）
+    std::vector<PairInfoRecord> m_snapWrite;   // T_signal 独占：攒批的暂存
 
     // 从 OnSpread 的原始行情里抽一条价差样本，按 spreadSampleIntervalMs 降频后
     // 非阻塞投给 T_signal（这里不再碰样本窗口）

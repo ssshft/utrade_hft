@@ -186,15 +186,6 @@ bool ParseBool(const std::string& s, bool fallback) {
     return s != "0" && s != "false";
 }
 
-void WriteAbnormalState(std::ostream& os, const AbnormalCloseState& st) {
-    os << (st.triggered ? 1 : 0) << ","
-       << st.currentTier << ","
-       << st.startTime << ","
-       << st.tier1Times << ","
-       << st.tier2Times << ","
-       << st.tier3Times << ",";
-}
-
 // f[off .. off+5] 对应一个 AbnormalCloseState（列序见 kSnapshotHeader）
 void ReadAbnormalState(const std::vector<std::string>& f, size_t off, AbnormalCloseState& st,
                        const std::string& pairKey, const char* name) {
@@ -208,15 +199,78 @@ void ReadAbnormalState(const std::vector<std::string>& f, size_t off, AbnormalCl
 
 } // namespace
 
+// 快照：PairInfo -> PairInfoRecord / PairInfoRecord -> 文件
+void MakePairInfoRecord(const PairInfo& p, PairInfoRecord& r) {
+    // 不 memset：下面每个字段都写到了（33 列是"全字段覆盖"）。
+    std::strncpy(r.pairKey, p.pairInstrumentKey, sizeof(r.pairKey) - 1);
 
-bool PairInfoManager::SaveSnapshot(const std::string& path) {
+    r.pairTotalVolume = p.pairTotalVolume;
+    r.pairActiveTotalPrice = p.pairActiveTotalPrice;
+    r.pairPassiveTotalPrice = p.pairPassiveTotalPrice;
+    r.openSmallSpreadBidBidUQ = p.openSmallSpreadBidBidUQ;
+    r.openSmallSpreadAskAskDQ = p.openSmallSpreadAskAskDQ;
+
+    r.adlTriggered = p.adlClose.triggered;
+    r.adlTier = p.adlClose.currentTier;
+    r.adlStartTime = p.adlClose.startTime;
+    r.adlTier1Times = p.adlClose.tier1Times;
+    r.adlTier2Times = p.adlClose.tier2Times;
+    r.adlTier3Times = p.adlClose.tier3Times;
+
+    r.noRegressionTriggered = p.spreadNoRegression.triggered;
+    r.noRegressionTier = p.spreadNoRegression.currentTier;
+    r.noRegressionStartTime = p.spreadNoRegression.startTime;
+    r.noRegressionTier1Times = p.spreadNoRegression.tier1Times;
+    r.noRegressionTier2Times = p.spreadNoRegression.tier2Times;
+    r.noRegressionTier3Times = p.spreadNoRegression.tier3Times;
+
+    r.fundingTriggered = p.fundingAbnormal.triggered;
+    r.fundingTier = p.fundingAbnormal.currentTier;
+    r.fundingStartTime = p.fundingAbnormal.startTime;
+    r.fundingTier1Times = p.fundingAbnormal.tier1Times;
+    r.fundingTier2Times = p.fundingAbnormal.tier2Times;
+    r.fundingTier3Times = p.fundingAbnormal.tier3Times;
+
+    r.positionExceedThresholdStartTime = p.positionExceedThresholdStartTime;
+    r.spreadNoRegressionStartTime = p.spreadNoRegressionStartTime;
+
+    r.autoFlag = p.autoFlag;
+    r.stopFlag = p.stopFlag;
+    r.closeFlag = p.closeFlag;
+    r.errorFlag = p.errorFlag;
+    r.hasActiveAlgoOrder = p.hasActiveAlgoOrder;
+
+    r.profitPct = p.profitPct;
+    r.algoOrderId = p.currentAlgoOrderId;
+}
+
+int PairInfoManager::CollectSnapshotRows(std::vector<PairInfoRecord>& out) {
+    const size_t total = m_pairKeys.size();
+    if (out.size() < total) {
+        out.resize(total);
+    }
+
+    size_t k = 0;
+    for (const auto& pk : m_pairKeys) {
+        auto it = m_pairInfoMap.find(pk);
+        if (it == m_pairInfoMap.end()) {
+            continue;
+        }
+        MakePairInfoRecord(it->second, out[k]);
+        ++k;
+    }
+
+    return static_cast<int>(k);
+}
+
+bool WritePairInfoRecordFile(const std::string& path, const std::vector<PairInfoRecord>& v) {
     EnsureParentDir(path);
 
     // 写临时文件 + rename 原子替换：崩在写一半时旧快照仍然完好
     const std::string tmpPath = path + ".tmp";
     std::ofstream ofs(tmpPath, std::ios::trunc);
     if (!ofs) {
-        LOG_ERROR("SaveSnapshot: open failed: {}", tmpPath);
+        LOG_ERROR("WritePairInfoRecordFile: open failed: {}", tmpPath);
         return false;
     }
 
@@ -224,33 +278,51 @@ bool PairInfoManager::SaveSnapshot(const std::string& path) {
     ofs << std::setprecision(17);
     ofs << kSnapshotHeader << "\n";
 
-    for (const auto& pk : m_pairKeys) {
-        auto it = m_pairInfoMap.find(pk);
-        if (it == m_pairInfoMap.end()) {
-            continue;
-        }
-        const PairInfo& p = it->second;
+    // ⚠️ 列序必须与 kSnapshotHeader / LoadSnapshot 的下标严格一致。
+    //    尤其：profitPct 在第 30 列，errorFlag / hasActiveAlgoOrder 在 31 / 32 ——
+    //    这三个换个位置，LoadSnapshot 不会报错，只会把 0/1 读成 profitPct（账读歪）。
+    for (size_t i = 0; i < v.size(); ++i) {
+        const PairInfoRecord& r = v[i];
+        ofs << r.pairKey << ","
+            << r.pairTotalVolume << ","
+            << r.pairActiveTotalPrice << ","
+            << r.pairPassiveTotalPrice << ","
+            << r.openSmallSpreadBidBidUQ << ","
+            << r.openSmallSpreadAskAskDQ << ","
 
-        ofs << p.pairInstrumentKey << ","
-            << p.pairTotalVolume << ","
-            << p.pairActiveTotalPrice << ","
-            << p.pairPassiveTotalPrice << ","
-            << p.openSmallSpreadBidBidUQ << ","
-            << p.openSmallSpreadAskAskDQ << ",";
+            << static_cast<int>(r.adlTriggered) << ","
+            << r.adlTier << ","
+            << r.adlStartTime << ","
+            << r.adlTier1Times << ","
+            << r.adlTier2Times << ","
+            << r.adlTier3Times << ","
 
-        WriteAbnormalState(ofs, p.adlClose);
-        WriteAbnormalState(ofs, p.spreadNoRegression);
-        WriteAbnormalState(ofs, p.fundingAbnormal);
+            << static_cast<int>(r.noRegressionTriggered) << ","
+            << r.noRegressionTier << ","
+            << r.noRegressionStartTime << ","
+            << r.noRegressionTier1Times << ","
+            << r.noRegressionTier2Times << ","
+            << r.noRegressionTier3Times << ","
 
-        ofs << p.positionExceedThresholdStartTime << ","
-            << p.spreadNoRegressionStartTime << ","
-            << (p.autoFlag ? 1 : 0) << ","
-            << (p.stopFlag ? 1 : 0) << ","
-            << (p.closeFlag ? 1 : 0) << ","
-            << p.profitPct << ","
-            << (p.errorFlag ? 1 : 0) << ","
-            << (p.hasActiveAlgoOrder ? 1 : 0) << ","
-            << p.currentAlgoOrderId << "\n";
+            << static_cast<int>(r.fundingTriggered) << ","
+            << r.fundingTier << ","
+            << r.fundingStartTime << ","
+            << r.fundingTier1Times << ","
+            << r.fundingTier2Times << ","
+            << r.fundingTier3Times << ","
+
+            << r.positionExceedThresholdStartTime << ","
+            << r.spreadNoRegressionStartTime << ","
+
+            // ⚠️ bool 必须 static_cast<int>：`ofs << bool` 打的是 1/0（默认没开 boolalpha），
+            //    但 `ofs << int8_t` 会打成字符。这里成员是 bool，仍统一转 int
+            << static_cast<int>(r.autoFlag) << ","
+            << static_cast<int>(r.stopFlag) << ","
+            << static_cast<int>(r.closeFlag) << ","
+            << r.profitPct << ","
+            << static_cast<int>(r.errorFlag) << ","
+            << static_cast<int>(r.hasActiveAlgoOrder) << ","
+            << r.algoOrderId << "\n";
     }
 
     ofs.flush();
@@ -258,16 +330,24 @@ bool PairInfoManager::SaveSnapshot(const std::string& path) {
     ofs.close();
 
     if (!writeOk) {
-        LOG_ERROR("SaveSnapshot: write failed: {}", tmpPath);
+        LOG_ERROR("WritePairInfoRecordFile: write failed: {}", tmpPath);
         return false;
     }
 
     if (std::rename(tmpPath.c_str(), path.c_str()) != 0) {
-        LOG_ERROR("SaveSnapshot: rename {} -> {} failed: {}", tmpPath, path, std::strerror(errno));
+        LOG_ERROR("WritePairInfoRecordFile: rename {} -> {} failed: {}", tmpPath, path, std::strerror(errno));
         return false;
     }
 
     return true;
+}
+
+bool PairInfoManager::SaveSnapshot(const std::string& path) {
+    // 同步参考实现：收行 + 写文件。生产路径是"交易线程收行 -> T_signal 写文件"，
+    // 这里保留给 pre_stop（退出时同步写一次权威版本）和测试。
+    std::vector<PairInfoRecord> rows;
+    CollectSnapshotRows(rows);
+    return WritePairInfoRecordFile(path, rows);
 }
 
 

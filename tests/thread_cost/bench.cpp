@@ -287,61 +287,20 @@ int main() {
     }
 
     // 对照 4：SaveSnapshot 搬走之后，执行线程仍然要付的那部分 —— 33 列取数到 POD 行。
-    // 形状照拟议的 CollectSnapshotRows：遍历 m_pairKeys -> find -> memcpy 键 + 逐字段赋值。
-    // 注意：这是**代理实现**（真正的那份还没写），只用来量"取数 vs 格式化+IO"的比例。
+    // 这里调的是**生产函数本体** `PairInfoManager::CollectSnapshotRows`（不是代理实现），
+    // 所以这个数字就是 OnTimer 里 PublishSnapshot 的真实开销。
     {
         FillWorld(500);
         auto& pim = pt::PairInfoManager::Instance();
+        std::vector<pt::PairInfoRecord> rows;
+        std::printf("\n取数（主线程要付的那部分，500 行，sizeof(PairInfoRecord)=%zu B）:\n", sizeof(pt::PairInfoRecord));
 
-        struct SnapshotRow {            // 与拟议的 SnapshotRow 同布局
-            char    key[stra::INST_KEY_LEN];
-            double  d[5];               // 持仓账本 3 个 + 建仓基准 2 个
-            int64_t abn[3][6];          // 3 个 AbnormalCloseState × 6 个字段
-            int64_t t[2];               // 两处风控计时
-            int8_t  b[5];               // autoFlag/stopFlag/closeFlag/errorFlag/hasActiveAlgoOrder
-            double  profitPct;
-            int64_t algoOrderId;
-        };
-        std::printf("\n取数（主线程要付的那部分，500 行，sizeof(SnapshotRow)=%zu B）:\n", sizeof(SnapshotRow));
-
-        std::vector<SnapshotRow> rows(500);
         const double tCollect = medianUs(500, [&] {
-            int n = 0;
-            for (const auto& pk : pim.m_pairKeys) {
-                if (n >= 500) break;
-                auto it = pim.m_pairInfoMap.find(pk);
-                if (it == pim.m_pairInfoMap.end()) continue;
-                const pt::PairInfo& p = it->second;
-                SnapshotRow& r = rows[static_cast<size_t>(n++)];
-                std::memcpy(r.key, p.pairInstrumentKey, sizeof(r.key));
-                r.d[0] = p.pairTotalVolume;
-                r.d[1] = p.pairActiveTotalPrice;
-                r.d[2] = p.pairPassiveTotalPrice;
-                r.d[3] = p.openSmallSpreadBidBidUQ;
-                r.d[4] = p.openSmallSpreadAskAskDQ;
-                const pt::AbnormalCloseState* abn[3] = {&p.adlClose, &p.spreadNoRegression, &p.fundingAbnormal};
-                for (int k = 0; k < 3; ++k) {
-                    r.abn[k][0] = abn[k]->triggered ? 1 : 0;
-                    r.abn[k][1] = abn[k]->currentTier;
-                    r.abn[k][2] = abn[k]->startTime;
-                    r.abn[k][3] = abn[k]->tier1Times;
-                    r.abn[k][4] = abn[k]->tier2Times;
-                    r.abn[k][5] = abn[k]->tier3Times;
-                }
-                r.t[0] = p.positionExceedThresholdStartTime;
-                r.t[1] = p.spreadNoRegressionStartTime;
-                r.b[0] = p.autoFlag ? 1 : 0;
-                r.b[1] = p.stopFlag ? 1 : 0;
-                r.b[2] = p.closeFlag ? 1 : 0;
-                r.b[3] = p.errorFlag ? 1 : 0;
-                r.b[4] = p.hasActiveAlgoOrder ? 1 : 0;
-                r.profitPct    = p.profitPct;
-                r.algoOrderId  = p.currentAlgoOrderId;
-            }
+            const int n = pim.CollectSnapshotRows(rows);
             if (n == 0xdeadbeef) std::printf("x");
         });
         std::printf("  33 列取数到 POD 数组       : %7.1f us   (map.find x500 + 拷贝 %.0f KB)\n",
-                    tCollect, 500.0 * sizeof(SnapshotRow) / 1024.0);
+                    tCollect, 500.0 * sizeof(pt::PairInfoRecord) / 1024.0);
         std::printf("  原来整段（格式化+落盘）    : %7.1f us\n", snap500);
         std::printf("  => 搬到写线程后主线程只剩 %.1f%% 的代价。\n", 100.0 * tCollect / snap500);
     }

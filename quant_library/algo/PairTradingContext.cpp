@@ -110,7 +110,7 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     // 上一轮有算法单未终结 -> 交易所侧可能仍有子单在成交，账本不可信（§5.4）
     HandleOrphanAlgoOrders();
 
-    // 启动分位数计算线程（T_signal
+    // 启动分位数计算线程（T_signal）
     StartSignalThread();
 
     LOG_WARN("启动闸门: Reconciling —— 交易冻结，等两腿持仓推送到位后对账（pairs:{}）", cfg.pairKeys.size());
@@ -148,7 +148,7 @@ void PairTradingContext::SignalWork() {
 
     while (m_signalRun.load(std::memory_order_relaxed)) {
         RunSignalOnce(crypto::getCurrentTime(), lastStatsUpdateUs);
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
 
@@ -191,12 +191,31 @@ void PairTradingContext::RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs
         if (!m_cfg.spreadStatsStatePath.empty() && !rows.empty()) {
             try {
                 WriteSpreadStatsFile(m_cfg.spreadStatsStatePath, rows);
-            } catch (const std::exception& e) {
+            } 
+            catch (const std::exception& e) {
                 LOG_ERROR("写价差统计失败 path:{} rows:{} err:{}", m_cfg.spreadStatsStatePath, rows.size(), e.what());
             }
         }
 
         lastStatsUpdateUs = nowUs;
+    }
+
+    // 3. 顺带把快照队列里"攒够的一批"落盘。 一次只取到队列空为止，没遇到哨兵就留着，下一轮接着攒。
+    PairInfoRecord r;
+    while (m_snapQ.pop(r)) {
+        if (r.pairKey[0] == '\0') { // 哨兵：这一批齐了 -> 整个文件重写一次（原子替换，不是追加）
+            if (!m_cfg.csvStatePath.empty() && !m_snapWrite.empty()) {
+                try {
+                    WritePairInfoRecordFile(m_cfg.csvStatePath, m_snapWrite);
+                } 
+                catch (const std::exception& e) {
+                    LOG_ERROR("写快照失败 path:{} rows:{} err:{}", m_cfg.csvStatePath, m_snapWrite.size(), e.what());
+                }
+            }
+            m_snapWrite.clear();
+            return true;
+        }
+        m_snapWrite.push_back(r);
     }
 }
 
@@ -1159,12 +1178,16 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
         ProcessModify(*pi, nowUs);
     }
 
-    // 6. 快照落盘 (原子写)。周期已从 300s 收紧到 10s —— 只有几十行，代价可忽略，
-    //    换来崩溃时最多丢 10s 的账（见 docs/restart_recovery_design.md §5.1）。
+    // 6. 快照落盘
     if (nowUs - m_lastCsvSaveUs > static_cast<int64_t>(m_cfg.csvSaveIntervalSec) * 1000000LL) {
-        if (!m_cfg.csvStatePath.empty()) {
-            pim.SaveSnapshot(m_cfg.csvStatePath);
+        const int n = pim.CollectSnapshotRows(m_snapScratch);
+        if (n > 0) {
+            for (int i = 0; i < n; ++i) {
+                m_snapQ.push(m_snapScratch[i]);
+            }
+            m_snapQ.push(PairInfoRecord{});   // 哨兵：pairKey 全零
         }
+
         m_lastCsvSaveUs = nowUs;
     }
 }

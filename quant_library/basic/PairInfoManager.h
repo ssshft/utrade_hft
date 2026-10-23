@@ -21,6 +21,11 @@
 
     bool WriteSpreadStatsFile(const std::string& path, const std::vector<SpreadStatsMsg>& v);
 
+    // 把 PairInfoRecord 列表按 33 列格式化成 CSV，写 .tmp 再 rename 原子替换。
+    // 空列表 ⇒ 写"只有表头"的文件（与老 SaveSnapshot 行为一致）。
+    // 纯 IO + 格式化，不碰 PairInfo —— 可以在任何线程调（生产就在 T_signal 上调）。
+    bool WritePairInfoRecordFile(const std::string& path, const std::vector<PairInfoRecord>& v);
+
     class PairInfoManager {
     public:
         static PairInfoManager& Instance() {
@@ -33,7 +38,13 @@
         // 快照：只存"无法自己恢复"的字段（见 docs/restart_recovery_design.md §5.1.1）。
         // 账户真值（持仓/均价/浮盈/强平价/标记价/ADL/强平状态）一律不存 —— 由推送自愈。
         // SaveSnapshot 写临时文件 + rename 原子替换，避免崩在写一半留下半截文件。
+        // 它 = CollectSnapshotRows + WritePairInfoRecordFile，是**同步参考实现**：
+        // 生产走"交易线程收行 -> T_signal 写文件"，这条留给 pre_stop 和测试。
         bool SaveSnapshot(const std::string& path);
+
+        // 按 m_pairKeys 的顺序收行（顺序 = 文件行序，必须稳定），返回行数。
+        // **只读 PairInfo，必须在交易线程调用**（别的线程读 PairInfo 就是数据竞争）。
+        int CollectSnapshotRows(std::vector<PairInfoRecord>& out);
 
         // 返回实际恢复的对子数；<0 表示失败（文件不存在 / 解析失败）
         int LoadSnapshot(const std::string& path);
