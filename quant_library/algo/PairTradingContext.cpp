@@ -188,7 +188,7 @@ void PairTradingContext::RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs
             }
         }
 
-        if (!m_cfg.spreadStatsStatePath.empty() && !rows.empty()) {
+        if (!rows.empty()) {
             try {
                 WriteSpreadStatsFile(m_cfg.spreadStatsStatePath, rows);
             } 
@@ -204,7 +204,7 @@ void PairTradingContext::RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs
     PairInfoRecord r;
     while (m_snapQ.pop(r)) {
         if (r.pairKey[0] == '\0') { // 哨兵：这一批齐了 -> 整个文件重写一次（原子替换，不是追加）
-            if (!m_cfg.csvStatePath.empty() && !m_snapWrite.empty()) {
+            if (!m_snapWrite.empty()) {
                 try {
                     WritePairInfoRecordFile(m_cfg.csvStatePath, m_snapWrite);
                 } 
@@ -213,7 +213,6 @@ void PairTradingContext::RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs
                 }
             }
             m_snapWrite.clear();
-            return true;
         }
         m_snapWrite.push_back(r);
     }
