@@ -46,6 +46,11 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
     
     double lockedSpread = GetLockedSpread();
     dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
+    if (!pdata) {
+        LOG_WARN("cannot get spread pairInstrumentKey:{}", pairInstrumentKey);
+        return pairOrder;
+    }
+
     double tempSpread = 0.0;
     double tempVolume = 0.0;
     double startSpread = 0.0;
@@ -556,7 +561,7 @@ void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder) {
         string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
         dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
         WritePairOrder(pairOrder, pdata);
-
+        
         if (pairOrder.rebalanceFlag && pairOrder.passiveTotalVolumeOnOrder > 0) { // 可以去掉
             // 被动腿有成交且pairOrder完结,更改rebalance状态
             if (pairOrder.tradingTypeOrder == stra::MAKER_TAKER){

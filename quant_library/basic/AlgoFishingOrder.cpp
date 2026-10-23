@@ -22,6 +22,11 @@ PairOrder AlgoFishingOrder::GetTargetPairOrder(stra::TradingType tradingTypeOrde
     double expectActiveVolume = GetExpectActiveVolume();
     double lockedSpread = GetLockedSpread();
     dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
+    if (!pdata) {
+        LOG_WARN("cannot get spread pairInstrumentKey:{}", pairInstrumentKey);
+        return pairOrder;
+    }
+    
     double tempTargetVolume = 0.0;
     double tempTargetSpread = 0.0;
     double tempSpread;

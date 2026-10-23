@@ -1299,7 +1299,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             
             // 行情检查
             dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(it->second->pairInstrumentKey);
-            if (eventTime - pdata->generateTs > 30 * second1 && mSpreadReportCount[it->second->pairInstrumentKey] > 60) {
+            if (pdata && eventTime - pdata->generateTs > 30 * second1 && mSpreadReportCount[it->second->pairInstrumentKey] > 60) {
                 char msg[stra::MSG_LEN];
                 sprintf(msg, "check spread data !!! strategyName:%s algoOrderId:%ld pairInstrumentKey:%s  eventTime:%ld  pdata->generateTs:%ld", it->second->algoStrategyName, it->second->algoOrderId, it->second->pairInstrumentKey, eventTime, pdata->generateTs);
                 LarkRebot::GetInstance().SendMsg(msg);

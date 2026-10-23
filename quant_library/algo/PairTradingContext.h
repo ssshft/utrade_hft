@@ -27,7 +27,7 @@ namespace pt {
 // 统计队列每 60s 才一条，32 槽足够。满了丢**最新**那条（boost 语义），
 // 正常永远触发不到 —— 两者都只用于观测。
 using SpreadSampleQueue = boost::lockfree::spsc_queue<SpreadSampleMsg, boost::lockfree::capacity<256>>;
-using SpreadStatsQueue  = boost::lockfree::spsc_queue<SpreadStatsMsg,  boost::lockfree::capacity<32>>;
+using SpreadStatsQueue  = boost::lockfree::spsc_queue<SpreadStatsMsg,  boost::lockfree::capacity<256>>;
 
 struct PairTradingConfig {
     // 对子清单。**平铺**在 op 段（`op.pairKeys`），不在 `op.pairTrading` 里 ——

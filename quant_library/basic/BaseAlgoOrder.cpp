@@ -404,6 +404,11 @@ double BaseAlgoOrder::GetActiveVolumeByPassiveVolume(double volume, double price
 }
 
 void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
+    if (!pdata) {
+        LOG_WARN("CancelOrderOnSpread can not get spread data, algoOrderId:{} pairInstrumentKey:{}", algoOrderId, pairInstrumentKey);
+        return;
+    }
+
     int64_t nowTime = crypto::getCurrentTime();
     if (algoOrderStatus == stra::ALGO_OS_CANCELLING) {
         auto& allOrders = orderMgr.GetAllOrders();
@@ -769,6 +774,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
             string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
             dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
             WritePairOrder(pairOrder, pdata);
+            
             if (pairOrder.passiveTotalVolumeOnOrder > 0){
                 // 存在成交, update状态
                 string pubMsg = GeneratePubStrOnUpdate();
@@ -882,6 +888,7 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
             string pairInstrumentKey = string(pairOrder.activeInstrumentKey) + "|" + string(pairOrder.passiveInstrumentKey);
             dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
             WriteQuantOrder(quant_order, pdata);
+            
             if (orderFlag) {
                 UpdateAlgoPairOrderByInsertQuantOrder(quant_order);
             } else {
@@ -900,36 +907,39 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
 }
 
 string BaseAlgoOrder::GetLastestStatusInfo() {
-    dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
-    double lockSpread = pairPassiveTotalPrice / pairActiveTotalPrice - 1;
-    posMgrMakerTaker.CalcualtePnl(activeInstrumentKey);
-    posMgrTakerTaker.CalcualtePnl(activeInstrumentKey);
-    double makerTakerTotalPnl = posMgrMakerTaker.GetTotalPnl();
-    double takerTakerTotalPnl = posMgrTakerTaker.GetTotalPnl();
     char s[stra::STR_LEN];
-    sprintf(s, 
-            "strategyName: %s  algoOrderId: %ld\n"
-            "pairInstrumentKey:%s \n"
-            "pairTotalVolume:%f  lockSpread:%f \n"
-            "pairActiveTotalPrice:%f  pairPassiveTotalPrice:%f \n"
-            "makerTakerPnl:%f \n"
-            "takerTakerPnl:%f \n"
-            "spreadBidAskTema:%f \n"
-            "spreadBidBidTema:%f \n"
-            "spreadAskBidTema:%f \n"
-            "spreadAskAskTema:%f \n"
-            "passiveAskPrice1:%f \n"
-            "passiveAskVolume1:%f \n"
-            "passiveBidPrice1:%f \n"
-            "passiveBidVolume1:%f \n"
-            "activeAskPrice1:%f \n"
-            "activeAskVolume1:%f \n"
-            "activeBidPrice1:%f \n"
-            "activeBidVolume1:%f \n", 
-            algoStrategyName, algoOrderId, pairInstrumentKey, pairTotalVolume, lockSpread, pairActiveTotalPrice, pairPassiveTotalPrice, makerTakerTotalPnl, takerTakerTotalPnl, 
-            pdata->spreadBidAskTema, pdata->spreadBidBidTema, pdata->spreadAskBidTema, pdata->spreadAskAskTema, 
-            pdata->passiveAskPrice[0], pdata->passiveAskVolume[0], pdata->passiveBidPrice[0], pdata->passiveBidVolume[0],
-            pdata->activeAskPrice[0], pdata->activeAskVolume[0], pdata->activeBidPrice[0], pdata->activeBidVolume[0]);
+    dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
+    if (pdata) {
+        double lockSpread = pairPassiveTotalPrice / pairActiveTotalPrice - 1;
+        posMgrMakerTaker.CalcualtePnl(activeInstrumentKey);
+        posMgrTakerTaker.CalcualtePnl(activeInstrumentKey);
+        double makerTakerTotalPnl = posMgrMakerTaker.GetTotalPnl();
+        double takerTakerTotalPnl = posMgrTakerTaker.GetTotalPnl();
+        sprintf(s, 
+                "strategyName: %s  algoOrderId: %ld\n"
+                "pairInstrumentKey:%s \n"
+                "pairTotalVolume:%f  lockSpread:%f \n"
+                "pairActiveTotalPrice:%f  pairPassiveTotalPrice:%f \n"
+                "makerTakerPnl:%f \n"
+                "takerTakerPnl:%f \n"
+                "spreadBidAskTema:%f \n"
+                "spreadBidBidTema:%f \n"
+                "spreadAskBidTema:%f \n"
+                "spreadAskAskTema:%f \n"
+                "passiveAskPrice1:%f \n"
+                "passiveAskVolume1:%f \n"
+                "passiveBidPrice1:%f \n"
+                "passiveBidVolume1:%f \n"
+                "activeAskPrice1:%f \n"
+                "activeAskVolume1:%f \n"
+                "activeBidPrice1:%f \n"
+                "activeBidVolume1:%f \n", 
+                algoStrategyName, algoOrderId, pairInstrumentKey, pairTotalVolume, lockSpread, pairActiveTotalPrice, pairPassiveTotalPrice, makerTakerTotalPnl, takerTakerTotalPnl, 
+                pdata->spreadBidAskTema, pdata->spreadBidBidTema, pdata->spreadAskBidTema, pdata->spreadAskAskTema, 
+                pdata->passiveAskPrice[0], pdata->passiveAskVolume[0], pdata->passiveBidPrice[0], pdata->passiveBidVolume[0],
+                pdata->activeAskPrice[0], pdata->activeAskVolume[0], pdata->activeBidPrice[0], pdata->activeBidVolume[0]);
+    }
+
     return string(s);
 }
 
