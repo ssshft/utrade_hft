@@ -200,10 +200,13 @@ void PairTradingContext::RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs
         lastStatsUpdateUs = nowUs;
     }
 
-    // 3. 顺带把快照队列里"攒够的一批"落盘。 一次只取到队列空为止，没遇到哨兵就留着，下一轮接着攒。
+    // 3. 顺带把快照队列里"攒够的一批"落盘。一次取到队列空为止；没遇到哨兵说明这批还没攒齐，
+    //    留在 m_snapWrite 里下一轮接着攒（跨轮攒批是这条路径唯一的"状态"）。
     PairInfoRecord r;
     while (m_snapQ.pop(r)) {
-        if (r.pairKey[0] == '\0') { // 哨兵：这一批齐了 -> 整个文件重写一次（原子替换，不是追加）
+        // 哨兵 = 一批结束：把攒到的行整个文件重写一次（原子替换，不是追加），然后清空接着攒。
+        // ⚠️ 哨兵**本身不是数据行**，必须 continue 掉，绝不能落到下面那个 push_back：
+        if (r.pairKey[0] == '\0') {
             if (!m_snapWrite.empty()) {
                 try {
                     WritePairInfoRecordFile(m_cfg.csvStatePath, m_snapWrite);
@@ -212,7 +215,8 @@ void PairTradingContext::RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs
                     LOG_ERROR("写快照失败 path:{} rows:{} err:{}", m_cfg.csvStatePath, m_snapWrite.size(), e.what());
                 }
             }
-            m_snapWrite.clear();
+            m_snapWrite.clear(); // 只清元素，capacity 留着 —— 下一批零分配
+            continue;
         }
         m_snapWrite.push_back(r);
     }

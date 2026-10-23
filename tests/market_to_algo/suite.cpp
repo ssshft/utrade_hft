@@ -166,7 +166,16 @@ static void ResetWorld() {
 // 夹具
 // ---------------------------------------------------------------------------
 struct Fx {
-    PairTradingContext ctx;
+    // ⚠️ ctx 必须**放堆上**，不能是 inline 成员。
+    // PairTradingContext 里有 `PairInfoQueue`（spsc_queue<PairInfoRecord, capacity<1024>>），
+    // 1024 × 304 B ≈ 304 KB 的 inline 数组，整个 Fx 就 320 KB 上下。
+    // 而 clang **不做栈槽复用**：同一个函数里每个 `Fx fx;` 各占一份独立栈槽，
+    // TestG_Restart 里有 27 个 ⇒ 27 × 320 KB ≈ 8.6 MB > 主线程 8 MB 栈，
+    // 于是**函数序言里一碰栈就 SIGSEGV**（症状很误导人：上一节最后一条 PASS 打完就崩，
+    // 连下一节的 `=== G. 重启 ===` 标题都打不出来，看着像上一条断言挂的）。
+    // 用"堆对象 + 引用"而不是改成 `fx.ctx->`：105 处调用点一行都不用动。
+    std::unique_ptr<PairTradingContext> ctxStore{std::make_unique<PairTradingContext>()};
+    PairTradingContext& ctx{*ctxStore};
     sm::SecurityManager smc;
 
     std::vector<BaseAlgoOrder*> submits;                                  // 报单回调日志（拥有所有权）
@@ -1134,14 +1143,15 @@ static void TestD_Timer() {
         CHECK(fx.modifyCalls.empty(), "D10 清空后不再改参");
     }
 
-    // D11 快照落盘周期（异步：OnTimer 只"发布"，写文件在 T_signal 上）
+    // D11 快照落盘周期（异步：OnTimer 只"发布"到队列，写文件在 T_signal 上）
     //
     // 改这个功能要守的不变量：
-    //   ① 周期门控还是 csvSaveIntervalSec —— 断言 m_lastCsvSaveUs 与 m_snapPublishCount，
-    //      这两个都在交易线程上，确定性。
-    //   ② **发布出去的东西真的能变成文件**，而且内容与同步 SaveSnapshot 逐字节相同
+    //   ① 周期门控还是 csvSaveIntervalSec —— 断言 m_lastCsvSaveUs（交易线程上的确定性状态）。
+    //   ② OnTimer 真的把行推进了队列：read_available() = "已发布、未被 T_signal 消费"的行数，
+    //      这是唯一能直接观测"发布了没有"的量（没有计数器了）。
+    //   ③ **发布出去的东西真的能变成文件**，而且内容与同步 SaveSnapshot 逐字节相同
     //      （两条路径共用 WritePairInfoRecordFile，一旦谁改了列序/精度，这条立刻红）。
-    //   ③ 队列放不下时整批跳过（LOG_ERROR），绝不写半批 —— 容量按 4095 个对子设，正常走不到。
+    //   ④ 连续两批落盘，第二批不能混进哨兵 —— 哨兵只是"一批结束"的标记，不是数据行。
     {
         const std::string csv = "/tmp/ptsuite/out/timer_snapshot.csv";
         std::remove(csv.c_str());
@@ -1155,15 +1165,20 @@ static void TestD_Timer() {
             return ss.str();
         };
 
+        // 落盘挂在 T_signal 上，而它是异步线程 —— 先停掉（join），之后每一步都是确定的，
+        // stat()/读文件不会和后台那一轮 RunSignalOnce 赛跑。
+        fx.ctx.StopSignalThread();
+
         fx.ctx.OnTimer(t0);
         CHECK(fx.ctx.m_lastCsvSaveUs == t0, "D11 首轮到点 -> 发布一次快照");
-        CHECK(fx.ctx.m_snapPublishCount == 1, "D11 首轮发布了 1 批");
+        CHECK(fx.ctx.m_snapQ.read_available() == 2u, "D11 首轮发布 1 行 + 1 哨兵");
 
-        // 落盘跑在 T_signal 上：先停掉它（join），再手工排空 —— 这样 stat() 不会和
-        // 后台那一轮 RunSignalOnce 赛跑，D11 才是确定性的。
-        // （RunSignalOnce 末尾就调 DrainSnapshotOnce，所以生产与这里走的是同一段代码。）
-        fx.ctx.StopSignalThread();
-        fx.ctx.DrainSnapshotOnce();
+        // 手工推一轮 T_signal（生产由 SignalWork 按真实时间循环调，走的是同一段代码）。
+        // lastStatsUpdateUs 传 nowUs：这一轮**不**进"到点重算分位数"分支，
+        // 免得 Build/统计落盘混进来 —— 这里只验第 3 步。
+        int64_t lastStats = t0;
+        fx.ctx.RunSignalOnce(t0, lastStats);
+        CHECK(fx.ctx.m_snapQ.read_available() == 0u, "D11 一轮就把队列排空");
         struct stat st{};
         CHECK(::stat(csv.c_str(), &st) == 0 && st.st_size > 0, "D11 快照文件已写出");
 
@@ -1176,15 +1191,58 @@ static void TestD_Timer() {
 
         fx.ctx.OnTimer(t0 + 5 * SEC);
         CHECK(fx.ctx.m_lastCsvSaveUs == t0, "D11 未到 csvSaveIntervalSec -> 不重复发布");
-        CHECK(fx.ctx.m_snapPublishCount == 1, "D11 未到点 -> 没多发布一批");
+        CHECK(fx.ctx.m_snapQ.read_available() == 0u, "D11 未到点 -> 队列里没有新行");
 
         fx.ctx.OnTimer(t0 + 11 * SEC);
         CHECK(fx.ctx.m_lastCsvSaveUs == t0 + 11 * SEC, "D11 到点 -> 再发布一次");
-        CHECK(fx.ctx.m_snapPublishCount == 2, "D11 到点 -> 累计发布 2 批");
+        CHECK(fx.ctx.m_snapQ.read_available() == 2u, "D11 到点 -> 又发布 1 行 + 1 哨兵");
 
-        // 收尾：把第二批也排空（线程已停，只能手工推），确认这条路是通的
-        CHECK(fx.ctx.DrainSnapshotOnce(), "D11 停线程后仍能手工排空一批");
-        CHECK(readAll(csv) == a, "D11 第二轮内容与第一轮一致（状态没变）");
+        // 第二批：状态没变 ⇒ 文件必须与第一轮逐字节一致。
+        // ④ 就在这一条上：哨兵若被 push 进 m_snapWrite，第二批会多出一行空 key 的垃圾，
+        //    这里立刻红（症状延迟一轮才出现，所以必须连推两批才抓得到）。
+        fx.ctx.RunSignalOnce(t0 + 11 * SEC, lastStats);
+        CHECK(readAll(csv) == a, "D11 第二轮内容与第一轮一致（哨兵没混进数据）");
+    }
+
+    // D12 m_pairKeys 里存在"查不到 PairInfo"的 key -> 快照不能多写空行
+    //
+    // 为什么会有这种 key：Init 里 key 不合法（没有 `|`）只 LOG_WARN + continue，
+    // 它留在 m_pairKeys 里但不建 PairInfo（PairInfoManager.cpp:28-31）。
+    // 于是 CollectSnapshotRows 收不满 total 行 —— 如果不按 k 截断，
+    // SaveSnapshot 会把尾部那些"从没写过"的行也交给写文件函数（它按 v.size() 遍历）。
+    {
+        ResetWorld();
+        Fx fx;
+        fx.smc.Clear();
+        fx.smc.Set(kActive, MakeInstrumentInfo());
+        fx.smc.Set(kPassive, MakeInstrumentInfo());
+
+        const std::string csv = "/tmp/ptsuite/out/badkey_snapshot.csv";
+        std::remove(csv.c_str());
+
+        PairTradingConfig cfg;
+        cfg.pairKeys = {kPairKey, "bad-key-without-separator"};   // 第二个 key 没有 `|`
+        cfg.activeAccountId = 10000;
+        cfg.passiveAccountId = 10001;
+        cfg.csvStatePath = csv;
+        cfg.spreadStatsStatePath = "";     // 别往相对路径写统计（同 Boot 的理由）
+        fx.csvPath = csv;
+        fx.Wire();
+        fx.ctx.Init(cfg, &fx.smc);
+
+        std::vector<PairInfoRecord> rows;
+        const int n = PairInfoManager::Instance().CollectSnapshotRows(rows);
+        CHECK(n == 1, "D12 坏 key 不进快照（只收 1 行）");
+        CHECK(rows.size() == 1, "D12 out 按实际行数截断（不是 m_pairKeys 的长度 2）");
+
+        PairInfoManager::Instance().SaveSnapshot(csv);
+        std::ifstream ifs(csv);
+        std::string line;
+        int lines = 0;
+        while (std::getline(ifs, line)) {
+            ++lines;
+        }
+        CHECK(lines == 2, "D12 文件 = 表头 + 1 行（坏 key 不写空行）");
     }
 }
 

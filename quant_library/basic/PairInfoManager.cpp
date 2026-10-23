@@ -245,6 +245,8 @@ void MakePairInfoRecord(const PairInfo& p, PairInfoRecord& r) {
 }
 
 int PairInfoManager::CollectSnapshotRows(std::vector<PairInfoRecord>& out) {
+    // 不需要 clear()：每一行都是**整行重写**（MakePairInfoRecord 覆盖全部 33 个字段，
+    // 内部不做 memset 也不需要 memset），而 k 只在"命中"时才前进 ——
     const size_t total = m_pairKeys.size();
     if (out.size() < total) {
         out.resize(total);
@@ -260,6 +262,13 @@ int PairInfoManager::CollectSnapshotRows(std::vector<PairInfoRecord>& out) {
         ++k;
     }
 
+    // **必须按 k 截断**（不只是"返回 k 让调用方自己看"）。
+    // 为什么会有 k < total：Init 里 key 不合法（没有 `|`）只 LOG_WARN + continue，
+    // 那个 key 留在 m_pairKeys 里但不会建 PairInfo（PairInfoManager.cpp:28-31）。
+    // 不截断的话，SaveSnapshot 把整个 vector 交给 WritePairInfoRecordFile（按 v.size() 遍历），
+    if (out.size() != k) {
+        out.resize(k);
+    }
     return static_cast<int>(k);
 }
 
