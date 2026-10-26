@@ -133,6 +133,60 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     }
 
 
+    // ---- 开仓阈值的"绝对地板"（祖先 cc_pricespread_gb_ltp.py:781-782）----
+    // 分位数只回答"历史上有多少价差"，回答不了"多少价差才够覆盖两边的手续费"。
+    // 所以再夹一道：开仓阈值朝有利方向至少 minSpreadTarget + 5e-6，且永不变正。
+    //   minSpreadTarget <= 0     ⇒ 这一层整个关掉（2026-10 之前的行为）
+    //   minSpreadTarget = 0.002  ⇒ StartSpread 至少 ∓20.05bp。单位就是价差本身，0.002 = 千2。
+    //
+    // ⚠️ 那个 5e-6 **不是可选的缓冲带**，去掉会让整个策略一单都不报：下面 :185 的开关是
+    //    `canOpenLong = (mtOLStartSpread < -minSpreadTarget)`，**严格小于**。夹到正好
+    //    `-minSpreadTarget` 时 `-x < -x` 为假 ⇒ canOpenLong/Short 全 false ⇒ 4 个开仓开关全关。
+    //    所以夹逼值必须是 `-(minSpreadTarget + 5e-6)`，比门槛再深一点点才活。
+    //
+    // ⚠️ 量纲：它比的**不是实时价差**，是 StartSpread，而 StartSpread 里已经有 F 了
+    // （CalcExpectSpread 的 `- direction*(execCost-buffer)`）。所以它是"扣掉入场成本之后"的
+    // 净额口径，**不要再自己加一次手续费**。三条恒等式（平到 0 的假设下）：
+    //     毛价差门槛 = minSpreadTarget + 5e-6 + F
+    //     平到 0 净利 = minSpreadTarget + 5e-6 − F
+    //     要填的值   = 想净赚的 + F − 5e-6
+    // 例：F_mt = 8bp（零售）想净赚 20bp ⇒ 填 27.95bp = 0.002795；此时毛价差要 28.05bp。
+    //
+    // ⚠️ 它只覆盖**入场**那一笔 F。出场那一笔靠对侧分位 + profitPct 吸收，而 profitPct 只有 1bp、
+    // openProfitPct 是死参数 ⇒ 出场成本实际是靠"价差回归到 0 或更远"来覆盖的。
+    // 价差只回到一半就平仓，上面的净利要打折。
+    //
+    // 为什么光靠下面那两个 canOpen* 不够：它们只把 4 个开仓开关压成 false（"不参与"），
+    // 阈值本身仍是分位数算出来的。分位数浅到 5bp 时开关一关，市场真冲到 25bp 也不会报单；
+    // 夹逼是"把阈值钉在 20.05bp 上等着"。反过来，分位数比地板更深时不动它（只抬高不压低）。
+    //
+    // 为什么 End 必须一起改：End = Start ∓ 5e-6 是"量从 0 爬到 ±maxVolume"的阶梯，
+    // 只夹 Start 会让 End 比 Start 更浅、阶梯反向，AlgoPairOrder 里 (End-Start) 还可能变成 0。
+    //
+    // TT 的地板再深一个 ttAddPercent：两腿都是 taker，本来就该要求更多；
+    // 祖先也是 tt = mt(已夹逼) − tt_add_percent，不是两条各算各的。
+    if (m_cfg.minSpreadTarget > 0.0) {
+        const double floorMT = m_cfg.minSpreadTarget + 0.000005;
+        const double floorTT = floorMT + m_cfg.ttAddPercent;
+
+        if (op.ttOLStartSpread > -floorTT) {
+            op.ttOLStartSpread = -floorTT;
+            op.ttOLEndSpread = -floorTT - 0.000005;
+        }
+        if (op.mtOLStartSpread > -floorMT) {
+            op.mtOLStartSpread = -floorMT;
+            op.mtOLEndSpread = -floorMT - 0.000005;
+        }
+        if (op.ttOSStartSpread < floorTT) {
+            op.ttOSStartSpread = floorTT;
+            op.ttOSEndSpread = floorTT + 0.000005;
+        }
+        if (op.mtOSStartSpread < floorMT) {
+            op.mtOSStartSpread = floorMT;
+            op.mtOSEndSpread = floorMT + 0.000005;
+        }
+    }
+
     bool canOpenLong = (op.mtOLStartSpread < -m_cfg.minSpreadTarget) && !pi.closeFlag;
     bool canOpenShort = (op.mtOSStartSpread > m_cfg.minSpreadTarget) && !pi.closeFlag;
 
@@ -205,12 +259,44 @@ SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
     const double F_tt = CalcExecCost(true);
     const double F_mt = CalcExecCost(false);
 
-    if (op.ttOLSwitch && rt.spreadBidAsk + F_tt < op.ttOLStartSpread && vol > op.ttOLEndVolume + 1e-9) {
+    // ---- 开仓的"预期往返净利"门槛（祖先 min_profit_target / except_profit_flag）----
+    // 地板（minSpreadTarget）只保证"入场够深"，管不了"出场线在哪"。这里把出场线也算进来：
+    //     净利 = 预期出场裸价差 − 当前入场裸价差 − 2F
+    // 出场裸价差由**对向**的平仓阈值反推 —— CL 的判据是 `spreadBidBid − F > mtCLStartSpread`，
+    // 触发那一刻裸价差就是 `mtCLStartSpread + F`。代入后每个方向都只剩一次 F，与地板的净额口径一致。
+    // 只在开仓四个方向上生效；平仓不受它约束（否则会挡掉止损）。
+    //
+    // ⚠️ 别把下面四行"化简"成 `op.ttOSStartSpread − op.ttCSStartSpread` 这种阈值差。
+    //    **在触发边界上两者确实相等**：触发判据是 `spreadAskBid − F_tt > ttOSStartSpread`，
+    //    取等号代入，F_tt 抵消，结果就是 `ttOSStartSpread − ttCSStartSpread`。
+    //    但两者用的输入不同 —— 这才是不能替换的原因：
+    //      · 阈值差：只含**分位数**。它随 RecalcOrderParams 重算（默认 24h 窗口、60s 一次），
+    //        是**慢变量**，一分钟才动一下，且与此刻的价差无关；
+    //      · 下面四行：含**瞬时价差** `rt.spreadXxx`，每 tick 都动。
+    //    所以两者相差的正是"这一笔比阈值深多少"：
+    //        gate = (开仓线 − 平仓线) + (实时价差 − F − 开仓线)
+    //               └ 分位数预留的净利 ┘   └──── 实时超额深度 ────┘
+    //    写成阈值差就等于只保留左半：分位带宽不够时一刀切禁开（哪怕市场冲得再深），
+    //    带宽够时又永远放行（哪怕这一笔刚好卡在阈值上、实际一分不赚）。
+    //    这里选逐 tick 版：判据要回答"**这一笔**能不能赚"，不是"这套配置理论上能不能赚"。
+    //    （要阈值差那版的话，该放进 RecalcOrderParams 和 canOpen* 一起，不是放在逐 tick 的比较里。）
+    const bool profitGateOn = m_cfg.minProfitTarget > 0.0;
+    const double minProfit  = m_cfg.minProfitTarget;
+    const bool mtOLProfitOk = !profitGateOn ||
+        (op.mtCLStartSpread - rt.spreadAskAsk  - F_mt) >= minProfit;
+    const bool mtOSProfitOk = !profitGateOn ||
+        (rt.spreadBidBid    - op.mtCSStartSpread - F_mt) >= minProfit;
+    const bool ttOLProfitOk = !profitGateOn ||
+        (op.ttCLStartSpread - rt.spreadBidAsk  - F_tt) >= minProfit;
+    const bool ttOSProfitOk = !profitGateOn ||
+        (rt.spreadAskBid    - op.ttCSStartSpread - F_tt) >= minProfit;
+
+    if (op.ttOLSwitch && ttOLProfitOk && rt.spreadBidAsk + F_tt < op.ttOLStartSpread && vol > op.ttOLEndVolume + 1e-9) {
         result.ttOLSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.ttOSSwitch && rt.spreadAskBid - F_tt > op.ttOSStartSpread && vol < op.ttOSEndVolume - 1e-9) {
+    if (op.ttOSSwitch && ttOSProfitOk && rt.spreadAskBid - F_tt > op.ttOSStartSpread && vol < op.ttOSEndVolume - 1e-9) {
         result.ttOSSignal = true;
         result.hasSignal = true;
     }
@@ -225,12 +311,12 @@ SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
         result.hasSignal = true;
     }
 
-    if (op.mtOLSwitch && rt.spreadAskAsk + F_mt < op.mtOLStartSpread && vol > op.mtOLEndVolume + 1e-9) {
+    if (op.mtOLSwitch && mtOLProfitOk && rt.spreadAskAsk + F_mt < op.mtOLStartSpread && vol > op.mtOLEndVolume + 1e-9) {
         result.mtOLSignal = true;
         result.hasSignal = true;
     }
 
-    if (op.mtOSSwitch && rt.spreadBidBid - F_mt > op.mtOSStartSpread && vol < op.mtOSEndVolume - 1e-9) {
+    if (op.mtOSSwitch && mtOSProfitOk && rt.spreadBidBid - F_mt > op.mtOSStartSpread && vol < op.mtOSEndVolume - 1e-9) {
         result.mtOSSignal = true;
         result.hasSignal = true;
     }

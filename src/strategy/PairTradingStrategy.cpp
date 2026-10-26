@@ -5,6 +5,7 @@
 #include "basic/SpreadManager.h"
 #include "log_engine.h"
 #include <chrono>
+#include <cmath>
 
 
 using namespace std::chrono;
@@ -400,6 +401,10 @@ void PairTradingStrategy::pre_start(Config* config) {
             c.minSpreadTarget = std::stod(s["minSpreadTarget"].GetString());
         } 
 
+        if (s.HasMember("minProfitTarget")) {
+            c.minProfitTarget = std::stod(s["minProfitTarget"].GetString());
+        } 
+
         if (s.HasMember("openProfitPct")) {
             c.openProfitPct = std::stod(s["openProfitPct"].GetString());
         } 
@@ -493,9 +498,54 @@ void PairTradingStrategy::pre_start(Config* config) {
                  pt::SignalGenerator::Instance().CalcExecCost(false),
                  fs.activeMakerFeeRate, fs.activeTakerFeeRate,
                  fs.passiveMakerFeeRate, fs.passiveTakerFeeRate, fs.basicSlippage);
-        LOG_INFO("配置生效[信号] spreadAdjPct={} minSpreadSpan={} minSpreadTarget={} ttAddPercent={} openProfitPct={} openMaxFundingRate={}",
-                 fs.spreadAdjPct, fs.minSpreadSpan, fs.minSpreadTarget, fs.ttAddPercent,
+        LOG_INFO("配置生效[信号] spreadAdjPct={} minSpreadSpan={} minSpreadTarget={} minProfitTarget={} ttAddPercent={} openProfitPct={} openMaxFundingRate={}",
+                 fs.spreadAdjPct, fs.minSpreadSpan, fs.minSpreadTarget, fs.minProfitTarget, fs.ttAddPercent,
                  fs.openProfitPct, fs.openMaxFundingRate);
+
+        // ---- 派生门槛：把"填的值"翻译成"价差实际要走到多少 bp" ----
+        // 这两组数是最容易算错的地方：改了费率却忘了重算地板 ⇒ 净利悄悄缩水，
+        // 而日志里两个原始值（费率、minSpreadTarget）看起来都"没毛病"。
+        // 全部由配置直接推出，与分位数无关：
+        //     毛价差门槛     = 地板 + 5e-6 + F
+        //     价差回 0 的净利 = 地板 + 5e-6 − F
+        //     想净赚 X 该填   = X + F − 5e-6
+        {
+            const double Fmt = pt::SignalGenerator::Instance().CalcExecCost(false);
+            const double Ftt = pt::SignalGenerator::Instance().CalcExecCost(true);
+            // 比值 -> bp，保留两位。用整数除法收尾，fmt 才会打成 "19.05" 而不是 19.050000000000001
+            const auto bp = [](double v) { return std::round(v * 1e6) / 100.0; };
+
+            if (fs.minSpreadTarget > 0.0) {
+                const double floorMT = fs.minSpreadTarget + 0.000005;
+                const double floorTT = floorMT + fs.ttAddPercent;   // TT 地板再深一个 ttAddPercent
+                const double netMT   = floorMT - Fmt;               // 价差回到 0 时的净利
+                const double netTT   = floorTT - Ftt;
+                // 想净赚 minProfitTarget 该填的地板（把 F 加回去、再把 5e-6 减掉）
+                const double needMST = fs.minProfitTarget > 0.0
+                                     ? fs.minProfitTarget + Fmt - 0.000005 : 0.0;
+
+                if (fs.minProfitTarget <= 0.0) {
+                    LOG_INFO("配置派生[门槛] 地板={}bp 毛门槛 mt={}bp tt={}bp | 价差回0净利 mt={}bp tt={}bp | 净利门槛已关",
+                             bp(fs.minSpreadTarget), bp(floorMT + Fmt), bp(floorTT + Ftt), bp(netMT), bp(netTT));
+                } else if (netMT >= fs.minProfitTarget) {
+                    LOG_INFO("配置派生[门槛] 地板={}bp 毛门槛 mt={}bp tt={}bp | 价差回0净利 mt={}bp tt={}bp | 门槛={}bp 地板已够",
+                             bp(fs.minSpreadTarget), bp(floorMT + Fmt), bp(floorTT + Ftt), bp(netMT), bp(netTT),
+                             bp(fs.minProfitTarget));
+                } else {
+                    // 地板产出的净利不够门槛。两条出路，打出来让人一眼看到该改哪个数：
+                    //   ① 不动配置：入场必须比地板再深 (门槛 − 净利)；
+                    //   ② 把 minSpreadTarget 提到 needMST（= 门槛 + F − 5e-6）。
+                    LOG_WARN("配置派生[门槛] 地板={}bp 毛门槛 mt={}bp tt={}bp | 价差回0净利 mt={}bp tt={}bp | "
+                             "门槛={}bp 不够：入场需比地板再深 {}bp，或把 minSpreadTarget 提到 {}",
+                             bp(fs.minSpreadTarget), bp(floorMT + Fmt), bp(floorTT + Ftt), bp(netMT), bp(netTT),
+                             bp(fs.minProfitTarget), bp(fs.minProfitTarget - netMT), needMST);
+                }
+            } else {
+                LOG_INFO("配置派生[门槛] 地板已关（minSpreadTarget={}）：毛门槛完全由分位数决定，"
+                         "净利门槛={}bp 只能靠实时价差比阈值更深来满足",
+                         fs.minSpreadTarget, bp(fs.minProfitTarget));
+            }
+        }
         LOG_INFO("配置生效[统计] quantileUp={} quantileDn={} windowSec={} updateIntervalSec={} minSamples={} sampleIntervalMs={} freshnessSec={}",
                  m_ptCfg.quantileUp, m_ptCfg.quantileDn, m_ptCfg.spreadStatsWindowSec,
                  m_ptCfg.spreadStatsUpdateIntervalSec, m_ptCfg.spreadStatsMinSamples,

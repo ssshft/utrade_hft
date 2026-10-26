@@ -416,12 +416,13 @@ static void MakeHoldable(PairInfo& pi, double vol) {
 // （而不是 !IsValid 的早退分支），这样才验得到"闸门放在最后"这件事。
 //
 // 为什么这组数一定让 4 个开仓开关为 true：
-//   SignalGenerator 的费率默认全 0（FeeSlippageConfig 里 5 个费率都是 {0}），
-//   于是 CalcExecCost() == 0、CalcExpectSpread(q, isTT, dir) == q * spreadAdjPct(0.8)。
+//   费率是 main() 里写死的那套（F_mt = 0.0009 / F_tt = 0.0013），spreadAdjPct = 0.8，
+//   minSpreadTarget = 0.002（2026-10-26 起），所以 RecalcOrderParams 末尾那道"绝对地板"
+//   也会参与：
 //   canOpenLong  = (mtOLStartSpread < -minSpreadTarget) && !closeFlag
-//                = (askAskDQ * 0.8 < 0.001)                    <- askAskDQ = -1.0 => -0.8 ✓
-//   canOpenShort = (mtOSStartSpread > -minSpreadTarget)
-//                = (bidBidUQ * 0.8 > -0.001)                    <- bidBidUQ = 1.0 => 0.8 ✓
+//                = (askAskDQ*0.8 + F_mt < -0.002)              <- -0.8+0.0009 => -0.7991 ✓
+//   canOpenShort = (mtOSStartSpread > -minSpreadTarget)        <- 0.8-0.0009 => 0.7991 ✓
+//   地板本身不生效：|±0.7991| 远深于 0.002005，夹逼只抬高不压低。
 //   spreadSpan   = bidBidUQ - askAskDQ = 2.0 >= minSpreadSpan(0) => 不触发"套利空间不足"早退 ✓
 // 其余四个分位数只用来填 CalcExpectSpread 的入参，取 ±1.0 保证不是 NaN。
 static void MakeOpenFriendlyStats(PairInfo& pi) {
@@ -1387,6 +1388,379 @@ static void TestD_Timer() {
         CHECK(!pi.orderParams.ttCLSwitch && !pi.orderParams.ttCSSwitch &&
               !pi.orderParams.mtCLSwitch && !pi.orderParams.mtCSSwitch,
               "D16 闸门只碰开仓：平仓开关原样保持 false");
+    }
+
+    // D17 开仓阈值的"绝对地板"（minSpreadTarget > 0；祖先 cc_pricespread_gb_ltp.py:781-782）
+    //
+    // 分位数只回答"历史上有多少价差"，回答不了"多少价差才够覆盖两边的手续费"。
+    // 分位带宽只有 6bp 时，光靠 canOpen* 那道开关只是把开仓"关掉" —— 市场真冲到 20bp
+    // 也不会报单；祖先的做法是把阈值钉在地板上，等市场来撞。
+    //
+    // 地板的量纲：它夹的是**含执行成本**的 StartSpread，所以毛价差要求 = 地板 + F。
+    // 换句话说 0.002 的含义是"扣掉两边成本后净赚千 2"，不是"毛价差千 2"。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+        auto& sg = SignalGenerator::Instance();
+
+        // ⚠️ 单例状态跨用例泄漏：D16 把全局持仓闸门留在 true，这里不先复位的话
+        //    下面 RecalcOrderParams 末尾的 ApplyNoOpenGate 会把 4 个开仓开关全压掉。
+        sg.SetGlobalPositionExceeded(false);
+        // main() 里写死的那套费率，末尾必须还原 —— 后面 E~K 组都按它算期望值
+        const FeeSlippageConfig orig = sg.GetConfig();
+
+        // 浅分位数：mtOL 阈值 = -3bp×0.8 + F_mt ≈ +0.7bp，比地板浅得多
+        auto& s = pi.largeStats;
+        s = SpreadStats{};
+        s.bidAskUQ = s.bidAskDQ = -0.0003;
+        s.bidBidUQ = s.askBidUQ =  0.0003;
+        s.bidBidDQ = s.askBidDQ = -0.0003;
+        s.askAskUQ =  0.0003;
+        s.askAskDQ = -0.0003;
+        s.count = 100;
+        s.valid = true;
+
+        FeeSlippageConfig fs = orig;
+        fs.minSpreadTarget = 0.002;      // 千 2
+        sg.SetConfig(fs);
+        sg.RecalcOrderParams(pi);
+
+        const double F_mt = sg.CalcExecCost(false);
+        const double floorMT = fs.minSpreadTarget + 0.000005;
+        const double floorTT = floorMT + fs.ttAddPercent;
+        const auto& op = pi.orderParams;
+
+        CHECK(Near(op.mtOLStartSpread, -floorMT), "D17 浅分位数 -> mtOL 抬到地板 -20.05bp");
+        CHECK(Near(op.mtOSStartSpread,  floorMT), "D17 浅分位数 -> mtOS 抬到地板 +20.05bp");
+        CHECK(Near(op.ttOLStartSpread, -floorTT), "D17 TT 地板再深一个 ttAddPercent");
+        CHECK(Near(op.ttOSStartSpread,  floorTT), "D17 TT 地板再深一个 ttAddPercent");
+
+        // End 必须跟着 Start 走：只夹 Start 会让 End 比 Start 更浅、阶梯反向，
+        // AlgoPairOrder 里 (End-Start) 还可能变成 0（除零）。
+        CHECK(Near(op.mtOLEndSpread - op.mtOLStartSpread, -0.000005), "D17 mtOL End 跟着走（-5e-6）");
+        CHECK(Near(op.mtOSEndSpread - op.mtOSStartSpread,  0.000005), "D17 mtOS End 跟着走（+5e-6）");
+        CHECK(Near(op.ttOLEndSpread - op.ttOLStartSpread, -0.000005), "D17 ttOL End 跟着走（-5e-6）");
+        CHECK(Near(op.ttOSEndSpread - op.ttOSStartSpread,  0.000005), "D17 ttOS End 跟着走（+5e-6）");
+
+        CHECK(op.mtOLSwitch && op.mtOSSwitch && op.ttOLSwitch && op.ttOSSwitch,
+              "D17 夹逼后 4 个开仓开关都开着 —— 是'钉住等'，不是'关掉'");
+
+        // 端到端：毛价差要过 地板 + F 才打（F 是含在 StartSpread 里的）
+        pi.rtSpread.spreadAskAsk = -(floorMT + F_mt) + 1e-9;
+        CHECK(!sg.CheckSignalForSatisfy(pi).mtOLSignal, "D17 毛价差差一点点 -> 不打");
+        pi.rtSpread.spreadAskAsk = -(floorMT + F_mt) - 1e-9;
+        CHECK(sg.CheckSignalForSatisfy(pi).mtOLSignal, "D17 毛价差过了地板+F -> 打");
+
+        // 只抬高、不压低：分位数比地板深时原样保留
+        s.askAskDQ = -0.02;              // -200bp
+        s.bidBidUQ =  0.02;
+        sg.RecalcOrderParams(pi);
+        CHECK(op.mtOLStartSpread < -floorMT, "D17 分位数比地板深 -> 不压低");
+        CHECK(Near(op.mtOLEndSpread - op.mtOLStartSpread, -0.000005),
+              "D17 未夹逼时 5e-6 阶梯也不变");
+
+        sg.SetConfig(orig);
+    }
+
+    // D18 费率只通过"地板"影响触发点（D17 那条恒等式的可执行证据）
+    //
+    // D17 证明地板把阈值钉住了；这一节证明**为什么平时改费率不影响报单**：
+    //   CheckSignal 比的是 `裸价差 + F` 与 `StartSpread = 分位×0.8 + F`，
+    //   F 在两边各出现一次 ⇒ 触发点（裸价差）恒等于 分位×0.8，与 F 无关。
+    // 但地板夹的是含 F 的 StartSpread、夹逼值本身不含 F ⇒ 这一层约不掉：
+    //   触发点（裸价差）= 地板 + F（随费率平移），而净额（毛 − F）恒等于地板。
+    // 两个断言都钉住：以后谁把某一侧的 F 删了、或把符号写反，这里立刻红。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+        auto& sg = SignalGenerator::Instance();
+
+        // ⚠️ 同 D17：D16 把全局持仓闸门留在 true，不复位会被 ApplyNoOpenGate 压掉开仓开关
+        sg.SetGlobalPositionExceeded(false);
+        const FeeSlippageConfig orig = sg.GetConfig();
+
+        // 分位取 ±20bp，这个数被两边同时约束住：
+        //   · ② 要触发夹逼 ⇒ 分位必须比地板**浅**（20bp < 20.05bp）。分位比地板深时
+        //     夹逼不生效（"只抬高不压低"），② 就退化成空断言 —— 第一版取 ±30bp 正是这么红的。
+        //   · ① 要开关为真 ⇒ 分位必须深到连 11bp 的 F 也压不穿 0（需 > F/0.8 = 13.75bp）。
+        auto& s = pi.largeStats;
+        s = SpreadStats{};
+        s.bidAskUQ = s.bidAskDQ = -0.002;
+        s.bidBidUQ = s.askBidUQ =  0.002;
+        s.bidBidDQ = s.askBidDQ = -0.002;
+        s.askAskUQ =  0.002;
+        s.askAskDQ = -0.002;
+        s.count = 100;
+        s.valid = true;
+
+        // 两组费率，F_mt 正好差 10bp（F_mt = activeMaker + passiveTaker + 滑点）
+        auto withFees = [&](double am, double at, double pt, double slip) {
+            FeeSlippageConfig fs = orig;
+            fs.activeMakerFeeRate = am;
+            fs.activeTakerFeeRate = at;
+            fs.passiveTakerFeeRate = pt;
+            fs.basicSlippage = slip;
+            return fs;
+        };
+        const FeeSlippageConfig cheap = withFees(-0.0002, 0.0002, 0.0002, 0.0001); // F_mt = 1bp
+        const FeeSlippageConfig dear  = withFees( 0.0008, 0.0008, 0.0002, 0.0001); // F_mt = 11bp
+
+        auto recalcWith = [&](const FeeSlippageConfig& fs) {
+            sg.SetConfig(fs);
+            sg.RecalcOrderParams(pi);
+        };
+
+        // ---- ① 地板关掉：触发点（裸价差）与费率无关 ----
+        FeeSlippageConfig offCheap = cheap; offCheap.minSpreadTarget = 0.0;
+        FeeSlippageConfig offDear  = dear;  offDear.minSpreadTarget  = 0.0;
+
+        recalcWith(offCheap);
+        const double rawCheap = pi.orderParams.mtOLStartSpread - sg.CalcExecCost(false);
+        recalcWith(offDear);
+        const double rawDear = pi.orderParams.mtOLStartSpread - sg.CalcExecCost(false);
+
+        CHECK(Near(rawCheap, rawDear, 1e-12),
+              "D18 地板关：费率差 10bp，触发点仍相同 —— F 在比较式两边抵消");
+        CHECK(Near(rawCheap, s.askAskDQ * offCheap.spreadAdjPct, 1e-12),
+              "D18 地板关：触发点 = 分位×spreadAdjPct，式子里没有 F");
+
+        // 端到端：同一个裸价差，两组费率下报不报必须完全一致
+        const FeeSlippageConfig both[2] = {offCheap, offDear};
+        for (int i = 0; i < 2; ++i) {
+            recalcWith(both[i]);
+            pi.rtSpread.spreadAskAsk = rawCheap + 1e-9;
+            CHECK(!sg.CheckSignalForSatisfy(pi).mtOLSignal, "D18 地板关：差一点，两组都不打");
+            pi.rtSpread.spreadAskAsk = rawCheap - 1e-9;
+            CHECK(sg.CheckSignalForSatisfy(pi).mtOLSignal, "D18 地板关：过线，两组都打");
+        }
+
+        // ---- ② 地板打开：毛门槛随 F 平移，净额恒定 ----
+        const double target = 0.002;
+        const double floorMT = target + 0.000005;
+
+        FeeSlippageConfig onCheap = cheap; onCheap.minSpreadTarget = target;
+        FeeSlippageConfig onDear  = dear;  onDear.minSpreadTarget  = target;
+
+        recalcWith(onCheap);
+        const double Fc = sg.CalcExecCost(false);
+        const double rc = pi.orderParams.mtOLStartSpread - Fc;
+        recalcWith(onDear);
+        const double Fd = sg.CalcExecCost(false);
+        const double rd = pi.orderParams.mtOLStartSpread - Fd;
+
+        CHECK(Near(rc, -(floorMT + Fc), 1e-12), "D18 地板开：毛门槛 = 地板 + F（1bp 档）");
+        CHECK(Near(rd, -(floorMT + Fd), 1e-12), "D18 地板开：毛门槛 = 地板 + F（11bp 档）");
+        CHECK(Near(rc - rd, Fd - Fc, 1e-12),
+              "D18 地板开：两组毛门槛之差 = 两组 F 之差（纯平移，贵的更深）");
+        CHECK(Near(-rc - Fc, floorMT, 1e-12) && Near(-rd - Fd, floorMT, 1e-12),
+              "D18 地板开：净额（毛 − F）两组都等于地板 —— 0.002 的含义是净 20bp");
+
+        sg.SetConfig(orig);
+    }
+
+    // D19 开仓的"预期往返净利"门槛（minProfitTarget；祖先 min_profit_target / except_profit_flag）
+    //
+    // D17 只钉住了入场深度，而"入场深"不等于"赚钱"：出场线是 `0.8×对向分位 + profitPct`
+    // （profitPct 只有 1bp），对向分位浅的时候出场线几乎贴在 0 上，于是入场再深，
+    // 往返也只赚"地板 − F"。这一节把出场线也算进判据，钉住五件事：
+    //   ① 门槛值是**净额**：在"刚好穿过入场阈值"的价格上恒等于 `平仓线 − 开仓线`。
+    //      因为开仓判据是 `裸价差 + F < start`、平仓是 `裸价差 − F > start`，各含一次 F，
+    //      相减时两次 F 都留下 —— 正好是往返成本，不用再额外加。
+    //   ② 边界是 `>=`：等于门槛要放行，差 1e-12 要挡住。
+    //   ③ 同一份行情、同一个阈值，只改 minProfitTarget 就能把"打"翻成"不打"。
+    //   ④ 它**只管开仓**：门槛拉到 10.0（价差本身不可能到 1000bp）时，4 个平仓信号必须照旧成立。
+    //   ⑤ 与地板组合：地板放行 ≠ 有利润。地板管入场深度，门槛管"入场到出场还剩多少"。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+        auto& sg = SignalGenerator::Instance();
+
+        // 同 D16/D17：单例状态跨用例泄漏，不复位会被 ApplyNoOpenGate 压掉开仓开关
+        sg.SetGlobalPositionExceeded(false);
+        const FeeSlippageConfig orig = sg.GetConfig();
+
+        // 分位带宽 60bp（askAskDQ = −30bp / bidBidUQ = +30bp）。
+        // 地板关掉，让阈值完全由分位数决定 —— 这一节验的是门槛，不是夹逼。
+        auto& s = pi.largeStats;
+        s = SpreadStats{};
+        s.bidAskUQ = s.bidAskDQ = -0.003;
+        s.bidBidUQ = s.askBidUQ =  0.003;
+        s.bidBidDQ = s.askBidDQ = -0.003;
+        s.askAskUQ =  0.003;
+        s.askAskDQ = -0.003;
+        s.count = 100;
+        s.valid = true;
+
+        FeeSlippageConfig fs = orig;
+        fs.minSpreadTarget = 0.0;        // 地板关
+        fs.minProfitTarget = 0.0;        // 门槛先关，把阈值算出来
+        sg.SetConfig(fs);
+        sg.RecalcOrderParams(pi);
+
+        const auto& op = pi.orderParams;
+        const double F_mt = sg.CalcExecCost(false);
+        const double F_tt = sg.CalcExecCost(true);
+
+        CHECK(op.mtOLSwitch && op.mtOSSwitch && op.ttOLSwitch && op.ttOSSwitch,
+              "D19 前提：4 个开仓开关都开着（否则下面的'不打'是开关挡的，不是门槛）");
+
+        // ① 刚好穿过入场阈值时的净利 = 平仓线 − 开仓线
+        //   MT: 0.0024 − 0.0009 + 0.0001 − (−0.0024 + 0.0009) = 0.0031 = 31bp
+        //   TT: 0.0024 − 0.0010 + 0.0001 − (−0.0024 + 0.0010) = 0.0029 = 29bp
+        //       TT 反而窄 2bp：ttAddPercent(3bp) < taker−maker(4bp)，两腿都吃 taker 时
+        //       3bp 的缓冲补不平 4bp 的费率差，入场、出场各差 1bp。
+        const double pMT = op.mtCLStartSpread - op.mtOLStartSpread;
+        const double pTT = op.ttCLStartSpread - op.ttOLStartSpread;
+        CHECK(Near(pMT, 0.0031), "D19 MT 门槛值 = 平仓线 − 开仓线 = 31bp");
+        CHECK(Near(pTT, 0.0029), "D19 TT 门槛值窄 2bp（ttAdd 3bp 补不平 taker−maker 4bp）");
+
+        // 把某个方向的价差喂到"刚好穿过开仓阈值"，返回那一刻门槛算出来的净利。
+        // 返回值与 CheckSignalForSatisfy 里的表达式**逐字相同**，所以下面可以拿它当边界值用。
+        auto armOpen = [&](const char* which) -> double {
+            OnlySwitch(pi, which);
+            const std::string w(which);
+            if (w == "mtOL") {
+                pi.rtSpread.spreadAskAsk = op.mtOLStartSpread - F_mt - 1e-9;
+                return op.mtCLStartSpread - pi.rtSpread.spreadAskAsk - F_mt;
+            }
+            if (w == "mtOS") {
+                pi.rtSpread.spreadBidBid = op.mtOSStartSpread + F_mt + 1e-9;
+                return pi.rtSpread.spreadBidBid - op.mtCSStartSpread - F_mt;
+            }
+            if (w == "ttOL") {
+                pi.rtSpread.spreadBidAsk = op.ttOLStartSpread - F_tt - 1e-9;
+                return op.ttCLStartSpread - pi.rtSpread.spreadBidAsk - F_tt;
+            }
+            pi.rtSpread.spreadAskBid = op.ttOSStartSpread + F_tt + 1e-9;
+            return pi.rtSpread.spreadAskBid - op.ttCSStartSpread - F_tt;
+        };
+
+        // ② 四个方向都走一遍：净利 == 门槛 ⇒ 放行；门槛再高 1e-12 ⇒ 挡住。
+        //    顺带把"对称方向净利相同"也钉住（OL 与 OS 若不等，说明 profitPct 的符号写反了）。
+        {
+            const char* dirs[4] = {"mtOL", "mtOS", "ttOL", "ttOS"};
+            double got[4] = {0, 0, 0, 0};
+            for (int i = 0; i < 4; ++i) {
+                const double p = armOpen(dirs[i]);
+                got[i] = p;
+                CHECK(p > 0.0025, "D19 前提：阈值处净利为正（否则测的是'挡'，不是'放'）");
+
+                FeeSlippageConfig on = fs;  on.minProfitTarget  = p;
+                sg.SetConfig(on);
+                CHECK(sg.CheckSignalForSatisfy(pi).hasSignal,
+                      "D19 净利 == 门槛 ⇒ 放行（边界是 >=，不是 >）");
+
+                FeeSlippageConfig off = fs; off.minProfitTarget = p + 1e-12;
+                sg.SetConfig(off);
+                CHECK(!sg.CheckSignalForSatisfy(pi).hasSignal,
+                      "D19 净利比门槛差 1e-12 ⇒ 挡住");
+            }
+            CHECK(Near(got[0], got[1], 1e-12), "D19 MT 开多/开空 的预期净利对称");
+            CHECK(Near(got[2], got[3], 1e-12), "D19 TT 开多/开空 的预期净利对称");
+            // 喂价故意比阈值深 1e-9（否则不满足严格小于），净利也就比阈值处多 1e-9
+            CHECK(Near(got[0], pMT + 1e-9, 1e-12) && Near(got[2], pTT + 1e-9, 1e-12),
+                  "D19 阈值处净利与 ① 的两个值一致（喂价深 1e-9，净利也深 1e-9）");
+        }
+
+        // ③ 行情完全不动，只改门槛：31bp 的净利，门槛 10bp 打、50bp 不打。
+        //    这条是"门槛独立于阈值"的证据 —— 阈值没变，信号却翻了。
+        {
+            const double p = armOpen("mtOL");   // 31bp
+            FeeSlippageConfig lo = fs; lo.minProfitTarget = 0.0010;
+            sg.SetConfig(lo);
+            CHECK(sg.CheckSignalForSatisfy(pi).mtOLSignal, "D19 门槛 10bp < 净利 31bp ⇒ 打");
+            FeeSlippageConfig hi = fs; hi.minProfitTarget = 0.0050;
+            sg.SetConfig(hi);
+            CHECK(!sg.CheckSignalForSatisfy(pi).mtOLSignal,
+                  "D19 门槛 50bp > 净利 31bp ⇒ 不打（行情与阈值都没变）");
+            CHECK(p > 0.0030, "D19 ③ 的净利仍是 31bp");
+        }
+
+        // ④ 只管开仓：门槛 10.0（价差本身到不了 1000bp）⇒ 开仓全灭、平仓全活。
+        //    平仓要是也被这道门槛卡住，止损/风控平仓就永远发不出去 —— 这是最容易写错的一处。
+        {
+            FeeSlippageConfig huge = fs; huge.minProfitTarget = 10.0;
+            sg.SetConfig(huge);
+
+            // 开仓侧：4 条轴全部喂到"必穿"（±1.0 远深于阈值），仍然一个都不许打
+            pi.pairTotalVolume = 0.0;
+            pi.rtSpread.spreadAskAsk = -1.0;
+            pi.rtSpread.spreadBidBid =  1.0;
+            pi.rtSpread.spreadBidAsk = -1.0;
+            pi.rtSpread.spreadAskBid =  1.0;
+            const char* opens[4] = {"mtOL", "mtOS", "ttOL", "ttOS"};
+            for (const char* w : opens) {
+                OnlySwitch(pi, w);
+                const std::string n(w);
+                const auto r = sg.CheckSignalForSatisfy(pi);
+                const bool fired = (n == "mtOL") ? r.mtOLSignal : (n == "mtOS") ? r.mtOSSignal
+                                 : (n == "ttOL") ? r.ttOLSignal : r.ttOSSignal;
+                CHECK(!fired, "D19 ④ 门槛 10.0 ⇒ 该开仓方向不报（价差已远超阈值）");
+            }
+
+            // 平仓侧：IsLong 要 pairTotalVolume < 0，IsShort 要 > 0
+            pi.pairTotalVolume = -1.0;
+            OnlySwitch(pi, "mtCL");
+            pi.rtSpread.spreadBidBid = op.mtCLStartSpread + F_mt + 1e-9;
+            CHECK(sg.CheckSignalForSatisfy(pi).mtCLSignal, "D19 ④ 门槛再高也不挡 mtCL（平仓不受约束）");
+            OnlySwitch(pi, "ttCL");
+            pi.rtSpread.spreadAskBid = op.ttCLStartSpread + F_tt + 1e-9;
+            CHECK(sg.CheckSignalForSatisfy(pi).ttCLSignal, "D19 ④ 门槛再高也不挡 ttCL");
+
+            pi.pairTotalVolume = 1.0;
+            OnlySwitch(pi, "mtCS");
+            pi.rtSpread.spreadAskAsk = op.mtCSStartSpread - F_mt - 1e-9;
+            CHECK(sg.CheckSignalForSatisfy(pi).mtCSSignal, "D19 ④ 门槛再高也不挡 mtCS");
+            OnlySwitch(pi, "ttCS");
+            pi.rtSpread.spreadBidAsk = op.ttCSStartSpread - F_tt - 1e-9;
+            CHECK(sg.CheckSignalForSatisfy(pi).ttCSSignal, "D19 ④ 门槛再高也不挡 ttCS");
+        }
+
+        // ⑤ 地板 + 门槛的组合：地板放行 ≠ 有利润
+        //    当前配置的 minSpreadTarget = 0.0012，若对向分位 p92 = 0（出场线只剩 profitPct = +1bp）：
+        //      入场裸价差 = −(0.001205 + F_mt) = −21.05bp   （F_mt = 9bp）
+        //      出场裸价差 = mtCLStart + F_mt  = (−0.0008) + 0.0009 = +1bp
+        //      净利 = 22.05 − 2×9 = 4.05bp
+        //    ⇒ 门槛 5bp 挡住、门槛 4bp 放行。这就是"地板只管入场深度"留下的缺口：
+        //       0.0012 在 F_mt = 9bp 下并不等于净赚 5bp，价差回 0 时只有 3.05bp。
+        {
+            auto& s2 = pi.largeStats;
+            s2 = SpreadStats{};
+            s2.bidAskUQ = s2.bidAskDQ = -0.0005;
+            s2.bidBidUQ = s2.askBidUQ =  0.0;      // p92 = 0 ⇒ 出场线 = profitPct
+            s2.bidBidDQ = s2.askBidDQ = -0.0005;
+            s2.askAskUQ =  0.0;
+            s2.askAskDQ = -0.0005;
+            s2.count = 100;
+            s2.valid = true;
+
+            FeeSlippageConfig f2 = orig;
+            f2.minSpreadTarget = 0.0012;
+            f2.minProfitTarget = 0.0;
+            sg.SetConfig(f2);
+            pi.pairTotalVolume = 0.0;
+            sg.RecalcOrderParams(pi);
+
+            CHECK(op.mtOLSwitch, "D19 ⑤ 地板放行：mtOL 开关开着");
+            CHECK(Near(op.mtOLStartSpread, -0.001205), "D19 ⑤ 地板把 mtOL 钉在 −20.05bp");
+
+            const double p = op.mtCLStartSpread - op.mtOLStartSpread;
+            CHECK(Near(p, 0.000405), "D19 ⑤ 阈值处净利只有 4.05bp（不是 5bp）");
+
+            OnlySwitch(pi, "mtOL");
+            pi.rtSpread.spreadAskAsk = op.mtOLStartSpread - F_mt - 1e-9;
+
+            FeeSlippageConfig g5 = f2; g5.minProfitTarget = 0.0005;
+            sg.SetConfig(g5);
+            CHECK(!sg.CheckSignalForSatisfy(pi).mtOLSignal,
+                  "D19 ⑤ 门槛 5bp > 净利 4.05bp ⇒ 不打（地板过了也没用）");
+
+            FeeSlippageConfig g4 = f2; g4.minProfitTarget = 0.0004;
+            sg.SetConfig(g4);
+            CHECK(sg.CheckSignalForSatisfy(pi).mtOLSignal, "D19 ⑤ 门槛 4bp < 净利 4.05bp ⇒ 打");
+        }
+
+        sg.SetConfig(orig);
     }
 }
 
@@ -2898,6 +3272,9 @@ int main() {
         fs.passiveMakerFeeRate = 0.0002;
         fs.passiveTakerFeeRate = 0.0006;
         fs.basicSlippage       = 0.0001;
+        // 预期往返净利门槛：显式关掉，让 A~K 组的开仓用例只受阈值本身约束。
+        // 它的行为由 D19 单独覆盖 —— 否则这个门槛会悄悄挡掉一批"只喂了开仓阈值"的老用例。
+        fs.minProfitTarget     = 0.0;
         SignalGenerator::Instance().SetConfig(fs);
     }
     RiskManager::Instance().SetConfig(RiskConfig{});
