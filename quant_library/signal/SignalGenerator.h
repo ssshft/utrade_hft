@@ -121,28 +121,33 @@ public:
     // （RecalcOrderParams 里写死），所以这里不必再判开关。
     bool CloseSpreadReached(const PairInfo& pi) const;
 
-    // ---- 全局持仓闸门（祖先 cc_pricespread_gb_ltp.py:832 的 just_close_flag）----
-    // 语义：**所有对子**持仓市值之和超过 `maxPositionValue` ⇒ 只平不开。
-    // 由 PairTradingContext::OnTimer 每轮刷新（它是唯一知道"全局"的地方：这个量要跨对子求和，
-    // 而 RecalcOrderParams 是单对子签名，自己算不出来）。
+    // ---- "只平不开"的两个来源 ----
+    // 落点相同（4 个开仓开关压成 false），来源不同：
+    //   ① m_globalPosExceeded —— **算出来的**：所有对子持仓市值之和超过 maxPositionValue
+    //      （祖先 cc_pricespread_gb_ltp.py:832 的 just_close_flag）。由 OnTimer 第 0.5 步每轮刷新。
+    //   ② m_closeOnly        —— **人给的**：配置文件里的 op.pairTrading.closeOnly，可热改。
+    //      由 T_signal 轮询文件、OnTimer 第 0.6 步搬进来。
     //
     // 为什么状态挂在单例上、而不是当参数传进来：
     //   RecalcOrderParams 有 4 个生产调用点（Init / OnAlgoFinished / OnTimer 第 1、2 步），
     //   每个都会把 4 个开仓开关**重新算一遍**。只在 OnTimer 里压开关的话，别的调用点会
     //   立刻把它们打开 —— 闸门只在两次调用之间的缝隙里存在，等于没有。
     //
-    // 默认 false = 不干预：冷启动第一轮 OnTimer 之前（以及 maxPositionValue<=0 时）不误伤。
+    // 默认都是 false = 不干预：冷启动第一轮 OnTimer 之前不误伤。
     void SetGlobalPositionExceeded(bool v) { m_globalPosExceeded = v; }
     bool GetGlobalPositionExceeded() const { return m_globalPosExceeded; }
+
+    void SetCloseOnly(bool v) { m_closeOnly = v; }
+    bool GetCloseOnly() const { return m_closeOnly; }
 
 private:
     SignalGenerator() = default;
 
-    // 把 4 个开仓开关压成 false（平仓开关不动 = 只平不开）。
+    // 把 4 个开仓开关压成 false（平仓开关不动 = 只平不开）。两个来源任一成立就压。
     // 两个调用点必须都调：统计无效时 RecalcOrderParams 会早退，而早退路径上开关
     // 保持上一轮的值 —— 恰恰是"刚重启、带着恢复的大仓位、分位数还没攒够"的时刻，
     // 最需要这道闸门。
-    void ApplyGlobalPositionGate(OrderParams& op) const;
+    void ApplyNoOpenGate(OrderParams& op) const;
 
     std::pair<double, double> CalcExpectSpread(double quantileBound, bool isTT, int direction) const;
 
@@ -152,5 +157,6 @@ private:
     FeeSlippageConfig m_cfg;
 
     bool m_globalPosExceeded{false};
+    bool m_closeOnly{false};
 };
 }

@@ -54,6 +54,9 @@ REPO="$(cd "$HERE/../.." && pwd)"
 QL="$REPO/quant_library"
 EXT="$HERE/../market_to_algo/stubs/ext"
 TREE="${TMPDIR:-/tmp}/algosuite_build"
+# 本机没有系统装的 rapidjson（basic/RuntimeConfig.cpp 要用）。原版头文件放在
+# market_to_algo 的 third_party 下，两套件共用一份，见那边的 run.sh 说明。
+TP="$HERE/../third_party"
 
 # ---- 挑编译器 -------------------------------------------------------------
 # 优先 g++：目标环境是 Ubuntu，/usr/bin/g++ 是系统自带的那个。
@@ -104,6 +107,22 @@ if [[ "${1:-}" == "-v" ]]; then
     EXTRA_FLAGS=(-Wall -Wextra -Wno-unused-parameter)
 fi
 
+# ---- rapidjson 探测 --------------------------------------------------------
+# 服务器上系统装了 rapidjson，优先用系统的；没有才用 third_party 里的原版头文件。
+# 顺序反了的话，第三方副本会盖掉系统包。
+RJ_INC=()
+if ! echo '#include <rapidjson/document.h>' \
+        | "$CXX" -std=c++17 -x c++ -fsyntax-only - >/dev/null 2>&1; then
+    if [[ ! -f "$TP/rapidjson/document.h" ]]; then
+        echo "错误：系统没有 rapidjson，$TP/rapidjson 也不存在。" >&2
+        echo "      RuntimeConfig.cpp 需要它。装一个：apt install rapidjson-dev" >&2
+        exit 1
+    fi
+    echo "==> 系统里没有 rapidjson -> 用 $TP 下的原版头文件"
+    # -isystem：1.1.0 用了 C++17 已废弃的 std::iterator，用 -I 会刷一屏告警。
+    RJ_INC=(-isystem "$TP")
+fi
+
 echo "==> 编译器: $CXX"
 "$CXX" --version 2>&1 | head -1
 
@@ -143,6 +162,11 @@ ln -sf "$QL/basic/AlgoRebalanceOrder.h"   "$TREE/basic/AlgoRebalanceOrder.h"
 ln -sf "$QL/basic/PairInfo.h"             "$TREE/basic/PairInfo.h"
 ln -sf "$QL/basic/PairInfoManager.h"      "$TREE/basic/PairInfoManager.h"
 ln -sf "$QL/basic/PairInfoManager.cpp"    "$TREE/basic/PairInfoManager.cpp"
+ln -sf "$QL/basic/RuntimeConfig.h"        "$TREE/basic/RuntimeConfig.h"
+ln -sf "$QL/basic/RuntimeConfig.cpp"      "$TREE/basic/RuntimeConfig.cpp"
+# 仓库自带的 nlohmann（AlgoPairOrder.h 在用）。软链整个目录，别让 -I ext 命中 stubs 里的
+# 空壳桩（那个只能让类型存在，没有解析能力）。
+ln -sfn "$QL/basic/json"                  "$TREE/basic/json"
 
 ln -sf "$QL/algo/AlgoContext.h"           "$TREE/algo/AlgoContext.h"
 ln -sf "$QL/algo/AlgoContext.cpp"         "$TREE/algo/AlgoContext.cpp"
@@ -161,7 +185,7 @@ cp "$HERE/suite.cpp" "$TREE/suite.cpp"
 
 echo "==> 编译"
 cd "$TREE"
-"$CXX" -std=c++17 -pthread -I . -I ext ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
+"$CXX" -std=c++17 -pthread -I . -I ext ${RJ_INC[@]+"${RJ_INC[@]}"} ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"} \
     -o "$TREE/suite" \
     suite.cpp \
     algo/AlgoContext.cpp \
@@ -177,6 +201,7 @@ cd "$TREE"
     basic/AccountManager.cpp \
     basic/SpreadManager.cpp \
     basic/PairInfoManager.cpp \
+    basic/RuntimeConfig.cpp \
     signal/SignalGenerator.cpp \
     signal/SpreadStatsBuilder.cpp \
     risk/RiskManager.cpp

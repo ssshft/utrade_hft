@@ -66,6 +66,15 @@ void PairTradingStrategy::pre_start(Config* config) {
             m_ptCfg.csvStatePath = s["csvStatePath"].GetString();
         }
 
+        // ---- 可热改的运行时开关 ----
+        if (s.HasMember("closeOnly")) {
+            m_ptCfg.closeOnly = s["closeOnly"].GetBool() ;
+        }
+
+        // 热更新监视的就是本次启动用的这份配置文件。Config 只保存解析结果（启动那一刻的
+        // 快照，永远不会变），所以路径必须由它自己记下来 —— 见 include/config.h 的 get_path()。
+        m_ptCfg.configPath = config->get_path();
+
         // 敞口
         if (s.HasMember("exposureMaxLimit")) {
             m_ptCfg.exposureMaxLimit = std::stod(s["exposureMaxLimit"].GetString());
@@ -513,6 +522,8 @@ void PairTradingStrategy::pre_start(Config* config) {
         SubmitAlgoOrderChange(algoOrderId, cmd, modify);
     });
 
+    // 运行时配置热更新：监视的就是本次启动用的这份配置文件（见 basic/RuntimeConfig.h）。
+    // 由 T_signal 每秒 stat 一次、变了才重读，本层不需要再做任何事。
     ptContext.Init(m_ptCfg, smc);
 }
 

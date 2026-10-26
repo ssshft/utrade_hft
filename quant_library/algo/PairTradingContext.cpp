@@ -39,10 +39,17 @@
 #include <cmath>
 #include <cstring>
 #include <exception>
+#include <sys/stat.h>
 #include <thread>
 
 
 namespace pt {
+
+namespace {
+int64_t FileMtimeNs(const struct stat& st) {
+    return static_cast<int64_t>(st.st_mtim.tv_sec) * 1000000000LL + static_cast<int64_t>(st.st_mtim.tv_nsec);
+}
+} // namespace
 
 PairTradingContext* PairTradingContext::s_instance = nullptr;
 
@@ -72,6 +79,9 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     m_cfg = cfg;
     smc = s;
     s_instance = this;
+
+    // 只平不开的初值：必须在下面那些 RecalcOrderParams 之前就位。
+    SignalGenerator::Instance().SetCloseOnly(cfg.closeOnly);
 
     auto& pim = PairInfoManager::Instance();
     pim.Init(cfg.pairKeys, cfg.activeAccountId, cfg.passiveAccountId, smc);
@@ -154,6 +164,26 @@ void PairTradingContext::SignalWork() {
 
 // T_signal 的一轮。生产由 SignalWork() 循环调；测试停掉线程后手工推（见头文件注释）。
 void PairTradingContext::RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs) {
+    // 0. 运行时配置
+    struct stat st{};
+    if (::stat(m_cfg.configPath.c_str(), &st) == 0) {
+        const int64_t mtimeNs = FileMtimeNs(st);
+        const int64_t size = static_cast<int64_t>(st.st_size);
+        const uint64_t ino = static_cast<uint64_t>(st.st_ino);
+
+        bool fileSame = m_cfgStamp.valid && m_cfgStamp.ino == ino && m_cfgStamp.mtimeNs == mtimeNs && m_cfgStamp.size == size;
+        if (!fileSame) {
+            RuntimeConfig rc;
+            if (ReadRuntimeConfigFile(m_cfg.configPath, rc)) {
+                m_cfgStamp = CfgStamp{ino, mtimeNs, size, true};
+                m_cfgQ.push(rc);
+            }
+            else {
+                LOG_WARN("运行时配置: {} 读取/解析失败 -> 本次忽略，下一轮重试（指纹不更新）", m_cfg.configPath);
+            }
+        }
+    }
+
     // 1. 吃掉所有新样本
     SpreadSampleMsg sm;
     while (m_sampleQ.pop(sm)) {
@@ -1152,20 +1182,37 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     //        还有两个杠杆分支（position_value_both_max / active_total_pnl > leverage，被动腿同理），
     //        它们要"账户权益"当分母，而 C++ 侧这个口径没接通 —— UpdateOnBalance 拼的 key 匹配不上
     //        （两腿推的 currency 都是 USDT），那两行是空转。所以**没搬**，不是漏了，是缺输入。
-    {
-        const double cap = m_cfg.maxPositionValue;
-        const double totalPv = (cap > 0.0) ? pim.TotalPositionValue() : 0.0;
-        const bool exceeded = (cap > 0.0) && (totalPv > cap);
-        if (exceeded != sg.GetGlobalPositionExceeded()) {
-            sg.SetGlobalPositionExceeded(exceeded);
-            if (exceeded) {
-                LOG_WARN("全局持仓闸门: 所有对子持仓市值之和 {} > maxPositionValue {} -> 只平不开（已有持仓照常平，新开仓全部禁止）", totalPv, cap);
-            }
-            else {
-                LOG_INFO("全局持仓闸门解除: 持仓市值之和 {} <= maxPositionValue {} -> 恢复开仓", totalPv, cap);
-            }
+    const double cap = m_cfg.maxPositionValue;
+    const double totalPv = (cap > 0.0) ? pim.TotalPositionValue() : 0.0;
+    const bool exceeded = (cap > 0.0) && (totalPv > cap);
+    if (exceeded != sg.GetGlobalPositionExceeded()) {
+        sg.SetGlobalPositionExceeded(exceeded);
+        if (exceeded) {
+            LOG_WARN("全局持仓闸门: 所有对子持仓市值之和 {} > maxPositionValue {} -> 只平不开（已有持仓照常平，新开仓全部禁止）", totalPv, cap);
+        }
+        else {
+            LOG_INFO("全局持仓闸门解除: 持仓市值之和 {} <= maxPositionValue {} -> 恢复开仓", totalPv, cap);
         }
     }
+    
+    // 0.6 运行时配置：把 T_signal 投递过来的配置落地
+    RuntimeConfig rc;
+    bool configChanged = false;
+    while (m_cfgQ.pop(rc)) {
+        configChanged = true;
+    }
+
+    if (configChanged) {
+        sg.SetCloseOnly(rc.closeOnly);
+        m_cfg.closeOnly = rc.closeOnly;
+
+        // 立刻重算 orderParams 并把 algoModifyTime 归零。
+        for (PairInfo* pi : pim.GetAllPairInfos()) {
+            sg.RecalcOrderParams(*pi);
+            pi->algoModifyTime = 0;   // 0 = 下一轮 ProcessModify 立即推（见它的计时判断）
+        }
+    }
+    
 
     // 1. 重算报单量参数（每分钟）
     //    量一变就得重算 orderParams —— orderParams 的 16 个 *StartVolume/*EndVolume

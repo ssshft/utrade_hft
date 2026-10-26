@@ -57,7 +57,7 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     if (!ls.IsValid()) {
         // 早退路径也必须过闸门。这里 4 个开关保持上一轮的值，而"刚重启 + 统计还没攒够"
         // 正是带着恢复的大仓位、最该只平不开的时刻 —— 漏了这条闸门在预热期等于不存在。
-        ApplyGlobalPositionGate(op);
+        ApplyNoOpenGate(op);
         return;
     }
 
@@ -161,12 +161,13 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     }
 
     // 全局持仓闸门必须放**最后**：上面几段都在重写这 4 个开仓开关，压在前面会被它们打开。
-    ApplyGlobalPositionGate(op);
+    ApplyNoOpenGate(op);
 }
 
 // 只平不开：把 4 个开仓开关压成 false，平仓开关（ttCL/ttCS/mtCL/mtCS）不动。
-void SignalGenerator::ApplyGlobalPositionGate(OrderParams& op) const {
-    if (!m_globalPosExceeded) {
+// 两个来源任一成立就压：算出来的持仓超限 / 人给的配置开关。
+void SignalGenerator::ApplyNoOpenGate(OrderParams& op) const {
+    if (!m_globalPosExceeded && !m_closeOnly) {
         return;
     }
 
@@ -248,6 +249,16 @@ SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
 }
 
 bool SignalGenerator::CanOpen(const PairInfo& pi, std::string& reason) const {
+    // 配置里的"只平不开"（可热改）。放在最前面：它是人按的急停，
+    // 比 stopFlag/closeFlag 这些按对子的状态优先级更高，日志里也应该先看到它。
+    // 注意 RecalcOrderParams 已经把 4 个开仓开关压掉了，这里再判一次是为了：
+    //   ① 日志里能说出原因（否则只看到"没有信号"，看不出是人关的）；
+    //   ② 覆盖"开关刚被压、信号还没重算"的那一个 tick 的空窗。
+    if (m_closeOnly) {
+        reason = "closeOnly = true (配置)";
+        return false;
+    }
+
     if (pi.stopFlag) {
         reason = "stopFlag = true";
         return false;

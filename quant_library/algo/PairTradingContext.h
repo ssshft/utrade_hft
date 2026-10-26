@@ -10,6 +10,7 @@
 
 #include "../basic/PairInfo.h"
 #include "../basic/PairInfoManager.h"
+#include "../basic/RuntimeConfig.h"
 #include "../basic/BaseAlgoOrder.h"
 #include "../signal/SignalGenerator.h"
 #include "../signal/SpreadStatsBuilder.h"
@@ -27,6 +28,7 @@ namespace pt {
 using SpreadSampleQueue = boost::lockfree::spsc_queue<SpreadSampleMsg, boost::lockfree::capacity<256>>;
 using SpreadStatsQueue  = boost::lockfree::spsc_queue<SpreadStatsMsg,  boost::lockfree::capacity<256>>;
 using PairInfoQueue = boost::lockfree::spsc_queue<PairInfoRecord, boost::lockfree::capacity<1024>>;
+using RuntimeParamQueue = boost::lockfree::spsc_queue<RuntimeConfig, boost::lockfree::capacity<16>>;
 
 
 struct PairTradingConfig {
@@ -151,6 +153,12 @@ struct PairTradingConfig {
     int reconcileWarnIntervalSec{30}; // 等持仓推送的超时告警周期。超时只告警、**不放行** —— 按"无持仓"放行的后果是重复开仓
 
     bool freezeOnOrphanAlgoOrder{true}; // 快照里 hasActiveAlgoOrder == true（上一轮有算法单未终结）时，把该对子置 errorFlag 冻结，
+
+    // ---- 运行时配置（可热改）----
+    bool closeOnly{false};
+
+    // 被监视的配置文件路径（= 本次启动用的那份 config.json）。空 = 不监视、不热更新。
+    std::string configPath;
 };
 
 // 回调直接传递创建好的算法单对象（不再拼 JSON 字符串）
@@ -250,10 +258,23 @@ private:
     // 快照里 hasActiveAlgoOrder == true 的启动处理（告警 + 可选冻结），§5.4
     void HandleOrphanAlgoOrders();
 
-    // ---- T_signal：分位数计算线程（只做 Prune + Build + 统计落盘，别的一概不碰）----
-    // 由 Init 启动、StopSignalThread 停止。它**不写 PairInfo**，也不碰 DbpReader。
+    // ---- T_signal：IO 线程分位数计算/分位数落盘/pairinfo定期落盘/配置轮询
     void StartSignalThread();
     void SignalWork();
+
+    // 变更队列（T_signal 生产 / T_market 消费）。元素是整份 RuntimeConfig。
+    RuntimeParamQueue m_cfgQ;
+
+    // 配置文件指纹（T_signal 独占）：inode + mtime(纳秒) + size 三者都没变就不重读。
+    // 用纳秒而不是秒级 mtime：脚本/编辑器在同一秒里改两次，秒级精度看不出来。
+    // 带上 inode 是为了覆盖"写临时文件 + rename 替换"这种原子写法（inode 会变）。
+    struct CfgStamp {
+        uint64_t ino{0};
+        int64_t mtimeNs{0};
+        int64_t size{-1};
+        bool valid{false};
+    };
+    CfgStamp m_cfgStamp;
 
     // T_signal 的**一轮**：吃样本 -> 到点就 Build + 落盘。SignalWork() 循环调的就是它。
     //

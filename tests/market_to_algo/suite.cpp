@@ -161,12 +161,13 @@ static void ResetWorld() {
     pim.m_pairKeys.clear();
     pim.smc = nullptr;
 
-    // SignalGenerator 也是单例，它现在带一份**跨对子**的可变状态（全局持仓闸门）。
-    // 不清的话 D13 结尾留下的 `true` 会带进后面每一个用例 —— 症状是"某几个用例的
+    // SignalGenerator 也是单例，它现在带两份**跨对子**的可变状态（全局持仓闸门 + 配置里的只平不开）。
+    // 不清的话 D13 / K 组结尾留下的 `true` 会带进后面每一个用例 —— 症状是"某几个用例的
     // 开仓开关莫名其妙是 false"，而且跟用例本身毫无关系，极难定位。
-    // 生产上这个状态由 OnTimer 第 0.5 步每轮刷新，冷启动默认 false，所以这里清成 false
-    // 与真实初值一致。
+    // 生产上这两个状态分别由 OnTimer 第 0.5/0.6 步每轮刷新，冷启动默认 false，
+    // 所以这里清成 false 与真实初值一致。
     SignalGenerator::Instance().SetGlobalPositionExceeded(false);
+    SignalGenerator::Instance().SetCloseOnly(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -2534,6 +2535,209 @@ static void TestJ_TotalAccount() {
 }
 
 // ===========================================================================
+// K. 运行时配置热更新（op.pairTrading.closeOnly）
+//
+// 这条链路分三段，本组逐段验：
+//   解析段     ReadRuntimeConfigFile：真 JSON 文件 -> RuntimeConfig（K0）
+//   T_signal段 stat 配置文件 -> 指纹（inode+mtime+size）变了才读 -> 解析成功就 push 进 m_cfgQ
+//   交易线程段 OnTimer 第 0.6 步抽干队列 -> 搬进 SignalGenerator -> 压 4 个开仓开关
+//              + 让在跑的单本轮改参
+//
+// 为什么用**真 JSON 文件**而不是注入一个假读取器：解析就在
+// quant_library/basic/RuntimeConfig.cpp 里，本套件能直接编译它。于是"运维手写的配置
+// 到底认不认得出来"也一并验了 —— 这段代码决定急停有没有生效，不能只靠肉眼审。
+// ===========================================================================
+static void WriteTextFile(const std::string& path, const std::string& text) {
+    std::ofstream ofs(path, std::ios::trunc);
+    ofs << text;
+}
+
+static void TestK_RuntimeConfig() {
+    Section("K. 运行时配置热更新 (closeOnly)");
+
+    const std::string cfgPath = "/tmp/ptsuite/out/runtime_cfg.json";
+    auto& sg = SignalGenerator::Instance();
+
+    // K0 解析器本身：四种写法 + 两种失败
+    {
+        RuntimeConfig rc;
+
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":true}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.hasCloseOnly && rc.closeOnly,
+              "K0 裸 true 也认（JSON 两种布尔写法都不能踩空）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"true"}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.hasCloseOnly && rc.closeOnly,
+              "K0 字符串 \"true\" 认（本工程的主流写法）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"yes"}}})");
+        // 与其他配置字段同一条规则：非 "true" 的字符串就是 false（不做额外兜底）。
+        // 代价是写错值会静默变成 false —— 所以配置模板里那个字段必须带注释。
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.hasCloseOnly && !rc.closeOnly,
+              "K0 认不出的写法 -> 按其他字段的规则当 false（不额外兜底）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, "{ this is not json");
+        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "K0 语法错 -> 返回 false（调用方要重试）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && !rc.hasCloseOnly,
+              "K0 段缺失 -> 解析成功但没字段（不算读失败，不该重试）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, "");
+        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "K0 空文件 -> 返回 false（编辑器 truncate 的瞬间）");
+    }
+
+    // K1~K5 共用一份夹具
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        MakeOpenFriendlyStats(pi);          // 统计有效 -> RecalcOrderParams 走完整路径
+
+        fx.ctx.m_cfg.configPath = cfgPath;
+
+        // T_signal 是异步线程，先停掉，之后每一步都是确定的
+        fx.ctx.StopSignalThread();
+        int64_t lastStats = 0;
+
+        // 对照组：闸门关着时，同一份统计会让 4 个开仓开关都是开的。
+        // 没有这一步，下面"被压掉"就证明不了是 closeOnly 干的。
+        sg.SetCloseOnly(false);
+        sg.RecalcOrderParams(pi);
+        CHECK(pi.orderParams.ttOLSwitch && pi.orderParams.ttOSSwitch &&
+              pi.orderParams.mtOLSwitch && pi.orderParams.mtOSSwitch,
+              "K1 对照组：closeOnly=false -> 逻辑把 4 个开仓开关都打开");
+
+        // K1 配置改成 true -> 投递到队列 -> OnTimer 生效
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"true"}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
+        CHECK(fx.ctx.m_cfgStamp.valid, "K1 首次读到 -> 记下文件指纹");
+        CHECK(fx.ctx.m_cfgQ.read_available() == 1, "K1 解析成功 -> push 了一条配置");
+
+        fx.ctx.OnTimer(1000 * SEC);
+        CHECK(fx.ctx.m_cfgQ.read_available() == 0, "K1 OnTimer 把队列抽干");
+        CHECK(sg.GetCloseOnly(), "K1 OnTimer 把队列里的配置搬进 SignalGenerator");
+        CHECK(!pi.orderParams.ttOLSwitch && !pi.orderParams.ttOSSwitch &&
+              !pi.orderParams.mtOLSwitch && !pi.orderParams.mtOSSwitch,
+              "K1 只平不开 -> 4 个开仓开关全压掉");
+        CHECK(pi.orderParams.ttCLSwitch && pi.orderParams.ttCSSwitch &&
+              pi.orderParams.mtCLSwitch && pi.orderParams.mtCSSwitch,
+              "K1 平仓开关一个都没动");
+
+        // K2 文件没变 -> 不重读。
+        //    "少读一次"没法从外部直接观测（生产代码里没有读计数器，也不该为一个测试加）。
+        //    这里钉住的是**指纹记得对不对**：记错的表现是"每次都重读"或"永远不重读"，
+        //    前者会让 K4 的断言变红，后者会让 K3 变红。
+        struct stat st{};
+        CHECK(::stat(cfgPath.c_str(), &st) == 0 &&
+              fx.ctx.m_cfgStamp.size == static_cast<int64_t>(st.st_size) &&
+              fx.ctx.m_cfgStamp.ino == static_cast<uint64_t>(st.st_ino),
+              "K2 指纹记的是文件当前状态（inode + size）");
+
+        // K3 改回 false -> 恢复开仓
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"false"}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC + 1 * SEC, lastStats);
+        CHECK(fx.ctx.m_cfgQ.read_available() == 1, "K3 又 push 了一条");
+        fx.ctx.OnTimer(1000 * SEC + 1 * SEC);
+        CHECK(!sg.GetCloseOnly(), "K3 OnTimer 解除只平不开");
+        CHECK(pi.orderParams.ttOLSwitch && pi.orderParams.mtOSSwitch,
+              "K3 恢复后开仓开关重新打开");
+
+        // K4 解析失败（编辑器写到一半 / 语法错）-> 保持原值，且**不更新指纹**（下一轮重试）
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"true"}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC + 2 * SEC, lastStats);
+        fx.ctx.OnTimer(1000 * SEC + 2 * SEC);
+        CHECK(sg.GetCloseOnly(), "K4 前置：已进入只平不开");
+
+        const auto stampBefore = fx.ctx.m_cfgStamp;
+        WriteTextFile(cfgPath, "{ broken json !!!");
+        fx.ctx.RunSignalOnce(1000 * SEC + 3 * SEC, lastStats);
+        CHECK(sg.GetCloseOnly(), "K4 解析失败 -> 保持原值");
+        CHECK(fx.ctx.m_cfgQ.read_available() == 0, "K4 解析失败 -> 不 push（直接跳过）");
+        CHECK(fx.ctx.m_cfgStamp.size == stampBefore.size &&
+              fx.ctx.m_cfgStamp.mtimeNs == stampBefore.mtimeNs,
+              "K4 解析失败不更新指纹 -> 下一轮还会重试（不会卡死）");
+
+        // K5 文件里没有这个 key -> push 了但消费端不动（删 key 不等于放开开仓）
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"maxAmount":"1000"}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC + 4 * SEC, lastStats);
+        CHECK(fx.ctx.m_cfgQ.read_available() == 1, "K5 解析成功 -> 照常 push");
+        fx.ctx.OnTimer(1000 * SEC + 4 * SEC);
+        CHECK(sg.GetCloseOnly(),
+              "K5 文件里没有 closeOnly -> 消费端跳过，保持原值（删 key 不等于放开开仓）");
+    }
+
+    // K6 configPath 为空 -> 完全不监视（没配路径就不该有任何文件操作）
+    {
+        Fx fx; Boot(fx);
+        fx.ctx.StopSignalThread();
+        int64_t lastStats = 0;
+        fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
+        CHECK(!fx.ctx.m_cfgStamp.valid, "K6 configPath 为空 -> 一次 stat 都不做");
+    }
+
+    // K7 CanOpen 的理由必须点明是配置关的（否则现场只看到"没信号"，查不出是人按的）
+    {
+        Fx fx; Boot(fx);
+        PairInfo& pi = *fx.pi();
+        std::string reason;
+        sg.SetCloseOnly(true);
+        CHECK(!sg.CanOpen(pi, reason), "K7 closeOnly=true -> CanOpen 返回 false");
+        CHECK(reason.find("closeOnly") != std::string::npos, "K7 理由里带 closeOnly");
+        sg.SetCloseOnly(false);
+    }
+
+    // K8 启动时配置里就是 true -> Init 那一刻就只平不开，不必等 T_signal 读到文件。
+    //    这一小段窗口其实被启动闸门（Reconciling）挡着，但"配置里写了 true 却先放行两秒"
+    //    是那种只有真出事才会被发现的问题，一行 SetCloseOnly 就能消掉。
+    {
+        ResetWorld();
+        Fx fx;
+        fx.smc.Clear();
+        fx.smc.Set(kActive, MakeInstrumentInfo());
+        fx.smc.Set(kPassive, MakeInstrumentInfo());
+
+        PairTradingConfig cfg;
+        cfg.pairKeys = {kPairKey};
+        cfg.activeAccountId = 10000;
+        cfg.passiveAccountId = 10001;
+        cfg.closeOnly = true;
+        cfg.csvStatePath = "";              // 不读快照，保持用例干净
+        cfg.spreadStatsStatePath = "";      // 不读分位数快照（否则会被上一轮的落盘污染）
+        fx.Wire();
+        fx.ctx.Init(cfg, &fx.smc);
+
+        CHECK(sg.GetCloseOnly(), "K8 Init 就把配置里的 closeOnly 装进 SignalGenerator");
+        CHECK(fx.ctx.m_cfgQ.read_available() == 0,
+              "K8 队列是空的（Init 直接落地，不该再投一条）");
+    }
+
+    // K9 一个 tick 里来了两条 -> 必须抽干，最后落的是后一条。
+    //    "只 pop 一条"的症状很隐蔽：结果最终也对，只是要等下一轮 —— 若中途再没有 tick
+    //    （比如刚好在退出前），那就永远差一条。所以钉住"队列必须空"。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        fx.ctx.m_cfg.configPath = cfgPath;
+        fx.ctx.StopSignalThread();
+        int64_t lastStats = 0;
+
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"true"}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"false"}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC + 1 * SEC, lastStats);
+        CHECK(fx.ctx.m_cfgQ.read_available() == 2, "K9 两次改动 -> 队列里两条");
+
+        fx.ctx.OnTimer(1000 * SEC + 1 * SEC);
+        CHECK(fx.ctx.m_cfgQ.read_available() == 0, "K9 OnTimer 一个 tick 把两条都吃掉");
+        CHECK(!sg.GetCloseOnly(), "K9 后一条覆盖前一条（最终是 false）");
+    }
+}
+
+// ===========================================================================
 int main() {
     // 固定配置，让成本口径可预测。
     //
@@ -2568,6 +2772,7 @@ int main() {
     TestH_Position();
     TestI_Balance();
     TestJ_TotalAccount();
+    TestK_RuntimeConfig();
 
     std::printf("\n=================================================\n");
     std::printf("PASS: %d   FAIL: %d\n", g_pass, g_fail);
