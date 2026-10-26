@@ -2535,13 +2535,13 @@ static void TestJ_TotalAccount() {
 }
 
 // ===========================================================================
-// K. 运行时配置热更新（op.pairTrading.closeOnly）
+// K. 运行时配置热更新（op.pairTrading.closeOnly / stopAllAlgo）
 //
 // 这条链路分三段，本组逐段验：
 //   解析段     ReadRuntimeConfigFile：真 JSON 文件 -> RuntimeConfig（K0）
 //   T_signal段 stat 配置文件 -> 指纹（inode+mtime+size）变了才读 -> 解析成功就 push 进 m_cfgQ
-//   交易线程段 OnTimer 第 0.6 步抽干队列 -> 搬进 SignalGenerator -> 压 4 个开仓开关
-//              + 让在跑的单本轮改参
+//   交易线程段 OnTimer 第 0.6 步抽干队列 -> 搬进 SignalGenerator / m_cfg -> 压 4 个开仓开关
+//              + 让在跑的单本轮改参；stopAllAlgo 另有三处闸门 + 第 0.7 步每 tick 撤单
 //
 // 为什么用**真 JSON 文件**而不是注入一个假读取器：解析就在
 // quant_library/basic/RuntimeConfig.cpp 里，本套件能直接编译它。于是"运维手写的配置
@@ -2553,43 +2553,42 @@ static void WriteTextFile(const std::string& path, const std::string& text) {
 }
 
 static void TestK_RuntimeConfig() {
-    Section("K. 运行时配置热更新 (closeOnly)");
+    Section("K. 运行时配置热更新 (closeOnly / stopAllAlgo)");
 
     const std::string cfgPath = "/tmp/ptsuite/out/runtime_cfg.json";
     auto& sg = SignalGenerator::Instance();
 
-    // K0 解析器本身：四种写法 + 两种失败
+    // K0 解析器本身
+    //    ⚠️ 这里刻意**不写**带引号的布尔：`s["x"].GetBool()` 对字符串会 RAPIDJSON_ASSERT，
+    //    本套件是 Debug 口径（assert 生效）-> 直接 abort。配置里必须写裸 true/false。
     {
         RuntimeConfig rc;
 
-        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":true}}})");
-        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.hasCloseOnly && rc.closeOnly,
-              "K0 裸 true 也认（JSON 两种布尔写法都不能踩空）");
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":true,"stopAllAlgo":true}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.closeOnly && rc.stopAllAlgo,
+              "K0 裸 true：两个字段都读出来");
 
         rc = RuntimeConfig{};
-        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"true"}}})");
-        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.hasCloseOnly && rc.closeOnly,
-              "K0 字符串 \"true\" 认（本工程的主流写法）");
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":false,"stopAllAlgo":true}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && !rc.closeOnly && rc.stopAllAlgo,
+              "K0 两个字段互不影响");
 
         rc = RuntimeConfig{};
-        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"yes"}}})");
-        // 与其他配置字段同一条规则：非 "true" 的字符串就是 false（不做额外兜底）。
-        // 代价是写错值会静默变成 false —— 所以配置模板里那个字段必须带注释。
-        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.hasCloseOnly && !rc.closeOnly,
-              "K0 认不出的写法 -> 按其他字段的规则当 false（不额外兜底）");
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && !rc.closeOnly && !rc.stopAllAlgo,
+              "K0 段在、key 全缺 -> 解析成功，值取默认 false");
 
         rc = RuntimeConfig{};
         WriteTextFile(cfgPath, "{ this is not json");
-        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "K0 语法错 -> 返回 false（调用方要重试）");
+        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "K0 语法错（半截文件）-> false，调用方重试");
 
         rc = RuntimeConfig{};
         WriteTextFile(cfgPath, R"({"op":{}})");
-        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && !rc.hasCloseOnly,
-              "K0 段缺失 -> 解析成功但没字段（不算读失败，不该重试）");
+        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "K0 没有 pairTrading 段 -> false");
 
         rc = RuntimeConfig{};
         WriteTextFile(cfgPath, "");
-        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "K0 空文件 -> 返回 false（编辑器 truncate 的瞬间）");
+        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "K0 空文件 -> false（编辑器 truncate 的瞬间）");
     }
 
     // K1~K5 共用一份夹具
@@ -2613,7 +2612,7 @@ static void TestK_RuntimeConfig() {
               "K1 对照组：closeOnly=false -> 逻辑把 4 个开仓开关都打开");
 
         // K1 配置改成 true -> 投递到队列 -> OnTimer 生效
-        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"true"}}})");
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":true}}})");
         fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
         CHECK(fx.ctx.m_cfgStamp.valid, "K1 首次读到 -> 记下文件指纹");
         CHECK(fx.ctx.m_cfgQ.read_available() == 1, "K1 解析成功 -> push 了一条配置");
@@ -2639,7 +2638,7 @@ static void TestK_RuntimeConfig() {
               "K2 指纹记的是文件当前状态（inode + size）");
 
         // K3 改回 false -> 恢复开仓
-        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"false"}}})");
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":false}}})");
         fx.ctx.RunSignalOnce(1000 * SEC + 1 * SEC, lastStats);
         CHECK(fx.ctx.m_cfgQ.read_available() == 1, "K3 又 push 了一条");
         fx.ctx.OnTimer(1000 * SEC + 1 * SEC);
@@ -2648,7 +2647,7 @@ static void TestK_RuntimeConfig() {
               "K3 恢复后开仓开关重新打开");
 
         // K4 解析失败（编辑器写到一半 / 语法错）-> 保持原值，且**不更新指纹**（下一轮重试）
-        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"true"}}})");
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":true}}})");
         fx.ctx.RunSignalOnce(1000 * SEC + 2 * SEC, lastStats);
         fx.ctx.OnTimer(1000 * SEC + 2 * SEC);
         CHECK(sg.GetCloseOnly(), "K4 前置：已进入只平不开");
@@ -2662,13 +2661,15 @@ static void TestK_RuntimeConfig() {
               fx.ctx.m_cfgStamp.mtimeNs == stampBefore.mtimeNs,
               "K4 解析失败不更新指纹 -> 下一轮还会重试（不会卡死）");
 
-        // K5 文件里没有这个 key -> push 了但消费端不动（删 key 不等于放开开仓）
+        // K5 文件里没有这个 key -> 读成 false
+        //    ⚠️ 这是当前语义：**删掉 key 等于放开开仓**。所以配置模板里必须一直保留它，
+        //    只改值，不要整行删掉。
         WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"maxAmount":"1000"}}})");
         fx.ctx.RunSignalOnce(1000 * SEC + 4 * SEC, lastStats);
         CHECK(fx.ctx.m_cfgQ.read_available() == 1, "K5 解析成功 -> 照常 push");
         fx.ctx.OnTimer(1000 * SEC + 4 * SEC);
-        CHECK(sg.GetCloseOnly(),
-              "K5 文件里没有 closeOnly -> 消费端跳过，保持原值（删 key 不等于放开开仓）");
+        CHECK(!sg.GetCloseOnly(),
+              "K5 文件里没有 closeOnly -> 读成 false（删 key 等于放开开仓）");
     }
 
     // K6 configPath 为空 -> 完全不监视（没配路径就不该有任何文件操作）
@@ -2725,15 +2726,157 @@ static void TestK_RuntimeConfig() {
         fx.ctx.StopSignalThread();
         int64_t lastStats = 0;
 
-        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"true"}}})");
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":true}}})");
         fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
-        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":"false"}}})");
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":false}}})");
         fx.ctx.RunSignalOnce(1000 * SEC + 1 * SEC, lastStats);
         CHECK(fx.ctx.m_cfgQ.read_available() == 2, "K9 两次改动 -> 队列里两条");
 
         fx.ctx.OnTimer(1000 * SEC + 1 * SEC);
         CHECK(fx.ctx.m_cfgQ.read_available() == 0, "K9 OnTimer 一个 tick 把两条都吃掉");
         CHECK(!sg.GetCloseOnly(), "K9 后一条覆盖前一条（最终是 false）");
+    }
+
+    // K10 停掉所有算法单：在跑的算法单被撤
+    //     satisfyTime / algoModifyTime 都摆到"刚好到期之前"，否则同一轮里
+    //     CheckAlgoOrderTimeout 和 ProcessModify 也会各发一条，分不清是谁发的。
+    //     ⚠️ 但这一轮配置**会变**：步骤 0.6 落地新配置时会把 algoModifyTime 归零
+    //        （为了让 closeOnly 立刻作用到在跑的单）。所以这里同时验证了
+    //        "stopAllAlgo 打开时 ProcessModify 直接跳过" —— 否则 modifyCalls 会是
+    //        [CANCEL, MODIFY] 两条，size() == 1 这一条就会红。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+        fx.ctx.m_cfg.configPath = cfgPath;
+        fx.ctx.StopSignalThread();
+        int64_t lastStats = 0;
+
+        pi.hasActiveAlgoOrder = true;
+        pi.currentAlgoOrderId = 555LL;
+        pi.satisfyTime    = 1000 * SEC;
+        pi.algoModifyTime = 1000 * SEC;
+
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"stopAllAlgo":true}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
+        CHECK(fx.modifyCalls.empty(), "K10 T_signal 只投递、不在这条线程动单");
+
+        fx.ctx.OnTimer(1000 * SEC);
+        CHECK(fx.ctx.m_cfg.stopAllAlgo, "K10 OnTimer 把 stopAllAlgo 落地");
+        CHECK(fx.modifyCalls.size() == 1 && fx.LastCmd() == stra::CommandType_CANCEL &&
+              fx.modifyCalls[0].first == 555LL,
+              "K10 在跑的算法单被撤（CANCEL + 按 id 指回）");
+
+        // 撤单是异步两段式（CANCELLING 要等被动腿成交才终结），所以每 tick 都会再发一次。
+        // 注意这里只断言"继续请求"，不断言"终结" —— 被动腿不成交时它会一直停在这儿。
+        fx.modifyCalls.clear();
+        pi.satisfyTime    = 1000 * SEC + 1 * SEC;
+        pi.algoModifyTime = 1000 * SEC + 1 * SEC;
+        fx.ctx.OnTimer(1000 * SEC + 1 * SEC);
+        CHECK(fx.modifyCalls.size() == 1 && fx.LastCmd() == stra::CommandType_CANCEL,
+              "K10 还没终结 -> 下一 tick 继续请求撤单");
+    }
+
+    // K11 stopAllAlgo 打开时不创建新算法单；关掉后恢复
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+        ArmOpen(pi, "ttOL", 0.0);              // 与 B 组同一个"必定开仓"的场景
+
+        fx.ctx.m_cfg.stopAllAlgo = true;
+        fx.ctx.ProcessPairSignal(pi);
+        CHECK(fx.N() == 0, "K11 stopAllAlgo=true -> 不创建新算法单");
+
+        fx.ctx.m_cfg.stopAllAlgo = false;
+        fx.ctx.ProcessPairSignal(pi);
+        CHECK(fx.N() == 1, "K11 关掉后同一个场景照常报单（证明上一条不是信号本身不成立）");
+    }
+
+    // K12 停掉所有算法单时连风控强平也不发 —— 强平单也是算法单，否则"不再创建新的"就是空话
+    //     时间基准照抄 F 组：取一个远离 0 的固定值，避免和 CheckRisk 内部的计时起点（初始 0）混淆。
+    const int64_t tRisk = 1000 * DAY;
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        pi.rtSpread.passiveFundingRate = 0.4;   // 与 F6 同一个"资金费率异常 -> 强平"场景
+
+        fx.ctx.m_cfg.stopAllAlgo = true;
+        fx.ctx.ProcessRisk(pi, tRisk);
+        CHECK(fx.N() == 0, "K12 stopAllAlgo=true -> 风控强平也不发单");
+    }
+    {
+        // 对照组：同样的场景、开关关着 -> 会发
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        pi.rtSpread.passiveFundingRate = 0.4;
+
+        fx.ctx.ProcessRisk(pi, tRisk);
+        CHECK(fx.N() == 1, "K12 对照组：stopAllAlgo=false -> 强平照常发");
+    }
+
+    // K13 启动时配置里就写着 stopAllAlgo=true -> 从第一秒起就不发单
+    //     这条钉的是 Init 那条路径：`m_cfg = cfg` 一旦被改成逐字段赋值而漏掉新字段，
+    //     表现是"配置写了 true、重启后照样报单"，而运行期热改（K10/K11）完全测不出来。
+    //     顺带钉住"初值不走队列" —— Init 直接落地，不该再投一条。
+    {
+        ResetWorld();
+        Fx fx;
+        fx.smc.Clear();
+        fx.smc.Set(kActive, MakeInstrumentInfo());
+        fx.smc.Set(kPassive, MakeInstrumentInfo());
+
+        PairTradingConfig cfg;
+        cfg.pairKeys = {kPairKey};
+        cfg.activeAccountId = 10000;
+        cfg.passiveAccountId = 10001;
+        cfg.stopAllAlgo = true;
+        cfg.csvStatePath = "";
+        cfg.spreadStatsStatePath = "";
+        fx.Wire();
+        fx.ctx.Init(cfg, &fx.smc);
+
+        CHECK(fx.ctx.m_cfg.stopAllAlgo, "K13 Init 把配置里的 stopAllAlgo 装进 m_cfg");
+        CHECK(fx.ctx.m_cfgQ.read_available() == 0, "K13 初值不走队列");
+
+        GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
+        ArmOpen(pi, "ttOL", 0.0);          // 与 K11 同一个"必定开仓"的场景
+        fx.ctx.ProcessPairSignal(pi);
+        CHECK(fx.N() == 0, "K13 启动即 stopAllAlgo -> 同一个场景也不发单");
+    }
+
+    // K14 closeOnly **不撤**在跑的开仓单，只推一条 MODIFY 把 4 个开仓开关压掉
+    //     这条钉的是"只平不开"的边界：它是关闸门，不是拉手刹。
+    //     执行侧真正让这张单结束的是另一条路径（4 个开仓开关全 false + 无在途 pairOrder
+    //     -> AlgoContext 自己把算法单终结成 ALGO_OS_FILLED），那条在 tests/algo_exec 里。
+    //     这里只验到"我们这一层发出去的是什么"。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        MakeOpenFriendlyStats(pi);         // 与 K1 同一份夹具：4 个开仓开关本来是开的
+        fx.ctx.m_cfg.configPath = cfgPath;
+        fx.ctx.StopSignalThread();
+        int64_t lastStats = 0;
+
+        pi.hasActiveAlgoOrder = true;
+        pi.currentAlgoOrderId = 777LL;
+        pi.satisfyTime    = 1000 * SEC;    // 摆到"刚好到期之前"，别让超时撤单混进来
+        pi.algoModifyTime = 1000 * SEC;
+
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":true}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
+        fx.ctx.OnTimer(1000 * SEC);
+
+        CHECK(fx.modifyCalls.size() == 1 && fx.LastCmd() == stra::CommandType_MODIFY,
+              "K14 closeOnly -> 在跑的单只收到 MODIFY（不是 CANCEL）");
+        CHECK(!fx.modifyPayloads.empty(), "K14 MODIFY 带参数体");
+        if (!fx.modifyPayloads.empty()) {
+            const auto& m = fx.modifyPayloads.back();
+            CHECK(!m.ttOLSwitch && !m.ttOSSwitch && !m.mtOLSwitch && !m.mtOSSwitch,
+                  "K14 推过去的 4 个开仓开关全 false");
+            CHECK(m.ttCLSwitch && m.ttCSSwitch && m.mtCLSwitch && m.mtCSSwitch,
+                  "K14 平仓开关一个都没动（只平不开 = 平仓照常）");
+        }
+        CHECK(pi.hasActiveAlgoOrder, "K14 对子仍被这张单占着 —— closeOnly 不撤单");
     }
 }
 

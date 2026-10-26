@@ -149,6 +149,9 @@ struct PairTradingConfig {
 
     // ---- 运行时配置（可热改）----
     bool closeOnly{false};
+    // 停掉所有算法单的**初值**（启动时读一次，之后由 T_signal 轮询覆盖）。
+    // true = 撤掉在跑的算法单、且不再创建新的（比 closeOnly 更狠：连平仓和风控强平也不发）。
+    bool stopAllAlgo{false};
 
     // 被监视的配置文件路径（= 本次启动用的那份 config.json）。空 = 不监视、不热更新。
     std::string configPath;

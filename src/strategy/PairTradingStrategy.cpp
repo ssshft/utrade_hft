@@ -70,6 +70,9 @@ void PairTradingStrategy::pre_start(Config* config) {
         if (s.HasMember("closeOnly")) {
             m_ptCfg.closeOnly = s["closeOnly"].GetBool() ;
         }
+        if (s.HasMember("stopAllAlgo")) {
+            m_ptCfg.stopAllAlgo = s["stopAllAlgo"].GetBool() ;
+        }
 
         // 热更新监视的就是本次启动用的这份配置文件。Config 只保存解析结果（启动那一刻的
         // 快照，永远不会变），所以路径必须由它自己记下来 —— 见 include/config.h 的 get_path()。

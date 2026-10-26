@@ -41,10 +41,12 @@
 //   所以改 PairTradingConfig 里那两个默认值会直接改到这里 —— B1 钉的就是这个映射。
 //   这不是笔误，是配对交易的腿约定；B1 会把这些逐字段钉住。
 //
-//   同一时刻 MT 分支也会被进入一次（两个 if 是并列的，不是 else if），
-//   但 mtOLSwitch/mtOSSwitch 都是 false -> CreatePairOrder(MAKER_TAKER) 内部
-//   一个 GetTargetPairOrder 都不调，pairOrder.pairId 保持 -1，于是不报单。
-//   所以 B1 只应该看到 **一条** 出向报单。
+//   两个分支（TT / MT）是并列的 if，但**互斥**：判据是算法单上的
+//   `tradingTypeOrder`（`AlgoContext.cpp:484` 要 MAKER_TAKER、`:572` 要 TAKER_TAKER），
+//   而它由建单时的 `isTT ? TAKER_TAKER : MAKER_TAKER` 决定（`PairTradingContext.cpp:892`）。
+//   ⚠️ 这一行在 2026-10-26 之前被写死成 MAKER_TAKER：所有 "TT" 单都跑 MT 分支，
+//      读 `mt*` 开关、用 `spreadAskAsk/bidBid` 定价 —— 本套件当时 7 条红的根因。
+//   所以 TT 单只应该看到 **一条** 出向报单。
 // ===========================================================================
 
 // ---- 所有 std 头必须先包含完（#define private public 的要求，见 README）----
@@ -608,7 +610,12 @@ static void TestB_SplitAndPlace() {
     Section("B. 拆单报单（OnSpread）");
 
     // B1 行情有效 -> 拆出主动腿子单并报出去，逐字段核对
-    {
+    //
+    // ⚠️ 每个用例都包一层 `[&]{ ... }();`：里面的 `return` 只退出**本用例**。
+    //    以前这里是裸 `{}`，一句 `if (!o) return;` 退出的是整个 TestB ——
+    //    B2~B5 一条都不跑，而汇总只报一条 FAIL，看起来"只差一条"。
+    //    D/E/F 同理：D3 前置失败会连带吞掉 D4~D7（含 D6 的 MODIFY 覆盖）。
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         BaseAlgoOrder* o = OpenTtOL(fx);
         CHECK(o != nullptr, "B1 先有算法单");
@@ -660,7 +667,7 @@ static void TestB_SplitAndPlace() {
         CHECK(std::strcmp(n->strategyId, "test1") == 0, "B1 出向: strategyId = test1");
         CHECK(std::strcmp(n->strategyRef, MakeRef(o, pos[0].pairId).c_str()) == 0,
               "B1 出向: strategyRef == \"algoOrderId_pairId\"（OnOrder 就是靠它定位的）");
-    }
+    }();
 
     // B2 行情无效（spreadEffective = false）-> 不报单
     {
@@ -719,7 +726,7 @@ static void TestC_Fill() {
     Section("C. 成交回报（OnOrder）");
 
     // C1 主动腿全成 -> 子单状态/成交量更新 + 立刻补报被动腿
-    {
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         BaseAlgoOrder* o = OpenTtOL(fx);
         dbp::DbpTopic topic = MakeTopic(kPairKey);
@@ -774,10 +781,10 @@ static void TestC_Fill() {
             CHECK(pn->offsetFlag == OF_OPEN, "C1 被动腿出向: offsetFlag = OF_OPEN");
             CHECK(std::strcmp(pn->strategyRef, sref.c_str()) == 0, "C1 被动腿与主动腿同一个 strategyRef（同一个 pairOrder）");
         }
-    }
+    }();
 
     // C2 乱序回报（volumeTraded 小于已有累计量）被丢弃
-    {
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         BaseAlgoOrder* o = OpenTtOL(fx);
         dbp::DbpTopic topic = MakeTopic(kPairKey);
@@ -802,7 +809,7 @@ static void TestC_Fill() {
             }
         }
         (void)nAfterFirst;
-    }
+    }();
 
     // C3 strategyRef 解析不了 -> 丢弃，不崩
     {
@@ -837,7 +844,7 @@ static void TestC_Fill() {
     }
 
     // C6 部分成交（PARTFILLED）也要触发被动腿，且不终结子单
-    {
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         BaseAlgoOrder* o = OpenTtOL(fx);
         dbp::DbpTopic topic = MakeTopic(kPairKey);
@@ -857,7 +864,7 @@ static void TestC_Fill() {
         CHECK(act && act->orderStatus == OS_PARTFILLED, "C6 主动腿状态 = OS_PARTFILLED");
         CHECK(act && Near(act->totalVolumeOnOrder, 0.5), "C6 主动腿累计成交量 = 0.5");
         CHECK(fx.NNew() == 2, "C6 部分成交也补报被动腿（按已成交量对冲）");
-    }
+    }();
 }
 
 // ===========================================================================
@@ -894,7 +901,7 @@ static void TestD_Cancel() {
     //    （CreateActiveOrder 里写死的"等交易所"），OS_PEND 不在可撤列表里 —— 直接撤会一条都不发。
     //    生产里这一跳是交易所的报单回报（OnOrder, apiSource=AS_ADD_NEW_ORDER）补上的，
     //    所以测试里也必须补这一步，否则测的就不是真实时序。
-    {
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         BaseAlgoOrder* o = OpenTtOL(fx);
         dbp::DbpTopic topic = MakeTopic(kPairKey);
@@ -926,10 +933,10 @@ static void TestD_Cancel() {
             CHECK(c->exchangeTypeEnum == BINANCE, "D3 撤单发给主动腿交易所");
         }
         CHECK(fx.NNew() == 1, "D3 CANCELLING 下不再报新单");
-    }
+    }();
 
     // D4 子单撤单回报回来 -> pairOrder 清零 -> OnTimer 把算法单推进 CANCELED 并回传策略层
-    {
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         BaseAlgoOrder* o = OpenTtOL(fx);
         dbp::DbpTopic topic = MakeTopic(kPairKey);
@@ -954,7 +961,7 @@ static void TestD_Cancel() {
         fx.algoCtx.OnTimer(crypto::getCurrentTime());
         CHECK(o->algoOrderStatus == stra::ALGO_OS_CANCELED, "D4 OnTimer -> ALGO_OS_CANCELED");
         CHECK(o->commandType == stra::CommandType_CANCELED, "D4 commandType = CANCELED");
-    }
+    }();
 
     // D5 已终结的算法单拒绝再变更
     {
@@ -994,6 +1001,325 @@ static void TestD_Cancel() {
         fx.algoCtx.SubmitAlgoOrder(o->algoOrderId, stra::CommandType_MODIFY, &mod);
         CHECK(!Near(o->profitPct, 0.0042), "D7 CANCELLING 期间 MODIFY 被拒");
     }
+
+    // D8 closeOnly 端到端：热改 -> OnTimer 落地 -> ProcessModify 推 MODIFY
+    //    -> 执行侧把**在跑的算法单**上 4 个开仓开关逐个写成 false
+    //
+    // 这条直接回答"closeOnly 生效后，正在执行的开仓算法单怎么会变成只平仓的单"：
+    // 不是靠"不报新单"，而是靠一条 MODIFY 把对象上的成员改掉 —— 之后
+    // AlgoPairOrder::GetTargetPairOrder 读到的 swch 就是 false，只可能走平仓分支。
+    //
+    // 三段必须都验，缺一段就证明不了因果：
+    //   ① 配置入队（T_signal 侧唯一的动作，整份 RuntimeConfig）
+    //   ② 策略侧 orderParams 被 ApplyNoOpenGate 压掉（信号层）
+    //   ③ 执行侧 BaseAlgoOrder 的 4 个开仓开关变成 false（对象层，用户问的就是这里）
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+
+        // 用 MakeHoldable 而不是 ArmOpen：后者只开 ttOL，另外 3 个开仓开关本来就是 false，
+        // "4 个都被压成 false"就证明不了任何东西。这里要 8 个开关全 true 的起点。
+        PairInfo& pi = *fx.pi();
+        MakeHoldable(pi, 0.0);
+        pi.rtSpread.spreadBidAsk = -1.0;
+        pi.orderParams.ttOLStartSpread = 0.0;
+        pi.orderParams.ttOLEndVolume = -1.0;
+        fx.ptCtx.ProcessPairSignal(pi);
+
+        BaseAlgoOrder* o = fx.Order0();
+        CHECK(o != nullptr, "D8 前置：开仓算法单已建");
+        if (!o) return;
+        CHECK(o->ttOLSwitch && o->ttOSSwitch && o->mtOLSwitch && o->mtOSSwitch,
+              "D8 前置：算法单上 4 个开仓开关都是 true");
+
+        // ① T_signal 侧：只往队列里塞整份 RuntimeConfig（不碰 PairInfo、不碰算法单）
+        pt::RuntimeConfig rc;
+        rc.closeOnly = true;
+        rc.stopAllAlgo = false;
+        CHECK(fx.ptCtx.m_cfgQ.push(rc), "D8 ① 配置入队");
+
+        // ② OnTimer 0.6 抽干队列 -> SetCloseOnly + RecalcOrderParams + algoModifyTime=0
+        //    同一个 OnTimer 的第 5 步就会 ProcessModify（algoModifyTime=0 立刻过门槛）
+        const size_t modsBefore = fx.modifyCalls.size();
+        fx.ptCtx.OnTimer(crypto::getCurrentTime());
+
+        const auto& op2 = pi.orderParams;
+        CHECK(!op2.ttOLSwitch && !op2.ttOSSwitch && !op2.mtOLSwitch && !op2.mtOSSwitch,
+              "D8 ② 策略侧 orderParams 的 4 个开仓开关被压掉");
+        CHECK(op2.ttCLSwitch && op2.ttCSSwitch && op2.mtCLSwitch && op2.mtCSSwitch,
+              "D8 ② 策略侧 4 个平仓开关不受影响");
+
+        // ③ 执行侧：MODIFY 整份覆盖到在跑的对象上
+        CHECK(fx.modifyCalls.size() > modsBefore, "D8 ③ 策略层推了一条变更给执行侧");
+        if (fx.modifyCalls.size() > modsBefore) {
+            CHECK(fx.modifyCalls.back().second == stra::CommandType_MODIFY,
+                  "D8 ③ closeOnly 推的是 MODIFY，不是 CANCEL（不撤在跑的单）");
+            CHECK(fx.modifyCalls.back().first == o->algoOrderId, "D8 ③ 改的就是这张在跑的算法单");
+        }
+        CHECK(!o->ttOLSwitch, "D8 ③ 执行侧 ttOLSwitch -> false");
+        CHECK(!o->ttOSSwitch, "D8 ③ 执行侧 ttOSSwitch -> false");
+        CHECK(!o->mtOLSwitch, "D8 ③ 执行侧 mtOLSwitch -> false");
+        CHECK(!o->mtOSSwitch, "D8 ③ 执行侧 mtOSSwitch -> false");
+        CHECK(o->ttCLSwitch && o->ttCSSwitch && o->mtCLSwitch && o->mtCSSwitch,
+              "D8 ③ 执行侧 4 个平仓开关仍是 true（只平不开，不是全停）");
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_NEW,
+              "D8 ③ MODIFY 不改状态：单子继续在跑，只是不再开仓");
+    }();
+
+    // D9 只平不开的"决策层"证据：压掉开关后，同一个对象再也取不到开仓方向的配对单
+    //
+    // D8 证明的是"开关成员真的被改了"，D9 证明的是**改完之后的后果**：
+    //   · GetTargetPairOrder 里开仓方向被 `if (!swch) return` 挡住（AlgoPairOrder.cpp:179-183）；
+    //   · CreatePairOrder 里开仓方向被 `if (ttOLSwitch)` 挡住（AlgoPairOrder.cpp:670-685），
+    //     空仓时走到最后那个 else 分支，两个 if 全不成立 ⇒ 直接返回空单。
+    // 必须有对照组：closeOnly 之前同一个调用能拿到配对单，否则"拿不到"证明不了是它干的。
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+
+        PairInfo& pi = *fx.pi();
+        MakeHoldable(pi, 0.0);                 // 8 个开关全 true
+        pi.rtSpread.spreadBidAsk = -1.0;
+        pi.orderParams.ttOLStartSpread = 0.0;
+        pi.orderParams.ttOLEndVolume = -1.0;
+        fx.ptCtx.ProcessPairSignal(pi);
+
+        BaseAlgoOrder* o = fx.Order0();
+        CHECK(o != nullptr, "D9 前置：算法单已建");
+        if (!o) return;
+
+        // GetTargetPairOrder 要从 SpreadManager 取 pdata，先喂一帧行情。
+        // ⚠️ 必须 spreadEffective=false：这一帧只用来把行情灌进 SpreadManager，**不能报单**。
+        //    否则主动腿一挂出去，GetExpectActiveVolume() 就变成 -1，"再开一笔"的额度没了，
+        //    下面对照组会取不到 OPEN_LONG（那就分不清是 closeOnly 挡的还是没额度挡的）。
+        dbp::DbpTopic topic = MakeTopic(kPairKey);
+        dbp::DbpData pdata = FreshData();
+        pdata.spreadEffective = false;
+        fx.algoCtx.OnSpread(&topic, &pdata);
+        CHECK(fx.NNew() == 0, "D9 前置：这一帧只灌行情，不报单");
+
+        // ---- 对照组：closeOnly 之前，开仓方向取得到 ----
+        // 用显式的 pairOrderId（=12345）而不是 0：函数里 `pairOrder.pairId = pairOrderId`，
+        // 传 0 的话"成功"和"失败"都是 0，分不出来。
+        PairOrder openBefore = o->GetTargetPairOrder(stra::TAKER_TAKER, stra::OPEN_LONG, 12345);
+        CHECK(openBefore.pairId == 12345, "D9 对照：closeOnly 之前 OPEN_LONG 能取到配对单");
+        CHECK(openBefore.activeDirection == DT_SHORT, "D9 对照：OPEN_LONG 的主动腿方向 = DT_SHORT");
+
+        // ---- 打开 closeOnly ----
+        pt::RuntimeConfig rc;
+        rc.closeOnly = true;
+        rc.stopAllAlgo = false;
+        fx.ptCtx.m_cfgQ.push(rc);
+        fx.ptCtx.OnTimer(crypto::getCurrentTime());
+
+        // ---- 实验组：同一帧行情、同一个对象、同一个调用 ----
+        PairOrder openAfter = o->GetTargetPairOrder(stra::TAKER_TAKER, stra::OPEN_LONG, 12345);
+        CHECK(openAfter.pairId == -1, "D9 closeOnly 之后 OPEN_LONG 被开关挡死（pairId 保持默认 -1）");
+        PairOrder shortAfter = o->GetTargetPairOrder(stra::TAKER_TAKER, stra::OPEN_SHORT, 12345);
+        CHECK(shortAfter.pairId == -1, "D9 closeOnly 之后 OPEN_SHORT 同样被挡死");
+
+        // 端到端：空仓时整条拆单入口一个配对单都拿不到（开仓两条路都关，平仓无量可报）
+        PairOrder after = o->CreatePairOrder(stra::TAKER_TAKER);
+        CHECK(after.pairId <= 0, "D9 closeOnly 之后空仓 -> CreatePairOrder 一条都拆不出来");
+        // MT 那一套开关也被压了，换成 MAKER_TAKER 一样拆不出来
+        PairOrder afterMt = o->CreatePairOrder(stra::MAKER_TAKER);
+        CHECK(afterMt.pairId <= 0, "D9 MT 分支同样拆不出单（两套开仓开关都被压）");
+    }();
+
+    // D10 已部分成交 + closeOnly ⇒ 这张单**退化成只能平仓的单**（文档里那句话的实测）
+    //
+    // D8/D9 都是空仓，走的是 CreatePairOrder 最后那个 else 分支（|expectVolume| < minVolume），
+    // 开关一压就什么都不报。真实场景是"开仓单已经在跑、主动腿吃了一半"：
+    //   expectVolume = -0.5（主动腿已空 0.5）⇒ 落进 `expectVolume <= -minVolume` 分支
+    //   （AlgoPairOrder.cpp:664-676），那里是 if (ttOLSwitch && ttCLSwitch) / else if (ttOLSwitch)
+    //   / else if (ttCLSwitch) 三选一 —— ttOLSwitch 被压掉后就只剩 CLOSE_LONG 一条路。
+    // 这条用例就是把这个"只剩一条路"跑出来，而不是靠读代码断言。
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+
+        PairInfo& pi = *fx.pi();
+        MakeHoldable(pi, 0.0);                 // ttTargetVolume/maxVolume = 10，minVolume = 1
+        pi.rtSpread.spreadBidAsk = -1.0;
+        pi.orderParams.ttOLStartSpread = 0.0;
+        pi.orderParams.ttOLEndVolume = -1.0;
+        fx.ptCtx.ProcessPairSignal(pi);
+
+        BaseAlgoOrder* o = fx.Order0();
+        CHECK(o != nullptr, "D10 前置：算法单已建");
+        if (!o) return;
+
+        // 把"最小报单量"压到 0.1：0.5 的成交量才能落进"有持仓"那个分支（否则还在小量带里）。
+        // ⚠️ 开仓阶梯量**不能在这里改**：首帧 OnSpread 就是拿它算报单量的，提前改成 -3 会让
+        //    第一张子单直接报 3.0，expectVolume 变成 -3，"还想再补"就不成立了。
+        //    所以只改 minVolume，阶梯量留到首帧之后再动（见下）。
+        o->minVolume = 0.1;
+
+        dbp::DbpTopic topic = MakeTopic(kPairKey);
+        dbp::DbpData pdata = FreshData();
+        fx.algoCtx.OnSpread(&topic, &pdata);
+        CHECK(fx.NNew() == 1, "D10 前置：主动腿已报出");
+        auto pos = fx.PairOrders(o);
+        if (fx.NNew() != 1 || pos.empty()) return;
+        CHECK(Near(fx.News()[0]->volumeTotal, 1.0), "D10 前置：首张子单 1.0");
+
+        // 主动腿部分成交 0.5（DT_SHORT 方向）
+        //
+        // ⚠️ 成交 0.5 之后 GetExpectActiveVolume() 是 **-1.0**，不是 -0.5：
+        //    它 = 当前持仓 + 冻结 + 在途已成交，未成交的 0.5 还冻结着、已成交的 0.5 记在
+        //    pairOrder.activeTotalVolumeOnOrder 里，两段加起来才是"这些单全成交后的持仓"。
+        //    （BaseAlgoOrder.cpp:308-335）
+        const int64_t soid = fx.News()[0]->clientOrderId;
+        fx.algoCtx.OnOrder(MakeRtn(soid, MakeRef(o, pos[0].pairId).c_str(),
+                                   OS_PARTFILLED, 0.5, fx.News()[0]->limitPrice,
+                                   BINANCE, USDT_SWAP));
+
+        // 首帧之后再改阶梯量：目标 -3 vs 现状 -1 -> 还差 2 没补。
+        // 如果目标不比 expectVolume 更负，`targetActiveVolume < expectVolume` 直接为假，
+        // 对照组就取不到 OPEN_LONG —— 那样"取不到"就证明不了是 closeOnly 干的。
+        o->ttOLStartVolume = -3.0;
+        o->ttOLEndVolume = -3.0;
+
+        // 对照：closeOnly 之前，这张单还想继续把开仓量补完（目标 -3 vs 现状 -1 -> 补 2）
+        PairOrder before = o->CreatePairOrder(stra::TAKER_TAKER);
+        CHECK(before.pairId > 0, "D10 对照：closeOnly 之前还能拆出配对单");
+        CHECK(before.tradingTypeOffset == stra::OPEN_LONG,
+              "D10 对照：方向是 OPEN_LONG（还在补开仓）");
+        CHECK(Near(before.targetVolume, 2.0), "D10 对照：补的量 = 3 - 1 = 2");
+
+        // 打开 closeOnly
+        pt::RuntimeConfig rc;
+        rc.closeOnly = true;
+        rc.stopAllAlgo = false;
+        fx.ptCtx.m_cfgQ.push(rc);
+        fx.ptCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(!o->ttOLSwitch && !o->ttOSSwitch, "D10 closeOnly 已落到这张单上");
+        CHECK(o->ttCLSwitch, "D10 平仓开关还在");
+
+        // 给平仓一条走得通的阶梯：真实值由 RecalcOrderParams 从价差统计算出来，
+        // 夹具里没有统计，所以显式给一组"任何价差都落在区间内"的值。
+        // 关多 = 把主动腿买回 0（startVolume/endVolume 都是 0）。
+        o->ttCLStartSpread = -10.0;
+        o->ttCLEndSpread   = -20.0;
+        o->ttCLStartVolume = 0.0;
+        o->ttCLEndVolume   = 0.0;
+
+        // 同一个对象、同一个入口，这次只能给平仓方向
+        PairOrder after = o->CreatePairOrder(stra::TAKER_TAKER);
+        CHECK(after.pairId > 0, "D10 closeOnly 之后仍能拆出单（有持仓要平，不是全停）");
+        CHECK(after.tradingTypeOffset == stra::CLOSE_LONG,
+              "D10 方向退化成 CLOSE_LONG（只能平，不能再开）");
+        CHECK(after.activeDirection == DT_LONG,
+              "D10 平多 = 主动腿买回（DT_LONG），与开仓时的 DT_SHORT 相反");
+        CHECK(Near(after.targetVolume, 1.0),
+              "D10 平的量 = 1.0（把期望持仓 -1 平回 0；对照组的 2.0 是继续加仓）");
+    }();
+
+    // D11 stopAllAlgo 的执行侧整条链路：配置落地 -> 每 tick 请求撤单 -> 撤子单 -> 回报 -> CANCELED
+    //
+    // 和 D8 是**相反**的两个开关，别混：
+    //   closeOnly   -> 不撤单，推 MODIFY 把开仓开关压掉（D8/D9/D10）
+    //   stopAllAlgo -> 不推 MODIFY（ProcessModify 有闸门），每 tick 发一次 CANCEL（OnTimer 第 0.7 步）
+    // 这条链路以前只有策略侧 K 组覆盖（"发了 CANCEL、没发 MODIFY"），执行侧接住之后
+    // 能不能真的走到 CANCELED，没有在跑的用例。
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        BaseAlgoOrder* o = OpenTtOL(fx);
+        CHECK(o != nullptr, "D11 前置：算法单已建");
+        if (!o) return;
+
+        dbp::DbpTopic topic = MakeTopic(kPairKey);
+        dbp::DbpData pdata = FreshData();
+        fx.algoCtx.OnSpread(&topic, &pdata);
+        CHECK(fx.NNew() == 1, "D11 前置：主动腿已报出");
+        auto pos = fx.PairOrders(o);
+        if (fx.NNew() != 1 || pos.empty()) return;
+        const int64_t soid = fx.News()[0]->clientOrderId;
+        const std::string sref = MakeRef(o, pos[0].pairId);
+        fx.algoCtx.OnOrder(MakeRtn(soid, sref.c_str(), OS_NEW, 0.0,
+                                   fx.News()[0]->limitPrice, BINANCE, USDT_SWAP));
+
+        // ① 打开 stopAllAlgo：OnTimer 0.6 落地，0.7 每 tick 请求撤单
+        pt::RuntimeConfig rc;
+        rc.closeOnly = false;
+        rc.stopAllAlgo = true;
+        fx.ptCtx.m_cfgQ.push(rc);
+
+        const size_t modsBefore = fx.modifyCalls.size();
+        fx.ptCtx.OnTimer(crypto::getCurrentTime());
+
+        CHECK(fx.modifyCalls.size() > modsBefore, "D11 ① OnTimer 0.7 发出了变更回调");
+        if (fx.modifyCalls.size() > modsBefore) {
+            CHECK(fx.modifyCalls.back().second == stra::CommandType_CANCEL,
+                  "D11 ① 发的是 CANCEL（不是 MODIFY）");
+            CHECK(fx.modifyCalls.back().first == o->algoOrderId, "D11 ① 撤的就是这张算法单");
+        }
+        // ProcessModify 的闸门：stopAllAlgo 期间一条 MODIFY 都不许推
+        bool anyModify = false;
+        for (const auto& c : fx.modifyCalls) {
+            if (c.second == stra::CommandType_MODIFY) anyModify = true;
+        }
+        CHECK(!anyModify, "D11 ① stopAllAlgo 期间没有任何 MODIFY（否则会把刚压的开关推回去）");
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_CANCELLING,
+              "D11 ① 执行侧接住 CANCEL -> ALGO_OS_CANCELLING");
+
+        // ② 有开仓信号也不再建单（ProcessPairSignal 的闸门）
+        const size_t createdBefore = fx.created.size();
+        PairInfo& pi = *fx.pi();
+        OnlySwitch(pi, "ttOL");
+        pi.rtSpread.valid = true;
+        pi.rtSpread.spreadBidAsk = -1.0;
+        pi.orderParams.ttOLStartSpread = 0.0;
+        pi.orderParams.ttOLEndVolume = -1.0;
+        fx.ptCtx.ProcessPairSignal(pi);
+        CHECK(fx.created.size() == createdBefore, "D11 ② stopAllAlgo 期间有信号也不建新单");
+
+        // ③ CANCELLING 下撤掉在途主动腿
+        AgeChildOrders(o, 20 * 1000);
+        pdata.spreadEffective = false;
+        fx.algoCtx.OnSpread(&topic, &pdata);
+        CHECK(fx.NCancel() == 1, "D11 ③ 撤掉在途主动腿");
+
+        // ④ 撤单回报 -> 子单清零 -> OnTimer -> CANCELED
+        fx.algoCtx.OnOrder(MakeRtn(soid, sref.c_str(), OS_CANCELED, 0.0, 0.0, BINANCE, USDT_SWAP));
+        CHECK(fx.ChildOrders(o).empty(), "D11 ④ 子单簿清零");
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_CANCELED, "D11 ④ OnTimer -> ALGO_OS_CANCELED");
+    }();
+
+    // D12 closeOnly 之后空仓单必须**自己收尾**，否则对子被永久占住
+    //
+    // 这是 closeOnly 最容易被忽略的收尾路径（文档里那句"空仓且无在途子单 ⇒ 执行侧下一轮
+    // 自己终结成 FILLED"）：开仓开关压掉之后 `CreatePairOrder` 不再产单，算法单就停在
+    // ALGO_OS_NEW 上，靠 `AlgoContext::OnTimer` 的"结束订单检查"（:1388）收口：
+    //     4 个开仓开关全 false && |pairTotalVolume| < activeInfo.minSize && 无在途 pairOrder
+    //     -> ALGO_OS_FILLED + NotifyAlgoOrderUpdate
+    // 如果这一步不成立，`pi.hasActiveAlgoOrder` 会一直是 true（ProcessPairSignal 早退），
+    // **这个对子从此再也不会开仓**，而且没有任何报错。
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        BaseAlgoOrder* o = OpenTtOL(fx);          // 只建单，不喂行情 -> 无 pairOrder、无子单
+        CHECK(o != nullptr, "D12 前置：算法单已建");
+        if (!o) return;
+        CHECK(o->ttOLSwitch, "D12 前置：开仓开关初始为 true");
+        CHECK(fx.PairOrders(o).empty(), "D12 前置：没有任何在途 pairOrder");
+        CHECK(fx.pi()->hasActiveAlgoOrder, "D12 前置：对子已被这张单占住");
+
+        // 打开 closeOnly -> OnTimer 推 MODIFY，4 个开仓开关变 false
+        pt::RuntimeConfig rc;
+        rc.closeOnly = true;
+        rc.stopAllAlgo = false;
+        fx.ptCtx.m_cfgQ.push(rc);
+        fx.ptCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(!o->ttOLSwitch && !o->ttOSSwitch && !o->mtOLSwitch && !o->mtOSSwitch,
+              "D12 closeOnly 已落到这张单上");
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_NEW, "D12 此时还没终结（要等执行侧 OnTimer）");
+
+        // 执行侧的"结束订单检查"
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_FILLED,
+              "D12 空仓 + 无在途 pairOrder -> OnTimer 自己终结成 ALGO_OS_FILLED");
+        CHECK(o->commandType == stra::CommandType_FINISHED, "D12 commandType = FINISHED");
+        CHECK(!fx.pi()->hasActiveAlgoOrder,
+              "D12 终结回传策略层 -> 对子释放（否则这个对子再也不会开仓）");
+    }();
 }
 
 // ===========================================================================
@@ -1003,7 +1329,7 @@ static void TestE_TimeoutCancel() {
     Section("E. 超时撤单（OnSpread 时间撤单）");
 
     // E1 主动腿 Taker 超过 activeTakerCancelOrderTime(5s) -> 撤
-    {
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         BaseAlgoOrder* o = OpenTtOL(fx);
         dbp::DbpTopic topic = MakeTopic(kPairKey);
@@ -1030,7 +1356,7 @@ static void TestE_TimeoutCancel() {
         fx.algoCtx.OnSpread(&topic, &pdata);
 
         CHECK(fx.NCancel() == 1, "E1 主动腿 Taker 超 5s -> 撤单");
-    }
+    }();
 
     // E2 没超时 -> 不撤
     {
@@ -1049,7 +1375,7 @@ static void TestE_TimeoutCancel() {
     //    OT_POST_ONLY 的判定落在**子单**的 orderType 上（CancelOrderOnSpread 读的是
     //    orderMgr 里的 QuantOrder），而 OT_POST_ONLY 只有 MAKER_TAKER 配对单才会产生
     //    （GetTargetPairOrder 里 acOrderType = OT_POST_ONLY）。所以这一条要用 MT 单。
-    {
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         PairInfo& pi = *fx.pi();
         MakeHoldable(pi, 0.0);
@@ -1094,7 +1420,7 @@ static void TestE_TimeoutCancel() {
         pdata.spreadEffective = false;
         fx.algoCtx.OnSpread(&topic, &pdata);
         CHECK(fx.NCancel() >= 1, "E3 主动腿价格偏离 > activeMakerCancelOrderPct -> 撤单");
-    }
+    }();
 }
 
 // ===========================================================================
@@ -1161,7 +1487,7 @@ static void TestF_RiskClose() {
     }
 
     // F3 风控撤单走完整条链：CANCEL -> 撤子单 -> 撤单回报 -> OnTimer -> CANCELED
-    {
+    [&] {
         Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
         BaseAlgoOrder* o = OpenTtOL(fx);
         dbp::DbpTopic topic = MakeTopic(kPairKey);
@@ -1187,7 +1513,7 @@ static void TestF_RiskClose() {
         fx.algoCtx.OnOrder(MakeRtn(soid, sref.c_str(), OS_CANCELED, 0.0, 0.0, BINANCE, USDT_SWAP));
         fx.algoCtx.OnTimer(crypto::getCurrentTime());
         CHECK(o->algoOrderStatus == stra::ALGO_OS_CANCELED, "F3 收尾 -> ALGO_OS_CANCELED");
-    }
+    }();
 }
 
 // ===========================================================================

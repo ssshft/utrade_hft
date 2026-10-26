@@ -47,7 +47,13 @@ namespace pt {
 
 namespace {
 int64_t FileMtimeNs(const struct stat& st) {
+    // Linux 是 st_mtim，macOS 是 st_mtimespec（字段同名、结构体名不同）。
+    // 目标环境是 Ubuntu，但本机测试套件也要能编，所以保留这个分支。
+#if defined(__APPLE__)
+    return static_cast<int64_t>(st.st_mtimespec.tv_sec) * 1000000000LL + static_cast<int64_t>(st.st_mtimespec.tv_nsec);
+#else
     return static_cast<int64_t>(st.st_mtim.tv_sec) * 1000000000LL + static_cast<int64_t>(st.st_mtim.tv_nsec);
+#endif
 }
 } // namespace
 
@@ -82,6 +88,16 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
 
     // 只平不开的初值：必须在下面那些 RecalcOrderParams 之前就位。
     SignalGenerator::Instance().SetCloseOnly(cfg.closeOnly);
+
+    // 启动时就已经处于急停状态，必须留一行日志。
+    // 为什么非要这一行：`stopAllAlgo` 的三处闸门都是**静默 return**（不报单就是不报单，
+    // 没有任何一条日志说明原因），而第 0.6 步的那行 WARN 只在"配置发生变化"时打。
+    // 于是"配置里写着 stopAllAlgo=true 然后重启"现场看到的是：进程在跑、一单不报、
+    // 日志里什么都查不到 —— 这正是最容易被人误判成"策略没信号"的情形。
+    if (cfg.closeOnly || cfg.stopAllAlgo) {
+        LOG_WARN("启动即处于急停状态: closeOnly={} stopAllAlgo={}（stopAllAlgo=true 时不创建任何算法单，需人工接管）",
+                 cfg.closeOnly, cfg.stopAllAlgo);
+    }
 
     auto& pim = PairInfoManager::Instance();
     pim.Init(cfg.pairKeys, cfg.activeAccountId, cfg.passiveAccountId, smc);
@@ -332,6 +348,14 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
         return;
     }
 
+    // 停掉所有算法单：不创建新单。
+    // 放在信号计算之前 —— 与上面的启动闸门同一个位置，语义都是"这个对子本轮什么都不做"。
+    // 代价：satisfyTime 不再刷新，CheckAlgoOrderTimeout 会把在跑的单按超时撤掉；
+    // 而"停掉所有算法单"本来就要撤，方向一致，不用额外处理。
+    if (m_cfg.stopAllAlgo) {
+        return;
+    }
+
     auto& sg = SignalGenerator::Instance();
 
     std::string reason = "";
@@ -422,6 +446,13 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     RiskCheckResult risk = rm.CheckRisk(pi, nowUs);
 
     if (!risk.needForceClose) {
+        return;
+    }
+
+    // 停掉所有算法单：连风控强平也不发 —— 强平单也是算法单，与"不再创建新的"冲突。
+    // 注意上面那行 CheckRisk 必须照常调：它内部在"无持仓"时要把几个计时起点归零，
+    // 跳过它等于把陈旧时间戳带进恢复之后（下一轮恢复就会立刻按旧档位强平）。
+    if (m_cfg.stopAllAlgo) {
         return;
     }
 
@@ -694,6 +725,15 @@ void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
         return;
     }
 
+    // 停掉所有算法单时不给在跑的单推参数：单子正在被撤（OnTimer 步骤 0.7 每 tick 撤一次），
+    // 推过去要么被执行端跳过（算法单已在撤单流程里），要么在撤单延迟期间把刚压掉的
+    // 开仓开关又推回去 —— 两个结果都不是"停掉所有算法单"想要的。
+    // 注意放在 algoModifyTime 判断**之前**：这一步不能动 algoModifyTime，
+    // 否则恢复时会把 60s 的计时起点挪走（这里根本没发消息，不该记账）。
+    if (m_cfg.stopAllAlgo) {
+        return;
+    }
+
     // 祖先 :1060：按 modify_time 计时。
     // 用 algoModifyTime 而不是 PairInfo::modifyTime —— 后者被 PairInfoManager 在
     // UpdateRtSpread 等七处刷新，等于每个价差 tick 刷一次，用它这个判断永远不成立。
@@ -849,7 +889,7 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
     pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
 
-    pAlgoOrder->tradingTypeOrder = stra::MAKER_TAKER;
+    pAlgoOrder->tradingTypeOrder = isTT ? stra::TAKER_TAKER : stra::MAKER_TAKER;
 
     // 报单类型。判据最终落在**子单**的 orderType 上（BaseAlgoOrder.cpp:457
     // 用它决定走 Maker 还是 Taker 撤单分支），子单类型直接取自这里
@@ -1205,11 +1245,34 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     if (configChanged) {
         sg.SetCloseOnly(rc.closeOnly);
         m_cfg.closeOnly = rc.closeOnly;
+        m_cfg.stopAllAlgo = rc.stopAllAlgo;
 
         // 立刻重算 orderParams 并把 algoModifyTime 归零。
         for (PairInfo* pi : pim.GetAllPairInfos()) {
             sg.RecalcOrderParams(*pi);
             pi->algoModifyTime = 0;   // 0 = 下一轮 ProcessModify 立即推（见它的计时判断）
+        }
+
+        // 一行覆盖两个字段：运维要能从日志确认自己那次保存到底生效成了什么。
+        LOG_WARN("运行时配置: closeOnly={} stopAllAlgo={}", rc.closeOnly, rc.stopAllAlgo);
+    }
+
+    // 0.7 停掉所有算法单：每 tick 撤一遍
+    //     为什么不是"只在翻转时撤一次"：撤单是异步两段式的（CANCELLING 要等被动腿成交才终结），
+    //     而且翻转那一 tick 之前可能刚有单被报出去。每 tick 撤一次才能维持
+    //     "只要 stopAllAlgo 为 true，就每 tick 都在请求撤单"。
+    //     对已经在撤单流程里的单重复发 CANCEL 是安全的：CheckAlgoOrderTimeout 到点后
+    //     也是每 tick 发一次（见该函数的注释）。
+    //
+    //     ⚠️ 别把这条写成"保证场上没有活单"：CANCELLING 只撤主动腿，被动腿留着等成交，
+    //        而那个等待**没有上界**（见 ProcessRisk 里 464-473 行的说明）。所以打开本开关后
+    //        仍可能有一张单长期挂在撤单中，对子也一直被它占着。这是既有的已知残余风险，
+    //        不是本开关引入的，但运维必须知道 —— "打开 stopAllAlgo" ≠ "场上立刻干净"。
+    if (m_cfg.stopAllAlgo) {
+        for (PairInfo* pi : pim.GetAllPairInfos()) {
+            if (pi->hasActiveAlgoOrder) {
+                RequestCancelAlgoOrder(*pi);
+            }
         }
     }
     

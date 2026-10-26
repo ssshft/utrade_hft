@@ -187,6 +187,30 @@ CalcPositionValue() = |pairTotalVolume * 腿价 * multiple| < 25 USDT
 所以"两腿成交、pairOrder 收口"之后算法单状态仍是 `ALGO_OS_NEW`（四个 switch 还开着，
 策略会继续追），`pi.hasActiveAlgoOrder` **仍然为 true**（G5 断言的就是这个）。
 
+### 7. 每个用例块必须包一层 `[&]{ ... }();`，别用裸 `{}`
+
+一个函数里有多个用例（B/C/D/E/F 都是），块内一句 `if (pos.empty()) return;` 退出的是
+**整个函数**，后面的用例一条都不跑 —— 而汇总只报一条 FAIL，看起来"只差一条"。
+2026-10-26 之前就是这样：`D3` 的 `return` 把 `D4~D7` 全吞了，D6（MODIFY 覆盖开关）
+从来没执行过，35/7 这个数字严重高估了覆盖。
+
+```cpp
+// ✅ return 只退出本用例
+[&] {
+    ...
+    if (pos.empty()) return;   // 只跳过这一条
+    ...
+}();
+
+// ❌ return 退出整个 TestD
+{
+    ...
+    if (pos.empty()) return;
+}
+```
+
+G/H 是单链用例（一个函数一条链），`return` 本来就应该退出整条链，保持裸 `{}` 即可。
+
 ## 桩保真度（写桩时踩过的坑）
 
 桩可以少实现，但**不能改变语义**。本套件踩到的前三个都是"静默假阴性"——
@@ -217,19 +241,44 @@ Ubuntu 上如果装了多个 g++（`g++-13` 等），用 `CXX=g++-13 ./run.sh` �
 > `/usr/bin/g++` 其实是 clang。所以"`#define private public` 之前那份 std 头清单是否足够"
 > 要在 Ubuntu 服务器上跑一次 `./run.sh` 才算确认。
 
+### 那份 std 头清单的缺口（2026-10-26 静态核算，未在 g++ 上实测）
+
+宏在第 97 行，前面预包含 **41** 个 std 头；`quant_library/` 与两套 stubs 里的头文件
+实际用到 **42** 个。差集 15 个，分三类：
+
+| 类别 | 头 | 是否需要补 |
+|---|---|---|
+| C / 系统头 | `math.h` `stdio.h` `stdlib.h` `string.h` `unistd.h` `pthread.h` `sched.h` `sys/time.h` `sys/types.h` `perf.h` | 不需要。它们不用 `private:` 关键字，宏对它们无副作用 |
+| 第三方 | `boost/lockfree/spsc_queue.hpp` `boost/property_tree/{ptree,ini_parser}.hpp` | 不需要。boost 在宏之前就已经被 `<atomic>` 等间接引入过，且不含裸 `private:` 访问冲突 |
+| **C++ 标准头** | **`<ctime>`**（`stubs/ext/time_util.h`）、**`<filesystem>`**（`stubs/ext/program_util.h`） | **只有这两个可能在 libstdc++ 上炸**。真炸的话，把它们加进第 50~93 行那份清单即可 |
+
+所以 Ubuntu 上第一次跑 `./run.sh` 如果报一堆 `private` / `protected` 相关的语法错误，
+**先看是不是这两个头**，不要一上来就去翻项目代码。反过来，如果编译过了，就说明
+libstdc++ 对这两个头也免疫 —— 那这份清单可以长期不动。
+
 ## 覆盖范围
 
-**40 个用例 / 140 条断言**，分八组：
+**45 个用例 / 194 条断言**，分八组：
 
 | 组 | 主题 | 用例数 | 断言数 |
 |---|---|---|---|
 | A | 注册（`SubmitAlgoOrder`：入册 / 订阅价差 / 初始状态） | 4 | 12 |
 | B | 拆单报单（`OnSpread`） | 5 | 29 |
 | C | 成交回报（`OnOrder`） | 6 | 24 |
-| D | 撤单（本地请求 → CANCELLING → 撤子单 → CANCELED） | 7 | 21 |
+| D | 撤单（本地请求 → CANCELLING → 撤子单 → CANCELED）+ 两个急停开关的执行侧行为（D8~D12） | 12 | 75 |
 | E | 超时撤单（`OnSpread` 时间/价格撤单） | 3 | 10 |
 | F | 风控平仓（`ProcessRisk` → 撤单 / 强平报单） | 3 | 13 |
 | G | **全链路一：成交闭环** | 6 | 16 |
 | H | **全链路二：撤单闭环（风控驱动）** | 6 | 15 |
+
+D8~D12 是 `closeOnly` / `stopAllAlgo` 的**执行侧**证据，五层递进：
+
+| 用例 | 验什么 |
+|---|---|
+| D8 | `closeOnly` 推的是 MODIFY：在跑对象上 4 个开仓开关逐个变 false，4 个平仓开关不动，状态仍 `ALGO_OS_NEW` |
+| D9 | 决策层·空仓：同一 `GetTargetPairOrder(OPEN_LONG)` 调用在 closeOnly 后返回 -1；`CreatePairOrder` 一条都拆不出 |
+| D10 | 决策层·有持仓：已部分成交时同一 `CreatePairOrder` 从 `OPEN_LONG`（补 2）退化成 `CLOSE_LONG`（平 1） |
+| D11 | `stopAllAlgo`：只发 CANCEL、**全程 0 条 MODIFY** → CANCELLING → 撤子单 → CANCELED |
+| D12 | `closeOnly` 后空仓单**自己收尾**：`OnTimer` 的结束订单检查 → `FILLED` → 对子释放（否则该对子永久占死） |
 
 逐条说明见 `../测试用例-算法单执行.md`。

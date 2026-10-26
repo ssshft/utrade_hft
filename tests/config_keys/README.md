@@ -16,8 +16,9 @@ python3 tests/config_keys/field_check.py    # 字段级
 python3 tests/config_keys/field_check.py -v # 顺带打印各段的逐字段明细
 ```
 
-两个都是退出码 0 = 通过。当前实测：`check.py` 两侧各 88 个 key 一致；
-`field_check.py` 90 个结构体字段 / 81 条块内赋值 / 7 条平铺赋值，全部一致。
+两个都是退出码 0 = 通过。当前实测（2026-10-26）：`check.py` 两侧各 **90** 个 key 一致；
+`field_check.py` **93** 个结构体字段 / **91** 条块内赋值 / **0** 条平铺赋值（原来平铺在 `op`
+下的那 7 个已移入 `op.pairTrading`），三项全部一致。
 
 ---
 
