@@ -150,10 +150,10 @@ dbpreader->SetCallback(f);
 
 ### 2.4 订阅时机
 
-`PairTradingStrategy::pre_start` 里按 `op.pairKeys` 逐条订阅（`src/strategy/PairTradingStrategy.cpp:39-48`）：
+`PairTradingStrategy::pre_start` 里按 `op.pairTrading.pairKeys` 逐条订阅（`src/strategy/PairTradingStrategy.cpp`）：
 
 ```cpp
-for (auto& pk : op["pairKeys"].GetArray()) {
+for (auto& pk : s["pairKeys"].GetArray()) {
     std::string pairKey = pk.GetString();
     m_ptCfg.pairKeys.emplace_back(pairKey);
 
@@ -177,7 +177,7 @@ bool Subscribe(const std::string& topic) {
 }
 ```
 
-> **`Subscribe` 失败是静默的**：`pre_start` 没有检查返回值。如果 `op.pairKeys` 里的字符串和 `pairlist.xml` 里的 `<name>` 不完全一致（大小写、分隔符、`-USDT` 后缀任一处不同），结果就是**这个对子永远收不到行情，而日志里只会打一条 `pre_start Subscribe pairInstrumentKey:...`，看不出失败**。
+> **`Subscribe` 失败是静默的**：`pre_start` 没有检查返回值。如果 `op.pairTrading.pairKeys` 里的字符串和 `pairlist.xml` 里的 `<name>` 不完全一致（大小写、分隔符、`-USDT` 后缀任一处不同），结果就是**这个对子永远收不到行情，而日志里只会打一条 `pre_start Subscribe pairInstrumentKey:...`，看不出失败**。
 
 ### 2.5 拉取（不是推送）
 
@@ -578,7 +578,7 @@ if (utcTime - m_lastScanUs >= SCAN_INTERVAL_US) {   // SCAN_INTERVAL_US = 200000
 | # | 要对齐的值 | 出现位置 | 不一致的后果 |
 |---|---|---|---|
 | 1 | `DBP.mpath` / `DBP.dpath` | `tb/etc/trade_config.json`、部署机 `/inc/trade_config.json`、`dbp/etc/dbprocess.json` | 版本号不同（例：`dbprocess.json` 是 `20230223`，`tb/etc/trade_config.json` 是 `20230328`）→ reader 打不开 / 读到空列 → **完全收不到价差** |
-| 2 | 对子名 | `dbp/etc/pairlist.xml` 的 `<name>` ↔ `utrade_hft/etc/config.json` 的 `op.pairKeys[]` | `DbpReader::Subscribe` 返回 `false` 但**不报错** → 该对子**永远收不到价差** |
+| 2 | 对子名 | `dbp/etc/pairlist.xml` 的 `<name>` ↔ `utrade_hft/etc/config.json` 的 `op.pairTrading.pairKeys[]` | `DbpReader::Subscribe` 返回 `false` 但**不报错** → 该对子**永远收不到价差** |
 | 3 | `OMS.Utrade2TbTCommandSHM` / `OMS.Tb2UtradeRCommandSHM` | tb 与 utrade 都读 `/inc/trade_config.json` 的同一份 | key 不同 → 队列对不上，**下单发不出去 / 回报收不到** |
 | 4 | `strategyId` | ① `utrade_hft/etc/config.json` `op.strategyIds`（入向白名单）<br>② `utrade_hft/etc/strategy.ini` `[ACCOUNTn] strategyid`（出向打标）<br>③ `tb/etc/trade_config.json` `TB.tb_accounts.<name>[0].strategyId`（tb 侧路由键） | 见下 |
 

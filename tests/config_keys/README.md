@@ -29,14 +29,17 @@ python3 tests/config_keys/field_check.py -v # 顺带打印各段的逐字段明�
 |---|---|---|
 | `op.feeSlippage` | `pt::FeeSlippageConfig` | 12 |
 | `op.risk` | `pt::RiskConfig` | 14 |
-| `op.pairTrading` | `pt::PairTradingConfig`（本体） | 55 |
+| `op.pairTrading` | `pt::PairTradingConfig`（本体） | 88 |
 
-`op.pairTrading` 那 55 个里有 18 个是策略参数、2 个是分位数快照（重启免预热）、
-**35 个是算法单参数**（报单类型 / 撤单门槛 / rebalance …）。算法单参数**没有独立结构体**，
-就是 `PairTradingConfig` 的普通字段，由 `PairTradingContext::BuildAlgoOrderJson` 直接读。
+`op.pairTrading` 里包含对子清单/账户/报单额（7 个，2026-10-26 从 `op` 段移入）、
+策略参数、分位数快照（重启免预热），以及**算法单参数**（报单类型 / 撤单门槛 / rebalance …）。
+算法单参数**没有独立结构体**，就是 `PairTradingConfig` 的普通字段，
+由 `PairTradingContext::BuildAlgoOrderJson` 直接读。
 
-平铺在 `op` 下的 7 个：`pairKeys` / `activeAccountId` / `passiveAccountId` /
-`maxPositionValue` / `maxAmount` / `targetAmount` / `csvStatePath`。
+**没有平铺在 `op` 下的字段**：`pairKeys` / `activeAccountId` / `passiveAccountId` /
+`maxPositionValue` / `maxAmount` / `targetAmount` / `csvStatePath` 这 7 个
+2026-10-26 起全部移进 `op.pairTrading`，`op` 段只剩 base 类读的
+`strategyOp` / `timerInterval` / `strategyIds`（它们不属于 `PairTradingConfig`）。
 
 ---
 
@@ -98,10 +101,12 @@ key 名对了不代表赋值对了。下面三类错误 `check.py` 看不出来�
 
 ### 豁免名单（两类，都不会误报）
 
-- **平铺字段**：`pairKeys` / `activeAccountId` / `passiveAccountId` /
-  `maxPositionValue` / `maxAmount` / `targetAmount` / `csvStatePath` 直接挂在 `op` 段下，
-  不在三个块里，走 `std::stod` / `std::stoi` / `emplace_back`。
-  名单在 `FLAT_FIELDS`。
+- **平铺字段**：目前**一个都没有**（`FLAT_FIELDS` 已清空）。
+  历史上 `pairKeys` / `activeAccountId` / `passiveAccountId` / `maxPositionValue` /
+  `maxAmount` / `targetAmount` / `csvStatePath` 这 7 个平铺在 `op` 段、由 `parse_flat`
+  单独校验；2026-10-26 它们搬进 `op.pairTrading` 后走块内路径（`pairKeys` 是
+  `emplace_back` 不是 `=`，所以 `parse_block` 里单独认了一下）。
+  哪天又往 `op` 段平铺字段，把它们加回 `FLAT_FIELDS` 即可。
 - **子对象挂载点**：`PairTradingConfig` 里的 `feeSlippage` / `risk`
   两个字段是**子对象本身**，读取方式是 `auto& c = m_ptCfg.feeSlippage;` 而不是 `x = ...`。
   脚本自动识别"字段类型是个已知配置结构体"并豁免，以后再加子对象块不用改名单。

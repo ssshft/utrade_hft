@@ -30,13 +30,14 @@ using PairInfoQueue = boost::lockfree::spsc_queue<PairInfoRecord, boost::lockfre
 
 
 struct PairTradingConfig {
-    std::vector<std::string> pairKeys; // pre_start边遍历它边订阅行情的，
+    // 对子清单：pre_start 边遍历它边订阅行情（SpreadManager + dbpreader 的唯一订阅点）。
+    std::vector<std::string> pairKeys;
     int activeAccountId{0};
     int passiveAccountId{0};
 
     double maxPositionValue{100}; // 报单额 总持仓上限 单位是 **USDT 
-    double maxAmount{50};
-    double targetAmount{50};
+    double maxAmount{50};       // 单个对子最大持仓金额
+    double targetAmount{50};    // 单个报单目标金额
 
     FeeSlippageConfig feeSlippage; // 执行成本 / 滑点 / 价差阈值
     RiskConfig risk; // 风控门槛 + 渐进式平仓三档
@@ -130,27 +131,20 @@ struct PairTradingConfig {
     // 双腿净敞口 / activeMultiple 超过 exposureCancelTimes * ttTargetVolume 即视为敞口失控
     double exposureCancelTimes{4.0};
 
-    // 改参周期（祖先 modify_timespan = 60s）：每隔这么久把 pair_info 的最新参数推给在跑的算法单
-    int64_t modifyTimespanSec{60};
+    int64_t modifyTimespanSec{60}; // 改参周期 每隔这么久把 pair_info 的最新参数推给在跑的算法单
 
-    // 流动性危险时的平仓让利（祖先 modify_shift_pct = 0.0002）：
-    // CL 的起止价差各减这么多、CS 的各加这么多，让平仓更容易成交
-    double modifyShiftPct{0.0002};
+    double modifyShiftPct{0.0002}; // 流动性危险时的平仓让利 CL 的起止价差各减这么多、CS 的各加这么多，让平仓更容易成交
 
-    // 快照路径。平铺在 op 段（`op.csvStatePath`）。
-    std::string csvStatePath{"data/pair_info.csv"};
-
-    int volumeRecalcIntervalSec{60};     // 1min 重算仓位参数
+    std::string csvStatePath{"data/pair_info.csv"};  // 快照路径 空 = 不落盘、也不从快照恢复。
     int csvSaveIntervalSec{10};        // 快照落盘周期
 
-    // ---- 启动对账（docs/restart_recovery_design.md §5.2）----
-    // 对账判据容差：|pairTotalVolume - activeRealPosition| <= max(1e-9, |activeRealPosition| * ratio)
-    double reconcileTolRatio{1e-6};
-    // 等持仓推送的超时告警周期。超时只告警、**不放行** —— 按"无持仓"放行的后果是重复开仓
-    int reconcileWarnIntervalSec{30};
-    // 快照里 hasActiveAlgoOrder == true（上一轮有算法单未终结）时，把该对子置 errorFlag 冻结，
-    // 等运维 PairCmd_RESUME 复活。交易所侧可能仍有子单在成交，账本不可信（§5.4）。
-    bool freezeOnOrphanAlgoOrder{true};
+    int volumeRecalcIntervalSec{60};     // 1min 重算仓位参数
+    
+    // 启动对账
+    double reconcileTolRatio{1e-6}; // 对账判据容差：|pairTotalVolume - activeRealPosition| <= max(1e-9, |activeRealPosition| * ratio)
+    int reconcileWarnIntervalSec{30}; // 等持仓推送的超时告警周期。超时只告警、**不放行** —— 按"无持仓"放行的后果是重复开仓
+
+    bool freezeOnOrphanAlgoOrder{true}; // 快照里 hasActiveAlgoOrder == true（上一轮有算法单未终结）时，把该对子置 errorFlag 冻结，
 };
 
 // 回调直接传递创建好的算法单对象（不再拼 JSON 字符串）

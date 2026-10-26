@@ -28,37 +28,43 @@ void PairTradingStrategy::pre_start(Config* config) {
     rapidjson::Value& v = d.Parse<rapidjson::kParseNumbersAsStringsFlag>(cfgStr.c_str());
 
     auto& op = v["op"];
-
-    m_ptCfg.activeAccountId = std::stoi(op["activeAccountId"].GetString());
-    m_ptCfg.passiveAccountId = std::stoi(op["passiveAccountId"].GetString());
-
-    if (op.HasMember("pairKeys")) {
-        for (auto& pk: op["pairKeys"].GetArray()) {
-            std::string pairKey = pk.GetString();
-            m_ptCfg.pairKeys.emplace_back(pairKey);
-
-            LOG_INFO("pre_start Subscribe pairInstrumentKey:{}", pairKey);
-            SpreadManager::Instance().AddSpreadPara(pairKey);
-            dbpreader->Subscribe(pairKey);
-        }
-    }
-
-    if (op.HasMember("maxPositionValue")) {
-        m_ptCfg.maxPositionValue = std::stod(op["maxPositionValue"].GetString());
-    }
-    if (op.HasMember("maxAmount")) {
-        m_ptCfg.maxAmount = std::stod(op["maxAmount"].GetString());
-    }
-    if (op.HasMember("targetAmount")) {
-        m_ptCfg.targetAmount = std::stod(op["targetAmount"].GetString());
-    }
-
-    if (op.HasMember("csvStatePath")) {
-        m_ptCfg.csvStatePath = op["csvStatePath"].GetString();
-    }
-
     if (op.HasMember("pairTrading")) {
         auto& s = op["pairTrading"];
+
+        m_ptCfg.activeAccountId = std::stoi(s["activeAccountId"].GetString());
+        m_ptCfg.passiveAccountId = std::stoi(s["passiveAccountId"].GetString());
+
+        // 对子清单：边读边订阅。pre_start 是**唯一**订阅点（SpreadManager + dbpreader），
+        // 所以这段逻辑必须留在这里，不能挪到 Init —— Init 时行情已经该在流了。
+        if (s.HasMember("pairKeys")) {
+            for (auto& pk: s["pairKeys"].GetArray()) {
+                std::string pairKey = pk.GetString();
+                m_ptCfg.pairKeys.emplace_back(pairKey);
+
+                LOG_INFO("pre_start Subscribe pairInstrumentKey:{}", pairKey);
+                SpreadManager::Instance().AddSpreadPara(pairKey);
+                dbpreader->Subscribe(pairKey);
+            }
+        }
+        else {
+            LOG_ERROR("没有配置pairKeys段, 无币对行情！");
+        }
+
+        // 报单额：单位是 USDT 名义价值，由 RecalcVolumeParams 换算成币数
+        if (s.HasMember("maxPositionValue")) {
+            m_ptCfg.maxPositionValue = std::stod(s["maxPositionValue"].GetString());
+        }
+        if (s.HasMember("maxAmount")) { 
+            m_ptCfg.maxAmount = std::stod(s["maxAmount"].GetString());
+        }
+        if (s.HasMember("targetAmount")) {
+            m_ptCfg.targetAmount = std::stod(s["targetAmount"].GetString());
+        }
+
+        // 快照路径（空 = 不落盘、也不从快照恢复）
+        if (s.HasMember("csvStatePath")) {
+            m_ptCfg.csvStatePath = s["csvStatePath"].GetString();
+        }
 
         // 敞口
         if (s.HasMember("exposureMaxLimit")) {
@@ -333,6 +339,9 @@ void PairTradingStrategy::pre_start(Config* config) {
         if (s.HasMember("passivePriceTickNum")) {
             m_ptCfg.passivePriceTickNum = std::stoi(s["passivePriceTickNum"].GetString());
         }
+    }
+    else {
+        LOG_ERROR("配置缺少 op.pairTrading 段 —— 对子清单/账户/报单额都已移进该段，本次启动不会有任何对子，请检查配置文件");
     }
 
     if (op.HasMember("feeSlippage")) {

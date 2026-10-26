@@ -58,16 +58,19 @@ ALLOWED = {
     "double": {"std::stod"},
     "int64_t": {"std::stoll"},
     "int": {"std::stoi"},
-    "bool": {"StrTrue"},
+    "bool": {"StrTrue", "GetBool"},
     "OrderType": {"GetString"},
     # 字符串字段（如 spreadStatsStatePath）直接 GetString()，没有转换函数
     "std::string": {"GetString"},
+    # 字符串数组（pairKeys）：遍历 GetArray() + emplace_back，没有 = 赋值
+    "std::vector<std::string>": {"vector"},
 }
 READABLE = {
     "std::stod": "std::stod(...)",
     "std::stoll": "std::stoll(...)",
     "std::stoi": "std::stoi(...)",
     "StrTrue": 'GetString() == "true"',
+    "GetBool": "GetBool()（配置里写裸 true）",
     "GetString": "GetString() + 查表/直比",
     "vector": "emplace_back",
 }
@@ -76,10 +79,13 @@ ENUM_PREFIX = "stra::"
 
 # 平铺在 op 段（不在三个子对象里）的字段，由 pre_start 直接读。
 # 这些字段不在任何块内，单独列出以免被 "字段没被读" 误报。
+#
+# 2026-10-26：pairKeys / activeAccountId / passiveAccountId / maxPositionValue /
+# maxAmount / targetAmount / csvStatePath 七个已从 op 段搬进 op.pairTrading 段，
+# 所以这里清空 —— 现在**没有任何字段**平铺在 op 段（op 段只剩 base 类读的
+# strategyOp / timerInterval / strategyIds，那三个不属于 PairTradingConfig）。
 FLAT_FIELDS = {
-    "PairTradingConfig": {"pairKeys", "activeAccountId", "passiveAccountId",
-                          "maxPositionValue", "maxAmount", "targetAmount",
-                          "csvStatePath"},
+    "PairTradingConfig": set(),
 }
 
 # 参与检查的配置结构体名。作为**别的结构体的字段**出现时（PairTradingConfig 里的
@@ -168,6 +174,12 @@ def classify(rhs):
         return "std::stoi"
     if "GetString()" in rhs and '"true"' in rhs:
         return "StrTrue"
+    # 布尔还有第二种合法写法：配置里写**裸 true**（真 JSON bool）+ 代码 GetBool()。
+    # 两种写法在同一个文件里并存（深度检查/Rebalance 那几个是 GetBool，
+    # freezeOnOrphanAlgoOrder 那几个是 GetString()=="true"），所以两种都认。
+    # ⚠️ 对不上的组合是致命的：配置写裸 true 而代码走 GetString() -> RAPIDJSON_ASSERT 进程挂。
+    if "GetBool()" in rhs:
+        return "GetBool"
     return "GetString"
 
 
@@ -200,6 +212,11 @@ def parse_block(text):
             continue
         seen.add(field)
         found.append((field, classify(m.group("rhs"))))
+    # pairKeys 不是 `m_ptCfg.pairKeys = ...`，而是 emplace_back 逐条塞进去的
+    # （边遍历边订阅行情），ASSIGN_RE 抓不到，单独认一下。
+    if "pairKeys" not in seen and re.search(r"m_ptCfg\.pairKeys\.emplace_back", plain):
+        seen.add("pairKeys")
+        found.append(("pairKeys", "vector"))
     return seen, found
 
 
