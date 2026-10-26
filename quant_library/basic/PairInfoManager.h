@@ -60,6 +60,18 @@
 
         std::vector<PairInfo*> GetAllPairInfos();
 
+        // 所有对子持仓市值之和：Σ |pairTotalVolume × 腿价 × 面值|（逐对子**现算**）。
+        // 这是"全局持仓闸门"的输入（祖先 cc_pricespread_gb_ltp.py:825 的 position_value_all）。
+        //
+        // 为什么放在这里而不是调用方自己遍历：
+        //   ① m_pairInfoMap 只有本类能直接遍历，走 GetAllPairInfos() 每次要拷一份
+        //      vector<PairInfo*>（500 对子实测 5.4 µs，见 docs 执行线程清单 B4）；
+        //   ② ⚠️ 不能用缓存的 pi.positionValue —— 它只在 UpdateOnAlgoOrder 里刷
+        //      （PairInfoManager.cpp:800），两次成交之间价格变动不会更新，
+        //      拿它当风控输入会滞后。这里现算，成本只是一次乘法。
+        // **只读 PairInfo，必须在交易线程调用。**
+        double TotalPositionValue() const;
+
         void UpdateRtSpread(const std::string& pairKey, const dbp::DbpData* pdata);
 
         // 更新大周期价差统计

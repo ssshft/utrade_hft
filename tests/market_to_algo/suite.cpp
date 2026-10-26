@@ -160,6 +160,13 @@ static void ResetWorld() {
     pim.m_instrToPairs.clear();
     pim.m_pairKeys.clear();
     pim.smc = nullptr;
+
+    // SignalGenerator 也是单例，它现在带一份**跨对子**的可变状态（全局持仓闸门）。
+    // 不清的话 D13 结尾留下的 `true` 会带进后面每一个用例 —— 症状是"某几个用例的
+    // 开仓开关莫名其妙是 false"，而且跟用例本身毫无关系，极难定位。
+    // 生产上这个状态由 OnTimer 第 0.5 步每轮刷新，冷启动默认 false，所以这里清成 false
+    // 与真实初值一致。
+    SignalGenerator::Instance().SetGlobalPositionExceeded(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +409,29 @@ static void MakeHoldable(PairInfo& pi, double vol) {
     pi.rtSpread.passivePriceTema = 100.0;
     pi.activeParam.multiple = 1.0;
     pi.passiveParam.multiple = 1.0;
+}
+
+// 手工造一份"有效且想让开仓"的分位数，用来把 RecalcOrderParams 逼进**完整路径**
+// （而不是 !IsValid 的早退分支），这样才验得到"闸门放在最后"这件事。
+//
+// 为什么这组数一定让 4 个开仓开关为 true：
+//   SignalGenerator 的费率默认全 0（FeeSlippageConfig 里 5 个费率都是 {0}），
+//   于是 CalcExecCost() == 0、CalcExpectSpread(q, isTT, dir) == q * spreadAdjPct(0.8)。
+//   canOpenLong  = (mtOLStartSpread < -minSpreadTarget) && !closeFlag
+//                = (askAskDQ * 0.8 < 0.001)                    <- askAskDQ = -1.0 => -0.8 ✓
+//   canOpenShort = (mtOSStartSpread > -minSpreadTarget)
+//                = (bidBidUQ * 0.8 > -0.001)                    <- bidBidUQ = 1.0 => 0.8 ✓
+//   spreadSpan   = bidBidUQ - askAskDQ = 2.0 >= minSpreadSpan(0) => 不触发"套利空间不足"早退 ✓
+// 其余四个分位数只用来填 CalcExpectSpread 的入参，取 ±1.0 保证不是 NaN。
+static void MakeOpenFriendlyStats(PairInfo& pi) {
+    auto& s = pi.largeStats;
+    s.bidAskUQ = s.bidAskDQ = -1.0;
+    s.bidBidUQ = s.askBidUQ =  1.0;
+    s.bidBidDQ = s.askBidDQ = -1.0;
+    s.askAskUQ =  1.0;
+    s.askAskDQ = -1.0;
+    s.count = 10;
+    s.valid = true;
 }
 
 // ===========================================================================
@@ -1243,6 +1273,119 @@ static void TestD_Timer() {
             ++lines;
         }
         CHECK(lines == 2, "D12 文件 = 表头 + 1 行（坏 key 不写空行）");
+    }
+
+    // D13 全局持仓闸门：所有对子持仓市值之和 > maxPositionValue -> 只平不开
+    //
+    // 这条用例要守住的三件事：
+    //   ① 判据是**跨对子求和**，不是单对子 —— 所以只能在 PairTradingContext 里算
+    //      （RecalcOrderParams 是单对子签名，自己算不出全局和）；
+    //   ② 落点是 4 个开仓开关，4 个平仓开关一个都不能动（"只平不开"的字面意思）；
+    //   ③ 闸门在 RecalcOrderParams **内部**生效。它还有 Init / OnAlgoFinished / OnTimer 第 2 步
+    //      （统计刷新）这些调用点，只在 OnTimer 里压开关的话，那些调用点会立刻把开关重新打开 ——
+    //      闸门就只存在于两次调用之间的缝隙里，等于没有。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);   // 腿价 100、面值 1 => 市值 100
+        auto& sg  = SignalGenerator::Instance();
+        auto& pim = PairInfoManager::Instance();
+
+        // ① 现算，不走缓存的 pi.positionValue（那个只在 UpdateOnAlgoOrder 里刷，两次成交之间会滞后）
+        CHECK(Near(pim.TotalPositionValue(), 100.0),
+              "D13 TotalPositionValue 现算 = |量 × 腿价 × 面值|");
+
+        // ② 对照组：闸门关着 + 统计有效 -> 逻辑自己把 4 个开仓开关打开。
+        //    没有这一步，下面"被压掉"就证明不了是闸门干的（也可能是逻辑本来就不想开）。
+        MakeOpenFriendlyStats(pi);
+        sg.SetGlobalPositionExceeded(false);
+        sg.RecalcOrderParams(pi);
+        CHECK(pi.orderParams.ttOLSwitch && pi.orderParams.ttOSSwitch &&
+              pi.orderParams.mtOLSwitch && pi.orderParams.mtOSSwitch,
+              "D13 对照组：闸门关 -> 逻辑把 4 个开仓开关都打开");
+
+        // ③ 集成：OnTimer 第 0.5 步从 TotalPositionValue 推结论，第 1 步的 RecalcOrderParams 落闸
+        fx.ctx.m_cfg.maxPositionValue = 50.0;               // 100 > 50
+        fx.ctx.OnTimer(1000 * SEC);
+        CHECK(sg.GetGlobalPositionExceeded(), "D13 总市值 100 > 50 -> OnTimer 置位闸门");
+        CHECK(!pi.orderParams.ttOLSwitch && !pi.orderParams.ttOSSwitch &&
+              !pi.orderParams.mtOLSwitch && !pi.orderParams.mtOSSwitch,
+              "D13 闸门置位 -> 4 个开仓开关全压掉");
+        CHECK(pi.orderParams.ttCLSwitch && pi.orderParams.ttCSSwitch &&
+              pi.orderParams.mtCLSwitch && pi.orderParams.mtCSSwitch,
+              "D13 闸门只管开仓，4 个平仓开关一个都没动");
+
+        // ④ 单独调一次（模拟 OnAlgoFinished / Init 这些非 OnTimer 的调用点）：
+        //    开关先被手工恢复成"想开仓"，调完仍必须是关的。
+        pi.orderParams.ttOLSwitch = pi.orderParams.ttOSSwitch = true;
+        pi.orderParams.mtOLSwitch = pi.orderParams.mtOSSwitch = true;
+        sg.RecalcOrderParams(pi);
+        CHECK(!pi.orderParams.ttOLSwitch && !pi.orderParams.ttOSSwitch &&
+              !pi.orderParams.mtOLSwitch && !pi.orderParams.mtOSSwitch,
+              "D13 闸门在 RecalcOrderParams 内部：非 OnTimer 的调用点也压得住");
+    }
+
+    // D14 低于上限 -> 不置位；已经置位的要能解除
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);   // 市值 100
+        auto& sg = SignalGenerator::Instance();
+        fx.ctx.m_cfg.maxPositionValue = 500.0;              // 100 <= 500
+
+        fx.ctx.OnTimer(1000 * SEC);
+        CHECK(!sg.GetGlobalPositionExceeded(), "D14 总市值 100 <= 500 -> 闸门不置位");
+
+        // 减仓减到上限以下之后必须能解除 —— 否则闸门只进不出，越减越开不了新仓。
+        sg.SetGlobalPositionExceeded(true);
+        fx.ctx.OnTimer(1000 * SEC + 1 * SEC);
+        CHECK(!sg.GetGlobalPositionExceeded(), "D14 已置位的闸门在市值回落后解除");
+
+        // 统计无效时 RecalcOrderParams 早退、不动开关，所以这里看到的就是"闸门没干预"的结果
+        CHECK(pi.orderParams.ttOLSwitch && pi.orderParams.mtOSSwitch,
+              "D14 闸门不置位 -> 不干预开仓开关");
+    }
+
+    // D15 maxPositionValue <= 0 = 关闭：有持仓也不置位
+    //
+    // 量取 -2.0 而不是 -1000：这个分支在算 TotalPositionValue **之前**就跳过了，
+    // 持仓多大都无关，取个小值只是别让 ProcessRisk 在同一个 tick 里被顺带触发。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -2.0);
+        auto& sg = SignalGenerator::Instance();
+        fx.ctx.m_cfg.maxPositionValue = 0.0;
+
+        CHECK(PairInfoManager::Instance().TotalPositionValue() > 0.0, "D15 前置：确实有持仓");
+        fx.ctx.OnTimer(1000 * SEC);
+        CHECK(!sg.GetGlobalPositionExceeded(), "D15 maxPositionValue=0 -> 关闭，有持仓也不置位");
+        CHECK(pi.orderParams.ttOLSwitch && pi.orderParams.mtOSSwitch, "D15 关闭态不干预开关");
+    }
+
+    // D16 统计无效的早退路径也必须过闸门
+    //
+    // 这条最容易漏：RecalcOrderParams 在 !largeStats.IsValid() 时直接 return，
+    // 而那条路径上 4 个开仓开关**保持上一轮的值**。偏偏"刚重启、带着快照恢复的大仓位、
+    // 分位数还没攒够"就是这条路径，也正是最该只平不开的时刻。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        auto& sg = SignalGenerator::Instance();
+        pi.largeStats = SpreadStats{};                      // 回到"统计还没攒够"
+        CHECK(!pi.largeStats.IsValid(), "D16 前置：统计无效");
+
+        // 4 个平仓开关先压成 false：早退路径不会重写它们（重写发生在后面的完整路径上），
+        // 所以"调完还是 false"才真正证明闸门只碰了开仓那 4 个 —— 若断言"是 true"，
+        // MakeHoldable 本来就把它们设成 true，什么都证明不了。
+        pi.orderParams.ttCLSwitch = pi.orderParams.ttCSSwitch = false;
+        pi.orderParams.mtCLSwitch = pi.orderParams.mtCSSwitch = false;
+
+        sg.SetGlobalPositionExceeded(true);
+        sg.RecalcOrderParams(pi);
+        CHECK(!pi.orderParams.ttOLSwitch && !pi.orderParams.ttOSSwitch &&
+              !pi.orderParams.mtOLSwitch && !pi.orderParams.mtOSSwitch,
+              "D16 统计无效的早退路径也压掉 4 个开仓开关");
+        CHECK(!pi.orderParams.ttCLSwitch && !pi.orderParams.ttCSSwitch &&
+              !pi.orderParams.mtCLSwitch && !pi.orderParams.mtCSSwitch,
+              "D16 闸门只碰开仓：平仓开关原样保持 false");
     }
 }
 

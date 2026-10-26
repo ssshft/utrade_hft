@@ -8,6 +8,8 @@
 //   1. SaveSnapshot          —— OnTimer 第 6 步，每 csvSaveIntervalSec(默认10s) 一次
 //   2. WriteSpreadStatsFile  —— T_signal 每轮统计更新(默认60s) 一次（已搬离执行线程）
 //   3. GetAllPairInfos       —— OnTimer 里被调用 5 次/秒（返回 vector<PairInfo*> 按值）
+//   3b. TotalPositionValue   —— OnTimer 第 0.5 步，1 次/秒（全局持仓闸门的输入：
+//                               遍历 m_pairInfoMap 现算 Σ|量×腿价×面值|，无分配）
 //   4. 拼 pair 键            —— BaseAlgoOrder::PairOrderTrade 每报一单拼一次
 //   5. 取数到 POD 行         —— 落盘搬走后，执行线程**仍然要付**的那部分（快照 / 统计各一份）
 //
@@ -136,8 +138,8 @@ int main() {
     const std::string csvPath   = std::string(dir) + "/pair_info.csv";
     const std::string statsPath = std::string(dir) + "/spread_stats.csv";
 
-    std::printf("对子数   SaveSnapshot(us)   WriteSpreadStats(us)   GetAllPairInfos(us)\n");
-    std::printf("---------------------------------------------------------------------\n");
+    std::printf("对子数   SaveSnapshot(us)   WriteSpreadStats(us)   GetAllPairInfos(us)   TotalPositionValue(us)\n");
+    std::printf("---------------------------------------------------------------------------------------------\n");
 
     double snap500 = 0.0;   // 供下面「500 行拆解」对比用，不写死常数
     for (int n : {50, 200, 500, 1000}) {
@@ -156,8 +158,12 @@ int main() {
             // 防止编译器把整个调用优化掉
             if (v.size() == 0xdeadbeef) std::printf("x");
         });
+        const double tPv    = medianUs(200, [&] {
+            const double s = pim.TotalPositionValue();
+            if (s == 1e300) std::printf("x");
+        });
 
-        std::printf("%6d   %16.1f   %20.1f   %18.2f\n", n, tSnap, tStats, tAll);
+        std::printf("%6d   %16.1f   %20.1f   %18.2f   %19.2f\n", n, tSnap, tStats, tAll, tPv);
         if (n == 500) snap500 = tSnap;
     }
 

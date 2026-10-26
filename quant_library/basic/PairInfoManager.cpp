@@ -631,6 +631,17 @@ std::vector<PairInfo*> PairInfoManager::GetAllPairInfos() {
     return result;
 }
 
+// 所有对子持仓市值之和（全局持仓闸门的输入）。
+// 直接遍历 m_pairInfoMap 而不是 m_pairKeys：坏 key（没有 `|`）不会建 PairInfo，
+// 按 m_pairKeys 遍历还得再查一次表。这里每对子只做一次乘法，不需要缓存。
+double PairInfoManager::TotalPositionValue() const {
+    double sum = 0.0;
+    for (const auto& kv : m_pairInfoMap) {
+        sum += kv.second.CalcPositionValue();
+    }
+    return sum;
+}
+
 
 void PairInfoManager::UpdateRtSpread(const std::string& pairKey, const dbp::DbpData* pdata) {
     auto* pi = GetPairInfo(pairKey);

@@ -677,9 +677,15 @@ void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
                                                 : BuildNormalModify(pi);
 
     // 祖先 :1069-1073：满足 just_close_flag / 资金费不合格 / 价差不合格时，把开仓开关压掉。
-    // C++ 侧只有 stopFlag（停止开仓）和 closeFlag（强制平仓）这两个等价输入；
-    // 祖先那三个 flag（just_close_flag / funding_time_qualified / unqualified_spread_flag）
-    // 目前没有对应物，属于待补项。
+    // C++ 侧现在有三个等价输入：
+    //   ① stopFlag / closeFlag —— 运维意图，直接读（就是下面这个 if）；
+    //   ② just_close_flag —— 全局持仓闸门（SignalGenerator::m_globalPosExceeded）。
+    //      **这里故意不再判它**：闸门写在 pi.orderParams 的 4 个开仓开关上
+    //      （RecalcOrderParams 末尾，而 RecalcOrderParams 每个 OnTimer 都跑），
+    //      上面 BuildNormalModify 整份拷 orderParams，所以超限时推给在跑的单的本来就是 false。
+    //      在这里再判一次只是重复，还会多一条"两个地方各压一次、改一个忘一个"的隐患。
+    // 仍未补：funding_time_qualified / unqualified_spread_flag —— 祖先这两条是"资格"状态，
+    // 每轮重算后决定要不要开仓，C++ 侧没有对应字段（资金费只做了单 tick 的阈值判断）。
     if (pi.stopFlag || pi.closeFlag) {
         mod.ttOLSwitch = false;
         mod.ttOSSwitch = false;
@@ -1128,6 +1134,37 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
             return;
         }
         LOG_WARN("启动闸门: Reconciling -> Trading, 交易放行(耗时 {}ms)", (nowUs - m_startupTimeUs) / 1000);
+    }
+
+    // 0.5 全局持仓闸门（祖先 cc_pricespread_gb_ltp.py:832 的 just_close_flag）
+    //     所有对子持仓市值之和 > maxPositionValue ⇒ 只平不开。
+    //
+    //     位置必须在步骤 1/2 之前：那两步都会调 RecalcOrderParams，闸门要在那一刻已经就位。
+    //     闸门本体在 SignalGenerator::RecalcOrderParams 末尾（它有 4 个生产调用点：Init /
+    //     OnAlgoFinished / OnTimer 第 1、2 步 —— 逐个去压开关必漏），
+    //     这里只负责"算出结论 + 状态翻转时打一行日志"。
+    //
+    //     ⚠️ 不写 pi.closeFlag：closeFlag 是**运维意图**，会进快照、会被 RESUME 清掉，
+    //        拿它当计算出来的闸门用会跟运维操作互相覆盖（见 docs/PairInfo-flag-审计.md）。
+    //     maxPositionValue <= 0 = 关闭，此时连 TotalPositionValue() 都不算。
+    //
+    //     ⚠️ 只搬了祖先判据的第一项（position_value_all > max_position_value）。祖先 :832 那一行
+    //        还有两个杠杆分支（position_value_both_max / active_total_pnl > leverage，被动腿同理），
+    //        它们要"账户权益"当分母，而 C++ 侧这个口径没接通 —— UpdateOnBalance 拼的 key 匹配不上
+    //        （两腿推的 currency 都是 USDT），那两行是空转。所以**没搬**，不是漏了，是缺输入。
+    {
+        const double cap = m_cfg.maxPositionValue;
+        const double totalPv = (cap > 0.0) ? pim.TotalPositionValue() : 0.0;
+        const bool exceeded = (cap > 0.0) && (totalPv > cap);
+        if (exceeded != sg.GetGlobalPositionExceeded()) {
+            sg.SetGlobalPositionExceeded(exceeded);
+            if (exceeded) {
+                LOG_WARN("全局持仓闸门: 所有对子持仓市值之和 {} > maxPositionValue {} -> 只平不开（已有持仓照常平，新开仓全部禁止）", totalPv, cap);
+            }
+            else {
+                LOG_INFO("全局持仓闸门解除: 持仓市值之和 {} <= maxPositionValue {} -> 恢复开仓", totalPv, cap);
+            }
+        }
     }
 
     // 1. 重算报单量参数（每分钟）

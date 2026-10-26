@@ -13,7 +13,7 @@
 | `autoFlag` | CSV 快照 `f[26]`；`ApplyCommand STOP→false` / `RESUME→true` | `RecalcOrderParams:147-150`、`ProcessRisk:402,406`、`UpdateSatisfyTime:455`、`CheckAlgoOrderTimeout:483` | **同时是"自动模式"、"开仓总开关"、"强平走 TT 还是 MT"** | ❌ 三重语义混用 |
 | `stopFlag` | CSV `f[27]`；`STOP→true` / `RESUME→false` | `CheckSignalForSatisfy:189`、`CanOpen:247`、`ProcessModify:664` | 挡开仓；运行中的算法单也能被压掉开仓开关 | ⚠️ 语义对，但被 `autoFlag` 绑架 |
 | `closeFlag` | CSV `f[28]`；`CLOSE→true` / `RESUME→false` | `RecalcOrderParams:144-145`、`CanOpen:252`、`ProcessModify:664` | 挡开仓、不挡平仓 = 只平不开 | ✅ 语义正确 |
-| `limitFlag` | **无** | `CanOpen:257` | 闸门永远不成立 | ❌ 死闸门 |
+| `limitFlag` | **无** | `CanOpen:257` | 闸门永远不成立 | ❌ 死闸门（持仓上限已改由"全局持仓闸门"承担，见 §1.4） |
 | `errorFlag` | `PairTradingContext:213`（孤儿单）、`:536`（敞口失控）；`RESUME` 清除 | `CanOpen:262`、`ProcessPairSignal:298` | **开仓和平仓一起挡** | ⚠️ 与你说的"只挡开仓"不符 |
 | `manualFlag` | **无** | `PairTradingContext:875` → `pAlgoOrder->isManual` | `isManual` 也只写不读 | ❌ 死字段 |
 
@@ -81,6 +81,11 @@ if (pi.errorFlag) {
 
 - `limitFlag`：全仓只有 `CanOpen:257` 一处读，**没有任何写入点** ⇒ 这道检查永远不成立。
   （"持仓上限已达"应该由 `RiskManager` 或 `RecalcVolumeParams` 在算出 `maxVolume` 时置位，现在没人置。）
+  > **2026-10-26 更新**：`limitFlag` 仍然没人置位，但"持仓上限"这件事已经由另一条路实现了 ——
+  > **全局持仓闸门**（`SignalGenerator::m_globalPosExceeded`，输入是 `maxPositionValue`，
+  > 见 `docs/实盘接入与参数配置.md` §5）。它**刻意不复用 `limitFlag`**：
+  > `limitFlag` 会进 CSV 快照、会被 `RESUME` 清掉，拿它当"算出来的闸门"用会跟运维操作互相覆盖。
+  > 所以 `limitFlag` 现在可以直接当**待删字段**看待，不要再往里写东西。
 - `manualFlag`：**没有任何写入点**，恒为 `false`；唯一读取是 `PairTradingContext:875`
   赋给 `pAlgoOrder->isManual`，而 `isManual` 全仓也只写不读（`BaseAlgoOrder.cpp:100`、`AlgoContext.cpp:377`）。
 

@@ -35,9 +35,15 @@ struct PairTradingConfig {
     int activeAccountId{0};
     int passiveAccountId{0};
 
-    double maxPositionValue{100}; // 报单额 总持仓上限 单位是 **USDT 
-    double maxAmount{50};       // 单个对子最大持仓金额
-    double targetAmount{50};    // 单个报单目标金额
+    // 全局持仓闸门（祖先 cc_pricespread_gb_ltp.py:832 的 just_close_flag）：
+    // **所有对子**持仓市值之和的上限，单位 USDT。超过 -> 只平不开
+    // （SignalGenerator::RecalcOrderParams 把 4 个开仓开关压成 false）。
+    // <= 0 = 关闭。默认关闭：没配就不该改变行为，配了才生效。
+    // ⚠️ 与 maxAmount 不是一个层级 —— maxAmount 是"单个对子"的最大持仓金额（换算成 maxVolume），
+    //    这个是跨所有对子的总和；祖先 :825 是 pair_info['positionValue'].abs().sum()。
+    double maxPositionValue{0};
+    double maxAmount{50};       // 单个对子最大持仓金额 -> RecalcVolumeParams -> pi.maxVolume
+    double targetAmount{50};    // 单个报单目标金额 -> pi.ttTargetVolume / mtTargetVolume
 
     FeeSlippageConfig feeSlippage; // 执行成本 / 滑点 / 价差阈值
     RiskConfig risk; // 风控门槛 + 渐进式平仓三档

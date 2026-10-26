@@ -55,6 +55,9 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     
 
     if (!ls.IsValid()) {
+        // 早退路径也必须过闸门。这里 4 个开关保持上一轮的值，而"刚重启 + 统计还没攒够"
+        // 正是带着恢复的大仓位、最该只平不开的时刻 —— 漏了这条闸门在预热期等于不存在。
+        ApplyGlobalPositionGate(op);
         return;
     }
 
@@ -156,6 +159,19 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         op.ttOLSwitch = op.ttOSSwitch = false;
         op.mtOLSwitch = op.mtOSSwitch = false;
     }
+
+    // 全局持仓闸门必须放**最后**：上面几段都在重写这 4 个开仓开关，压在前面会被它们打开。
+    ApplyGlobalPositionGate(op);
+}
+
+// 只平不开：把 4 个开仓开关压成 false，平仓开关（ttCL/ttCS/mtCL/mtCS）不动。
+void SignalGenerator::ApplyGlobalPositionGate(OrderParams& op) const {
+    if (!m_globalPosExceeded) {
+        return;
+    }
+
+    op.ttOLSwitch = op.ttOSSwitch = false;
+    op.mtOLSwitch = op.mtOSSwitch = false;
 }
 
 // 用实时价差与orderParams比较，生成信号
