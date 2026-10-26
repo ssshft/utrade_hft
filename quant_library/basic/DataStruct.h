@@ -365,8 +365,8 @@ namespace stra {
 
     enum TargetSpredPrice {
         TargetSpredPrice_MIN,
-        TargetSpredPrice_NOW,
-        TargetSpredPrice_NOW_MEAN,
+        TargetSpredPrice_NOW, // 实时价差
+        TargetSpredPrice_NOW_MEAN, // 实时价差均值
         TargetSpredPrice_MAX
     };
 

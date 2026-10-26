@@ -31,19 +31,16 @@ using PairInfoQueue = boost::lockfree::spsc_queue<PairInfoRecord, boost::lockfre
 using RuntimeParamQueue = boost::lockfree::spsc_queue<RuntimeConfig, boost::lockfree::capacity<16>>;
 
 
+using AlgoCommandCallback = std::function<void(BaseAlgoOrder* pAlgoOrder)>;
+using AlgoOrderModifyCallback = std::function<void(int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify)>;
+
 struct PairTradingConfig {
     // 对子清单：pre_start 边遍历它边订阅行情（SpreadManager + dbpreader 的唯一订阅点）。
     std::vector<std::string> pairKeys;
     int activeAccountId{0};
     int passiveAccountId{0};
 
-    // 全局持仓闸门（祖先 cc_pricespread_gb_ltp.py:832 的 just_close_flag）：
-    // **所有对子**持仓市值之和的上限，单位 USDT。超过 -> 只平不开
-    // （SignalGenerator::RecalcOrderParams 把 4 个开仓开关压成 false）。
-    // <= 0 = 关闭。默认关闭：没配就不该改变行为，配了才生效。
-    // ⚠️ 与 maxAmount 不是一个层级 —— maxAmount 是"单个对子"的最大持仓金额（换算成 maxVolume），
-    //    这个是跨所有对子的总和；祖先 :825 是 pair_info['positionValue'].abs().sum()。
-    double maxPositionValue{0};
+    double maxPositionValue{0}; // 所有对子的总和的持仓金额
     double maxAmount{50};       // 单个对子最大持仓金额 -> RecalcVolumeParams -> pi.maxVolume
     double targetAmount{50};    // 单个报单目标金额 -> pi.ttTargetVolume / mtTargetVolume
 
@@ -87,8 +84,6 @@ struct PairTradingConfig {
     double maxTTOrderSize{1.0};
 
     // ---- 目标价差口径 / 主动腿量算法 ----
-    // targetSpreadType = NOW：按实时价差算目标，不用均值（NOW_MEAN 是另一种口径）
-    // activeVolumeCalcualteType = PassiveVolumePct：主动腿量由被动腿量 × passiveVolumePct 推
     stra::TargetSpredPrice targetSpreadType{stra::TargetSpredPrice_NOW};
     stra::ActiveVolumeCalcualteType activeVolumeCalcualteType{stra::ActiveVolumeCalcualteType_PassiveVolumePct};
 
@@ -109,11 +104,10 @@ struct PairTradingConfig {
     int passivePriceTickNum{0};
 
     // ---- 策略参数 ----
-
     double exposureMaxLimit{10}; // 敞口上限
     double exposureMaxLimitCoff{1.0}; // 敞口系数
 
-    // 价差统计分位数（祖先 quantile_up=0.92 / quantile_dn=1-quantile_up=0.08）
+    // 价差统计分位数
     // 分位数越极端 -> 分位数边界越靠外 -> 入口阈值越宽 -> 开平机会越多
     double quantileUp{0.92};
     double quantileDn{0.08};
@@ -130,12 +124,11 @@ struct PairTradingConfig {
     // 允许恢复的最大陈旧度（秒，按样本时间 calcTs 算，不是墙钟）<= 0 关闭恢复，永远正常预热。
     int spreadStatsMaxStaleSec{3600};
 
-    // 算法单机会超时ms（祖先 algo_order_cancel_time = 150s）。
+    // 算法单机会超时ms 会撤单。
     // 语义是"机会连续不成立的时长"，不是订单年龄：机会条件一成立就刷新 satisfyTime，
-    // 所以只有连续不成立超过这个时长才会撤单。见 UpdateSatisfyTime / CheckAlgoOrderTimeout
     int64_t algoOrderTimeoutMs{150000};
 
-    // 敞口异常倍数（祖先 :1081 的 4 * ttTargetVolume）：
+    // 敞口异常倍数（4 * ttTargetVolume）：
     // 双腿净敞口 / activeMultiple 超过 exposureCancelTimes * ttTargetVolume 即视为敞口失控
     double exposureCancelTimes{4.0};
 
@@ -161,11 +154,6 @@ struct PairTradingConfig {
     std::string configPath;
 };
 
-// 回调直接传递创建好的算法单对象（不再拼 JSON 字符串）
-using AlgoCommandCallback = std::function<void(BaseAlgoOrder* pAlgoOrder)>;
-
-// 算法单变更回调（撤单 / 改参）：按 id 指回已在册的算法单，与 AlgoContext 的变更重载一一对应
-using AlgoOrderModifyCallback = std::function<void(int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify)>;
 
 class PairTradingContext {
 public:
@@ -191,11 +179,9 @@ public:
     void OnTotalAccount(const pubsub::TotalAccount& totalAccount);
 
     // 算法单执行端回传：量 / 价 / 状态一次性带入。
-    // 非终态只同步量价（保持 PairInfo 与算法单一致），终态才结算并释放对子。
     void OnAlgoOrderUpdate(BaseAlgoOrder* order);
 
     // 单实例入口（方案A）：算法单创建与执行同线程，AlgoContext / BaseAlgoOrder 直接回传，
-    // 不走消息队列。未 Init 时返回 nullptr。
     static PairTradingContext* Instance();
 
     // AlgoContext / BaseAlgoOrder 的调用入口；未 Init 时安全跳过
@@ -224,8 +210,6 @@ private:
     // ---- 启动闸门（§5.2）----
     // Init 读完快照后停在 Reconciling：五个交易入口全部直接 return，
     // 等两腿 pubsub::Position 推送到位、对账通过，才进 Trading。
-    // 之所以需要它：价差推送通常早于持仓推送，而 CanOpen 没有持仓门槛、
-    // CanClose 又要求 HasPosition —— 账本不对就会"在孤儿仓上再开一笔"或"平仓单变反向开仓"。
     enum class StartupPhase {
         Reconciling = 0,   // 等推送 + 对账，交易冻结
         Trading = 1        // 账本可信，放行
@@ -234,9 +218,7 @@ private:
     int64_t m_startupTimeUs{0};
     int64_t m_lastReconcileWarnUs{0};
 
-    // 每个账户"最近一次持仓批次结束"的时间（pubsub::Position::isLast == true）。
-    // 用途：区分"该腿确实没持仓"和"该腿的推送还没到"。
-    // Init 时是空的，所以任何一条记录必然是本次启动之后收到的。
+    // 每个账户"最近一次持仓批次结束"的时间（pubsub::Position::isLast == true）用途：区分"该腿确实没持仓"和"该腿的推送还没到"。
     std::unordered_map<int, int64_t> m_positionBatchDoneUs;
 
     // 该账户的持仓批次是否已在本次启动后完整到达过
@@ -277,14 +259,6 @@ private:
     CfgStamp m_cfgStamp;
 
     // T_signal 的**一轮**：吃样本 -> 到点就 Build + 落盘。SignalWork() 循环调的就是它。
-    //
-    // 为什么单独抽成一个函数（不是为了好看）：测试不能等 spreadStatsUpdateIntervalSec
-    // （默认 60s），也不能依赖另一条线程的调度顺序，只能 StopSignalThread() 之后手工推一轮。
-    // 抽出来才能保证**生产与测试走同一段代码** —— 否则测试验的是抄在 .inc 里的另一份实现，
-    // 源码一改就静默失配。
-    //
-    // ⚠️ 只允许 T_signal 自己（或测试在停掉该线程后）调用：它碰 m_spreadWindows，
-    //    并向 m_statsQ（SPSC）push，两个线程同时进来就是数据竞争。
     void RunSignalOnce(int64_t nowUs, int64_t& lastStatsUpdateUs);
 
     std::thread m_signalThread;
@@ -294,82 +268,50 @@ private:
     SpreadStatsQueue  m_statsQ;    // T_signal -> T_market（分位数快照）
 
     // 每个币对的降频采样计时，**行情线程独占**。
-    // 只依赖一个 int64，所以不需要样本窗口 —— 窗口在 m_spreadWindows 里，归 T_signal。
     std::unordered_map<std::string, int64_t> m_lastSampleTs;
 
     // 每个币对一份 24h 滚动价差样本窗口，**T_signal 独占**（行情线程一行都不碰）。
-    // 值类型从原来的 SpreadWindow{builder,lastSampleTs} 收窄成 SpreadStatsBuilder：
-    // lastSampleTs 是行情线程的降频状态，已经搬到 m_lastSampleTs。
     std::unordered_map<std::string, SpreadStatsBuilder> m_spreadWindows;
-
 
     PairInfoQueue m_snapQ;   // T_market -> T_signal（空 pairKey = 一批结束）
     std::vector<PairInfoRecord> m_snapScratch; // 交易线程独占：收行的暂存（resize 一次，之后零分配）
     std::vector<PairInfoRecord> m_snapWrite;   // T_signal 独占：攒批的暂存
 
-    // 从 OnSpread 的原始行情里抽一条价差样本，按 spreadSampleIntervalMs 降频后
-    // 非阻塞投给 T_signal（这里不再碰样本窗口）
+    // 从 OnSpread 的原始行情里抽一条价差样本，按 spreadSampleIntervalMs 降频后非阻塞投给 T_signal
     void AccumulateSpreadSample(const std::string& pairKey, const dbp::DbpData* pdata);
 
     void ProcessPairSignal(PairInfo& pi);
 
     void ProcessRisk(PairInfo& pi, int64_t nowUs);
 
-    // 机会条件快照（祖先 cc_pricespread_gb_ltp.py:922/930/936）：
     // 每 tick 对**每个**对子都算一次，与是否已有算法单无关；条件成立就把 pi.satisfyTime 刷成 nowUs。
     // 于是 satisfyTime 的含义是"最后一次机会成立的时间"，CheckAlgoOrderTimeout 用它算"连续不成立"的时长。
-    // 祖先是在 pair_info 整个 DataFrame 上整列赋值，所以这里也不能只对有单的对子算。
     void UpdateSatisfyTime(PairInfo& pi, const SignalResult& sig, bool canOpen, bool canClose) const;
 
-    // 撤单触发①：机会超时（祖先 :1021）。
+    // 撤单触发①：机会超时，手动单不撤
     // nowUs - satisfyTime > algoOrderTimeoutMs 时请求撤单。
-    // 只有手动单不撤（autoFlag == false，祖先 :1018-1020）。
-    // 风控强平单**同样受这条约束**（2026-09-27 确认）：强平单长时间不成交也要撤掉、
-    // 下一轮按新档位重报 —— 撤单 -> OnAlgoFinished -> tierNTimes++ 是档位升级的唯一驱动，
-    // 豁免它等于把档位永远锁在 tier1。
     void CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs) const;
 
-    // 撤单触发⑤：敞口异常（祖先 :1081-1092）。
-    // 双腿都有实盘持仓、且净敞口超过 exposureCancelTimes * ttTargetVolume 时，
-    // 置 pi.errorFlag 停止该对子的一切报单，并撤掉在跑的算法单（祖先置 status=ERROR，留人工处理）。
+    // 双腿都有实盘持仓、且净敞口超过 exposureCancelTimes * ttTargetVolume 时，置 pi.errorFlag 停止该对子的一切报单，并撤掉在跑的算法单。
     void CheckExposureAbnormal(PairInfo& pi) const;
 
     // 改参触发（祖先 :1059-1078）：每 modifyTimespanSec 秒把最新参数推给在跑的算法单。
     // 流动性危险（liquid_status == 2）时用 BuildCloseModify（更激进的平仓），否则用 BuildNormalModify。
-    // 计时靠 pi.algoModifyTime，由 SubmitAlgoOrder 在报单时重置。
-    // ⚠️ 不能用 PairInfo::modifyTime：那个字段被 PairInfoManager 在 UpdateRtSpread 等七处
-    //    刷新（每个价差 tick 一次），拿它计时这个判断永远不成立。
     void ProcessModify(PairInfo& pi, int64_t nowUs) const;
 
-    // 祖先 algo_order_manager.py:211-252 create_modify_dict 的等价物：
     // 按 pair_info 的最新参数生成整份 42 字段快照。
-    // ⚠️ 祖先那个函数**只带 6 个开关**（profitSwitch/profitPct/ttOL/ttOS/mtOL/mtOS），
-    //    故意不带 ttCL/ttCS/mtCL/mtCS —— 因为 AEC 侧是"缺字段就保持原值"的部分更新。
-    //    C++ 的 MODIFY 分支是整份覆盖，所以这里必须把 8 个开关**全部**带上，
-    //    否则平仓开关会被默认值 false 清零，等于关掉平仓能力。
     static stra::AlgoOrderModify BuildNormalModify(const PairInfo& pi);
 
-    // 祖先 algo_order_manager.py:254-298 create_close_modify_dict 的等价物：
-    // 流动性危险时"更激进的平仓"——关掉全部开仓开关、关掉盈利保护，
-    // 平仓价差朝更容易成交的方向让 shiftPct。
+    // 流动性危险时"更激进的平仓"——关掉全部开仓开关、关掉盈利保护，平仓价差朝更容易成交的方向让 shiftPct。
     static stra::AlgoOrderModify BuildCloseModify(const PairInfo& pi, double shiftPct);
 
-    // 请求执行端撤销该对子当前的算法单。幂等：对子没有活跃算法单、或算法单已在撤单流程里，
-    // 都会被忽略。撤单是异步的（撤主动腿报价 -> 等被动腿成交把敞口平掉 -> 子单清零
-    // -> ALGO_OS_CANCELED -> 回传释放对子），调用方不能假设它同步生效。
+    // 请求执行端撤销该对子当前的算法单。撤单是异步的，调用方不能假设它同步生效。
     void RequestCancelAlgoOrder(const PairInfo& pi) const;
 
     // direction : OL/OS/CL/CS;   algoMode: TT/MT
     // 报单成功时会把 pi.satisfyTime 与 pi.algoModifyTime 一起刷成当前时刻（所以形参是非 const 引用）：
-    //   satisfyTime    —— 机会超时（CheckAlgoOrderTimeout）从报单起算。祖先的报单只可能发生在
-    //       机会成立的那一 tick，所以刷新它不改变语义；不刷的话算法单会因为时间戳陈旧
-    //       被"机会超时"立刻撤掉。风控强平单的 150s 窗口也靠这里起算：强平是在机会不成立时
-    //       发出去的，之后 satisfyTime 刷不动，正好 150s 后超时撤单、下一轮按新档位重报。
-    //   algoModifyTime —— 改参（ProcessModify）从报单起算。报单时参数已经推给算法单了，
-    //       字段语义就是"最后一次把参数推给这个对子"。
     void SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;
 
-    // 函数名沿用旧名，但已不再拼 JSON：直接创建算法单对象并返回，创建失败（开关关闭/报单量非法）返回 nullptr
     BaseAlgoOrder* BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;
 
     std::string baseAsset{"USDT"};

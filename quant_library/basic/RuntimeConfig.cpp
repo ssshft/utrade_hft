@@ -1,17 +1,11 @@
 #include "RuntimeConfig.h"
-
 #include "rapidjson/document.h"
-
 #include <fstream>
 #include <sstream>
 
 namespace pt {
 
 bool ReadRuntimeConfigFile(const std::string& path, RuntimeConfig& out) {
-    if (path.empty()) {
-        return false;
-    }
-
     std::ifstream ifs(path);
     if (!ifs.is_open()) {
         return false;
