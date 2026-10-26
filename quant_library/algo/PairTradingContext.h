@@ -30,42 +30,17 @@ using PairInfoQueue = boost::lockfree::spsc_queue<PairInfoRecord, boost::lockfre
 
 
 struct PairTradingConfig {
-    // 对子清单。**平铺**在 op 段（`op.pairKeys`），不在 `op.pairTrading` 里 ——
-    // 因为 pre_start 是边遍历它边订阅行情的，跟纯参数不是一类东西。
-    std::vector<std::string> pairKeys;
-
-    // 账户。同样平铺在 op 段（`op.activeAccountId` / `op.passiveAccountId`）。
+    std::vector<std::string> pairKeys; // pre_start边遍历它边订阅行情的，
     int activeAccountId{0};
     int passiveAccountId{0};
 
-    // 报单额。平铺在 op 段（`op.maxPositionValue` / `op.maxAmount` / `op.targetAmount`），
-    // 单位是 **USDT 名义价值**，不是币数 —— 换算成币数在
-    // PairInfoManager::RecalcVolumeParams（除以腿价再 ceil 到 minVolume）。
-    double maxPositionValue{100}; // 总持仓上限
+    double maxPositionValue{100}; // 报单额 总持仓上限 单位是 **USDT 
     double maxAmount{50};
     double targetAmount{50};
 
-    // -----------------------------------------------------------------------
-    // 两个"参数块"。挂在 op 段下的**独立子对象**里，解析全在
-    // src/strategy/PairTradingStrategy.cpp 的 pre_start 里用 rapidjson 逐字段读
-    // （每个 key 先 HasMember 再赋值：配置里没写的保持结构体默认值）。
-    //
-    //   op.feeSlippage -> feeSlippage  执行成本 / 滑点 / 价差阈值
-    //                    解析后推给 SignalGenerator::SetConfig（信号侧与算法单侧共用）
-    //   op.risk        -> risk         风控门槛 + 渐进式平仓三档
-    //                    解析后推给 RiskManager::SetConfig
-    //
-    // 为什么这两个也放进来：这两个单例（SignalGenerator / RiskManager）是跨组件
-    // 使用的，各自必须持有一份自己的配置副本；放在这里是为了让"本次启动实际生效
-    // 的全部参数"集中在一处，便于日志打印与核对。
-    //
-    // 算法单参数（报单类型 / 撤单门槛 / rebalance …）**不单独建结构体**，
-    // 就是下面 `op.pairTrading` 段里的普通字段，由 BuildAlgoOrderJson 直接读。
-    // -----------------------------------------------------------------------
-    FeeSlippageConfig feeSlippage;
-    RiskConfig       risk;
+    FeeSlippageConfig feeSlippage; // 执行成本 / 滑点 / 价差阈值
+    RiskConfig risk; // 风控门槛 + 渐进式平仓三档
 
-    // ---- 以下全部走 `op.pairTrading` 段 ----
     OrderType ttActiveOrderType{OT_LIMIT};
     OrderType mtActiveOrderType{OT_POST_ONLY};
     OrderType passiveOrderType{OT_LIMIT};
@@ -106,8 +81,7 @@ struct PairTradingConfig {
     // targetSpreadType = NOW：按实时价差算目标，不用均值（NOW_MEAN 是另一种口径）
     // activeVolumeCalcualteType = PassiveVolumePct：主动腿量由被动腿量 × passiveVolumePct 推
     stra::TargetSpredPrice targetSpreadType{stra::TargetSpredPrice_NOW};
-    stra::ActiveVolumeCalcualteType activeVolumeCalcualteType{
-        stra::ActiveVolumeCalcualteType_PassiveVolumePct};
+    stra::ActiveVolumeCalcualteType activeVolumeCalcualteType{stra::ActiveVolumeCalcualteType_PassiveVolumePct};
 
     // ---- rebalance（主动腿成交后是否用 rebalance 模式补被动腿）----
     bool mtRebalanceSwitch{true};
@@ -143,17 +117,8 @@ struct PairTradingConfig {
     int spreadFreshnessSec{30};            // 行情新鲜度门槛（祖先 lastGenerateTs < 30s）
 
     // ---- 分位数快照（重启免预热）----
-    // 冷启动要攒够 spreadStatsMinSamples 个样本才算出第一组分位数，
-    // 在那之前 SignalGenerator::RecalcOrderParams 直接早退、**一单都发不出去**。
-    // 生产参数下（窗口 24h / 5s 采样）这段"哑火期"是分钟级，每次重启都要重付。
-    // 所以把算好的分位数单独落一份盘，重启时够新就直接顶上。
-    //
-    // 单独一个文件、不塞进 pair_info.csv：分位数是**派生字段**，两个文件的恢复
-    // 语义也不同（这本账丢了只是回到旧行为，pair_info.csv 丢了是丢账）。
     std::string spreadStatsStatePath{"data/spread_stats.csv"};
-    // 允许恢复的最大陈旧度（秒，按样本时间 calcTs 算，不是墙钟）。
-    // 行情时间戳在停牌/断档时不前进，所以这一条同时挡住"进程停了很久"和
-    // "行情本身就停了很久"。<= 0 = 关闭恢复，永远正常预热。
+    // 允许恢复的最大陈旧度（秒，按样本时间 calcTs 算，不是墙钟）<= 0 关闭恢复，永远正常预热。
     int spreadStatsMaxStaleSec{3600};
 
     // 算法单机会超时ms（祖先 algo_order_cancel_time = 150s）。
@@ -316,7 +281,7 @@ private:
     // lastSampleTs 是行情线程的降频状态，已经搬到 m_lastSampleTs。
     std::unordered_map<std::string, SpreadStatsBuilder> m_spreadWindows;
 
-    
+
     PairInfoQueue m_snapQ;   // T_market -> T_signal（空 pairKey = 一批结束）
     std::vector<PairInfoRecord> m_snapScratch; // 交易线程独占：收行的暂存（resize 一次，之后零分配）
     std::vector<PairInfoRecord> m_snapWrite;   // T_signal 独占：攒批的暂存
