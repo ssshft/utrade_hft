@@ -64,12 +64,20 @@ namespace stra {
 	    {CommandType_MIN, "CommandType_MIN"},
         {CommandType_NEW, "CommandType_NEW"},
         {CommandType_PendingNew, "CommandType_PendingNew"},
+        {CommandType_TRADING, "CommandType_TRADING"},
         {CommandType_CANCEL, "CommandType_CANCEL"},
         {CommandType_CANCELLING, "CommandType_CANCELLING"},
+        {CommandType_UCANCELLING, "CommandType_UCANCELLING"},
+        {CommandType_CANCELED, "CommandType_CANCELED"},
         {CommandType_MODIFY, "CommandType_MODIFY"},
         {CommandType_MODIFYING, "CommandType_MODIFYING"},
+        {CommandType_MODIFIED, "CommandType_MODIFIED"},
         {CommandType_QUERY, "CommandType_QUERY"},
         {CommandType_QUERYING, "CommandType_QUERYING"},
+        {CommandType_QUERIED, "CommandType_QUERIED"},
+        {CommandType_UPDATE, "CommandType_UPDATE"},
+        {CommandType_ERROR, "CommandType_ERROR"},
+        {CommandType_FINISHED, "CommandType_FINISHED"},
 	    {CommandType_MAX, "CommandType_MAX"}
     };
 
@@ -77,12 +85,20 @@ namespace stra {
 	    {"CommandType_MIN", CommandType_MIN},
         {"CommandType_NEW", CommandType_NEW},
         {"CommandType_PendingNew", CommandType_PendingNew},
+        {"CommandType_TRADING", CommandType_TRADING},
         {"CommandType_CANCEL", CommandType_CANCEL},
         {"CommandType_CANCELLING", CommandType_CANCELLING},
+        {"CommandType_UCANCELLING", CommandType_UCANCELLING},
+        {"CommandType_CANCELED", CommandType_CANCELED},
         {"CommandType_MODIFY", CommandType_MODIFY},
         {"CommandType_MODIFYING", CommandType_MODIFYING},
+        {"CommandType_MODIFIED", CommandType_MODIFIED},
         {"CommandType_QUERY", CommandType_QUERY},
         {"CommandType_QUERYING", CommandType_QUERYING},
+        {"CommandType_QUERIED", CommandType_QUERIED},
+        {"CommandType_UPDATE", CommandType_UPDATE},
+        {"CommandType_ERROR", CommandType_ERROR},
+        {"CommandType_FINISHED", CommandType_FINISHED},
         {"CommandType_MAX", CommandType_MAX}
     };
 
