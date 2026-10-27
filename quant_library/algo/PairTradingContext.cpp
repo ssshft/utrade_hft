@@ -89,14 +89,9 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
     // 只平不开的初值：必须在下面那些 RecalcOrderParams 之前就位。
     SignalGenerator::Instance().SetCloseOnly(cfg.closeOnly);
 
-    // 启动时就已经处于急停状态，必须留一行日志。
-    // 为什么非要这一行：`stopAllAlgo` 的三处闸门都是**静默 return**（不报单就是不报单，
-    // 没有任何一条日志说明原因），而第 0.6 步的那行 WARN 只在"配置发生变化"时打。
-    // 于是"配置里写着 stopAllAlgo=true 然后重启"现场看到的是：进程在跑、一单不报、
-    // 日志里什么都查不到 —— 这正是最容易被人误判成"策略没信号"的情形。
+    // 启动时就已经处于急停状态
     if (cfg.closeOnly || cfg.stopAllAlgo) {
-        LOG_WARN("启动即处于急停状态: closeOnly={} stopAllAlgo={}（stopAllAlgo=true 时不创建任何算法单，需人工接管）",
-                 cfg.closeOnly, cfg.stopAllAlgo);
+        LOG_WARN("启动即处于急停状态: closeOnly={} stopAllAlgo={}（stopAllAlgo=true 时不创建任何算法单，需人工接管）", cfg.closeOnly, cfg.stopAllAlgo);
     }
 
     auto& pim = PairInfoManager::Instance();

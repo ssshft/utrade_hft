@@ -117,11 +117,8 @@ struct PairTradingConfig {
     int spreadStatsUpdateIntervalSec{60};  // 60s 刷新统计（祖先 spread_df_update_timespan，原值 3600）
     int spreadStatsMinSamples{5};       // 样本数门槛（祖先 spread_count > 24*3600/5*0.5）
     int spreadSampleIntervalSec{5};       // 采样间隔 5s，控制内存；0 = 不降频（逐 tick 全存）
-
-    // ---- 分位数快照（重启免预热）----
-    std::string spreadStatsStatePath{"data/spread_stats.csv"};
-    // 允许恢复的最大陈旧度（秒，按样本时间 calcTs 算，不是墙钟）<= 0 关闭恢复，永远正常预热。
-    int spreadStatsMaxStaleSec{3600};
+    int spreadStatsMaxStaleSec{3600};  // 允许恢复的最大陈旧度（秒，按样本时间 calcTs 算，不是墙钟）<= 0 关闭恢复，永远正常预热。
+    std::string spreadStatsStatePath{"data/spread_stats.csv"};  // ---- 分位数快照（重启免预热）----
 
     // 算法单机会超时ms 会撤单。
     // 语义是"机会连续不成立的时长"，不是订单年龄：机会条件一成立就刷新 satisfyTime，

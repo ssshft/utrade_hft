@@ -492,9 +492,6 @@ void PairTradingStrategy::pre_start(Config* config) {
                  fs.openProfitPct, fs.openMaxFundingRate);
 
         // ---- 派生门槛：把"填的值"翻译成"价差实际要走到多少 bp" ----
-        // 这两组数是最容易算错的地方：改了费率却忘了重算地板 ⇒ 净利悄悄缩水，
-        // 而日志里两个原始值（费率、minSpreadTarget）看起来都"没毛病"。
-        // 全部由配置直接推出，与分位数无关：
         //     毛价差门槛     = 地板 + 5e-6 + F
         //     价差回 0 的净利 = 地板 + 5e-6 − F
         //     想净赚 X 该填   = X + F − 5e-6
@@ -521,7 +518,7 @@ void PairTradingStrategy::pre_start(Config* config) {
                              bp(fs.minSpreadTarget), bp(floorMT + Fmt), bp(floorTT + Ftt), bp(netMT), bp(netTT),
                              bp(fs.minProfitTarget));
                 } else {
-                    // 地板产出的净利不够门槛。两条出路，打出来让人一眼看到该改哪个数：
+                    // 地板产出的净利不够门槛：
                     //   ① 不动配置：入场必须比地板再深 (门槛 − 净利)；
                     //   ② 把 minSpreadTarget 提到 needMST（= 门槛 + F − 5e-6）。
                     LOG_WARN("配置派生[门槛] 地板={}bp 毛门槛 mt={}bp tt={}bp | 价差回0净利 mt={}bp tt={}bp | "
@@ -638,8 +635,6 @@ void PairTradingStrategy::on_ordertrade(pubsub::OrderResponse& orderResponse) {
 }
 
 // 兜底扫描：算法单终结的回传已由 AlgoContext 在同线程内直接调用
-// （OnTimer 的终态分支 + BaseAlgoOrder::PairOrderTrade 的成交分支），
-// 这里只处理漏网的情况，正常路径不会命中。
 void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {
     auto& pim = pt::PairInfoManager::Instance();
 
