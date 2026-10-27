@@ -43,8 +43,7 @@
             "spreadStatsWindowSec": "86400",
             "spreadStatsUpdateIntervalSec": "60",
             "spreadStatsMinSamples": "5",
-            "spreadSampleIntervalMs": "5000",
-            "spreadFreshnessSec": "30",
+            "spreadSampleIntervalSec": "5",
 
             "_note_spreadStatsState": "分位数快照：算好的价差分位数单独落一份盘，重启时够新就直接顶上，不用再等预热。maxStaleSec<=0 或 path 留空 = 关掉这个功能。",
             "spreadStatsStatePath": "data/spread_stats.csv",

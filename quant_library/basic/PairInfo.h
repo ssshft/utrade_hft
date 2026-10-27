@@ -127,7 +127,7 @@ namespace pt {
         int64_t algoOrderId;
     };
 
-    // 行情线程 → T_signal：一条降频后的价差样本（每对子每 spreadSampleIntervalMs 一条）
+    // 行情线程 → T_signal：一条降频后的价差样本（每对子每 spreadSampleIntervalSec 一条）
     struct SpreadSampleMsg {
         char  pairKey[stra::INST_KEY_LEN]{""};
         SpreadSample s;

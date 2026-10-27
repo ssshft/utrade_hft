@@ -11,8 +11,9 @@ class LarkRebot {
 public:
     static LarkRebot& GetInstance();
     ~LarkRebot();
+    std::string JsoneEcaped(const std::string& msg);
     void Run();
-    void SendMsg(const std::string& msg);
+    void SendMsg(const std::string& msg, bool atAll = false);
 
 private:
     LarkRebot();

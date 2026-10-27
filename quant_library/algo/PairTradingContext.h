@@ -35,7 +35,7 @@ using AlgoCommandCallback = std::function<void(BaseAlgoOrder* pAlgoOrder)>;
 using AlgoOrderModifyCallback = std::function<void(int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify)>;
 
 struct PairTradingConfig {
-    // 对子清单：pre_start 边遍历它边订阅行情（SpreadManager + dbpreader 的唯一订阅点）。
+    // 对子清单：pre_start 边遍历它边订阅行情
     std::vector<std::string> pairKeys;
     int activeAccountId{0};
     int passiveAccountId{0};
@@ -112,12 +112,11 @@ struct PairTradingConfig {
     double quantileUp{0.92};
     double quantileDn{0.08};
 
-    // ---- 价差统计生产者（对齐祖先 pair_trading_c_gateio）----
+    // ---- 价差统计生产者
     int spreadStatsWindowSec{86400};       // 24h 滚动窗口（祖先 spread_df_update_period）
     int spreadStatsUpdateIntervalSec{60};  // 60s 刷新统计（祖先 spread_df_update_timespan，原值 3600）
     int spreadStatsMinSamples{5};       // 样本数门槛（祖先 spread_count > 24*3600/5*0.5）
-    int spreadSampleIntervalMs{5000};       // 采样间隔 5s，控制内存；0 = 不降频（逐 tick 全存）
-    int spreadFreshnessSec{30};            // 行情新鲜度门槛（祖先 lastGenerateTs < 30s）
+    int spreadSampleIntervalSec{5};       // 采样间隔 5s，控制内存；0 = 不降频（逐 tick 全存）
 
     // ---- 分位数快照（重启免预热）----
     std::string spreadStatsStatePath{"data/spread_stats.csv"};
@@ -280,7 +279,7 @@ private:
     std::vector<PairInfoRecord> m_snapScratch; // 交易线程独占：收行的暂存（resize 一次，之后零分配）
     std::vector<PairInfoRecord> m_snapWrite;   // T_signal 独占：攒批的暂存
 
-    // 从 OnSpread 的原始行情里抽一条价差样本，按 spreadSampleIntervalMs 降频后非阻塞投给 T_signal
+    // 从 OnSpread 的原始行情里抽一条价差样本，按 spreadSampleIntervalSec 降频后非阻塞投给 T_signal
     void AccumulateSpreadSample(const std::string& pairKey, const dbp::DbpData* pdata);
 
     void ProcessPairSignal(PairInfo& pi);

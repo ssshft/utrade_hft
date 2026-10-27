@@ -2,7 +2,7 @@
  * 核心流程：
  * OnSpread:
  * 1. 更新 pi.rtSpread
- * 2. AccumulateSpreadSample --》按 spreadSampleIntervalMs 降频后投给 T_signal
+ * 2. AccumulateSpreadSample --》按 spreadSampleIntervalSec 降频后投给 T_signal
  *    （样本窗口与分位数计算都在 T_signal 上，本线程不碰）
  * 3. 机会条件快照 --》UpdateSatisfyTime（对每个对子都算，与有没有在跑的单无关）
  * 4. CheckSignal --》有信号 --》SubmitAlgoOrder
@@ -298,8 +298,7 @@ void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData
     auto& pim = PairInfoManager::Instance();
     pim.UpdateRtSpread(pairKey, pdata);
 
-    // 喂一条价差样本进 24h 滚动窗口（内部按 spreadSampleIntervalMs 降频）
-    // 注意：这里只负责“收集”，不负责算分位数；分位数在 OnTimer 里按周期重算
+    // 喂一条价差样本进 24h 滚动窗口（内部按 spreadSampleIntervalSec 降频）
     AccumulateSpreadSample(pairKey, pdata);
 
     PairInfo* pi = pim.GetPairInfo(pairKey);
@@ -311,15 +310,10 @@ void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData
 }
 
 void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, const dbp::DbpData* pdata) {
-    // generateTs 是价差生成时间，单位 us
     const int64_t ts = pdata->generateTs;
-
-    // 降频门控仍然在行情线程：它只依赖一个 int64（m_lastSampleTs），不需要样本窗口。
-    // 这样跨线程量 = 每对子每 spreadSampleIntervalMs(5s) 一条 32 B 样本，
-    // 而不是每 tick 一条（每 tick 那条在这里被挡掉了，代价是两次比较）。
     int64_t& lastTs = m_lastSampleTs[pairKey];
-    if (m_cfg.spreadSampleIntervalMs > 0 && lastTs > 0) {
-        const int64_t minGapUs = static_cast<int64_t>(m_cfg.spreadSampleIntervalMs) * 1000LL;
+    if (m_cfg.spreadSampleIntervalSec > 0 && lastTs > 0) {
+        const int64_t minGapUs = static_cast<int64_t>(m_cfg.spreadSampleIntervalSec) * 1000000LL;
         if (ts - lastTs < minGapUs) {
             return;
         }

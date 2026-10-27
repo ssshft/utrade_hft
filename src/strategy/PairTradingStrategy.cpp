@@ -31,12 +31,10 @@ void PairTradingStrategy::pre_start(Config* config) {
     auto& op = v["op"];
     if (op.HasMember("pairTrading")) {
         auto& s = op["pairTrading"];
-
         m_ptCfg.activeAccountId = std::stoi(s["activeAccountId"].GetString());
         m_ptCfg.passiveAccountId = std::stoi(s["passiveAccountId"].GetString());
 
-        // 对子清单：边读边订阅。pre_start 是**唯一**订阅点（SpreadManager + dbpreader），
-        // 所以这段逻辑必须留在这里，不能挪到 Init —— Init 时行情已经该在流了。
+        // 对子清单：边读边订阅
         if (s.HasMember("pairKeys")) {
             for (auto& pk: s["pairKeys"].GetArray()) {
                 std::string pairKey = pk.GetString();
@@ -75,8 +73,6 @@ void PairTradingStrategy::pre_start(Config* config) {
             m_ptCfg.stopAllAlgo = s["stopAllAlgo"].GetBool() ;
         }
 
-        // 热更新监视的就是本次启动用的这份配置文件。Config 只保存解析结果（启动那一刻的
-        // 快照，永远不会变），所以路径必须由它自己记下来 —— 见 include/config.h 的 get_path()。
         m_ptCfg.configPath = config->get_path();
 
         // 敞口
@@ -92,8 +88,7 @@ void PairTradingStrategy::pre_start(Config* config) {
             m_ptCfg.exposureCancelTimes  = std::stod(s["exposureCancelTimes"].GetString());
         }
 
-        // 价差分位数。这两个直接决定 RecalcOrderParams 算出来的开平仓阈值：
-        // 分位数越极端（quantileUp 越大 / quantileDn 越小）边界越靠外、越容易触发。
+        // 价差分位数。这两个直接决定 RecalcOrderParams 算出来的开平仓阈值
         if (s.HasMember("quantileUp")) {
             m_ptCfg.quantileUp = std::stod(s["quantileUp"].GetString());
         }
@@ -115,12 +110,8 @@ void PairTradingStrategy::pre_start(Config* config) {
             m_ptCfg.spreadStatsMinSamples = std::stoi(s["spreadStatsMinSamples"].GetString());
         }
 
-        if (s.HasMember("spreadSampleIntervalMs")) {
-            m_ptCfg.spreadSampleIntervalMs = std::stoi(s["spreadSampleIntervalMs"].GetString());
-        } 
-
-        if (s.HasMember("spreadFreshnessSec")) {
-            m_ptCfg.spreadFreshnessSec = std::stoi(s["spreadFreshnessSec"].GetString());
+        if (s.HasMember("spreadSampleIntervalSec")) {
+            m_ptCfg.spreadSampleIntervalSec = std::stoi(s["spreadSampleIntervalSec"].GetString());
         } 
 
         // 分位数快照（重启免预热）。路径为空 / maxStaleSec<=0 都等于关掉这个功能。
@@ -486,9 +477,7 @@ void PairTradingStrategy::pre_start(Config* config) {
         pt::RiskManager::Instance().SetConfig(c);
     }
 
-    // 生效值打日志。实盘最怕"改了配置没生效"或"生效了但不是你以为的那份"，
-    // 尤其是费率 —— 它同时决定信号阈值与算法单阶梯，错了会直接亏钱。
-    // 这里打的是**解析之后**的值（不是文件里的原文），所以能直接对着核对。
+    // 生效值打日志
     {
         const auto& fs  = m_ptCfg.feeSlippage;
         const auto& rc  = m_ptCfg.risk;
@@ -546,10 +535,10 @@ void PairTradingStrategy::pre_start(Config* config) {
                          fs.minSpreadTarget, bp(fs.minProfitTarget));
             }
         }
-        LOG_INFO("配置生效[统计] quantileUp={} quantileDn={} windowSec={} updateIntervalSec={} minSamples={} sampleIntervalMs={} freshnessSec={}",
+        LOG_INFO("配置生效[统计] quantileUp={} quantileDn={} windowSec={} updateIntervalSec={} minSamples={} sampleIntervalMs={}",
                  m_ptCfg.quantileUp, m_ptCfg.quantileDn, m_ptCfg.spreadStatsWindowSec,
                  m_ptCfg.spreadStatsUpdateIntervalSec, m_ptCfg.spreadStatsMinSamples,
-                 m_ptCfg.spreadSampleIntervalMs, m_ptCfg.spreadFreshnessSec);
+                 m_ptCfg.spreadSampleIntervalSec);
         LOG_INFO("配置生效[分位数快照] path={} maxStaleSec={} ({})",
                  m_ptCfg.spreadStatsStatePath, m_ptCfg.spreadStatsMaxStaleSec,
                  m_ptCfg.spreadStatsMaxStaleSec > 0 ? "重启免预热已开" : "已关闭，每次重启正常预热");
@@ -575,8 +564,6 @@ void PairTradingStrategy::pre_start(Config* config) {
         SubmitAlgoOrderChange(algoOrderId, cmd, modify);
     });
 
-    // 运行时配置热更新：监视的就是本次启动用的这份配置文件（见 basic/RuntimeConfig.h）。
-    // 由 T_signal 每秒 stat 一次、变了才重读，本层不需要再做任何事。
     ptContext.Init(m_ptCfg, smc);
 }
 

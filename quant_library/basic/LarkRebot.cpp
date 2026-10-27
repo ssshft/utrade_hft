@@ -22,6 +22,23 @@ LarkRebot& LarkRebot::GetInstance() {
 	return larkRebot;
 }
 
+
+std::string LarkRebot::JsoneEcaped(const std::string& msg) {     // 需要先对 msg 做 JSON 字符串转义
+    std::string escaped = "";
+    for (char c : msg) {
+        switch (c) {
+            case '\\': escaped += "\\\\"; break;
+            case '"':  escaped += "\\\""; break;
+            case '\n': escaped += "\\n";  break;
+            case '\r': escaped += "\\r";  break;
+            case '\t': escaped += "\\t";  break;
+            default:   escaped += c;      break;
+        }
+    }
+
+    return escaped;
+}
+
 void LarkRebot::Run() {
     while (running) {
         try {
@@ -39,7 +56,7 @@ void LarkRebot::SendMsg(const std::string& msg) {
 	queue.Push(msg);
 }
 
-void LarkRebot::Send(const std::string& s) {
+void LarkRebot::Send(const std::string& s, bool atAll) {
 	size_t scheme_pos = url.find("://");
 	if (scheme_pos != std::string::npos) {
 		url = url.substr(scheme_pos + 3);
@@ -49,8 +66,14 @@ void LarkRebot::Send(const std::string& s) {
 	size_t slash_pos = url.find('/');
 	std::string host = url.substr(0, slash_pos);
 	std::string target = url.substr(slash_pos);
-	
-	std::string body_in = fmt::format("{{\"msg_type\":\"text\",\"content\":{{\"text\":\"{}\"}}}}", s);
+
+    std::string msg = s;
+    if (atAll) {
+        msg = "<at user_id=\"all\">所有人</at>" + s;
+    }
+
+    std::string text = JsoneEcaped(msg);
+	std::string body_in = fmt::format("{{\"msg_type\":\"text\",\"content\":{{\"text\":\"{}\"}}}}", text);
 
    	int status = 0;
     std::string body;
