@@ -179,6 +179,7 @@ protected:
             }
         }
 
+        std::cout << "---------start new TradeClient--------- " << vSid[0] << " ------ " << vSid[1] << std::endl;
         tradeClient = new om::TradeClient(utrade2TbTCommandSHM, vSid);
     }
 
