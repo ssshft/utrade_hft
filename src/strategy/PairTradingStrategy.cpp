@@ -12,7 +12,7 @@ using namespace std::chrono;
 
 
 PairTradingStrategy::PairTradingStrategy() {
-    algoContext.SetTradeClient(tradeClient);
+
 };
 
 PairTradingStrategy::~PairTradingStrategy() {
@@ -549,6 +549,7 @@ void PairTradingStrategy::pre_start(Config* config) {
                  aoc.activeMakerCancelOrderPct, m_ptCfg.algoOrderTimeoutMs, m_ptCfg.modifyTimespanSec);
     }
 
+    algoContext.SetTradeClient(tradeClient);
     algoContext.Init(smc);
     algoContext.SetDbp(dbpreader);
     algoContext.PreStart();
