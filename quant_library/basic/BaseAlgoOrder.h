@@ -209,7 +209,6 @@ struct BaseAlgoOrder {
     void LoadFromFile(string filePath);
     void SaveToFile();
     string GeneratePubStr();
-    string GeneratePubStrOnUpdate();
 
 
     virtual PairOrder GetTargetPairOrder(stra::TradingType tradingTypeOrder, stra::TradingType tradingTypeOffset, int64_t pairOrderId);
