@@ -777,9 +777,6 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
             
             if (pairOrder.passiveTotalVolumeOnOrder > 0){
                 // 存在成交, update状态
-                string pubMsg = GeneratePubStrOnUpdate();
-                //QuantPub::Instance().Publish(pubMsg);
-                // 同线程直接回传（替代原 Publish 的进程内分发）：量/价/状态
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(this);
                 WriteAlgoOrder(this);
             }
