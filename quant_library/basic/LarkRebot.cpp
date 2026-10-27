@@ -42,9 +42,9 @@ std::string LarkRebot::JsoneEcaped(const std::string& msg) {     // 需要先对
 void LarkRebot::Run() {
     while (running) {
         try {
-			std::string s;
-			if (queue.Pop(s)) {
-				Send(tag + "  " + s);
+			ContentMsg content;
+			if (queue.Pop(content)) {
+				Send(tag + "  " + content.msg, content.atAll);
 			}
         } catch(std::exception& e) {
         }
@@ -52,8 +52,11 @@ void LarkRebot::Run() {
     }
 }
 
-void LarkRebot::SendMsg(const std::string& msg) {
-	queue.Push(msg);
+void LarkRebot::SendMsg(const std::string& msg, bool atAll) {
+    ContentMsg content;
+    strncpy(content.msg, msg.c_str(), 1024);
+    content.atAll = atAll;
+	queue.Push(content);
 }
 
 void LarkRebot::Send(const std::string& s, bool atAll) {

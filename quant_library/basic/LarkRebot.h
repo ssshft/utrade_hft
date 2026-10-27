@@ -17,12 +17,17 @@ public:
 
 private:
     LarkRebot();
-    void Send(const std::string& s);
+    void Send(const std::string& s, bool atAll = false);
     std::string url;
     std::string tag;
 
     bool running;
     std::thread* runningThread;
 
-    ConcurrentQueue<string, 10000> queue;
+    struct ContentMsg {
+        char msg[1024];
+        bool atAll;
+    };
+
+    ConcurrentQueue<ContentMsg, 100> queue;
 };
