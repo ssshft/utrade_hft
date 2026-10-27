@@ -1493,6 +1493,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 it->second->algoOrderStatus = stra::ALGO_OS_CANCELED;
                 const std::string& pubMsg = it->second->GeneratePubStr();
                 LarkRebot::GetInstance().SendMsg(pubMsg);
+                WriteAlgoOrder(it->second);
                 deleteAlgoOrderFlag = true;
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                 LOG_INFO("算法单终结(撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELED，子单已全部清零", it->second->algoOrderId, it->second->pairInstrumentKey);
@@ -1500,6 +1501,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
                 const std::string& pubMsg = it->second->GeneratePubStr();
                 LarkRebot::GetInstance().SendMsg(pubMsg);
+                WriteAlgoOrder(it->second);
                 deleteAlgoOrderFlag = true;
                 pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                 LOG_WARN("算法单终结(异常撤单完成): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单已全部清零", it->second->algoOrderId, it->second->pairInstrumentKey);
