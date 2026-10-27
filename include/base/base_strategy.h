@@ -24,8 +24,7 @@ public:
         rapidjson::Document d;
         rapidjson::Value &tradeConfig = d.Parse<rapidjson::kParseNumbersAsStringsFlag>(tradeConfigStr.c_str());
 
-        utrade2TbTCommandSHM = std::stoi(tradeConfig["OMS"]["Utrade2TbTCommandSHM"].GetString());
-  
+        utrade2TbTCommandSHM = tradeConfig["OMS"]["Utrade2TbTCommandSHM"].GetString();
         tb2TradeRcmd = new Tb2UtradeRcmd(tradeConfig["OMS"]["Tb2UtradeRCommandSHM"].GetString());
 
         if (tradeConfig.HasMember("DBP")) {
