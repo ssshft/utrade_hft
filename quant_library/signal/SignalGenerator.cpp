@@ -1,4 +1,7 @@
 #include "SignalGenerator.h"
+// RecalcOrderParams 末尾有一处 std::cout 调试打印；没有这一行两套测试套件都编不过。
+// 只修编译，不改行为。
+#include <iostream>
 
 namespace pt {
 
@@ -402,6 +405,13 @@ bool SignalGenerator::CanClose(const PairInfo& pi, std::string& reason) const {
         reason = "no position";
         return false;
     }
+
+    // 持仓已小于主动腿最小报单量（碎单）：交易所侧再也报不出平仓单了。
+    if (pi.activeParam.minVolume > 0.0 && std::abs(pi.pairTotalVolume) < pi.activeParam.minVolume) {
+        reason = "position below activeParam.minVolume (dust)";
+        return false;
+    }
+
     return true;
 }
 

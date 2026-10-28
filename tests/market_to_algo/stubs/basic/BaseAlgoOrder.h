@@ -25,6 +25,14 @@
 #include "LarkRebot.h"   // 真实头 :12 也 include 它（PairTradingContext.cpp 用 LarkRebot 发告警）
 #include <string>
 
+// 照抄真实头 quant_library/basic/BaseAlgoOrder.h 的 AlgoRole（2026-10-28 新增）。
+// 桩里也必须一模一样：BuildAlgoOrderJson 会写 pAlgoOrder->role，用例还会断言它。
+enum class AlgoRole {
+    OPEN_SIGNAL  = 0,
+    CLOSE_SIGNAL = 1,
+    RISK_CLOSE   = 2,
+};
+
 struct BaseAlgoOrder {
     stra::CommandType commandType{stra::CommandType_MIN};
     int64_t insertTime{0};
@@ -42,6 +50,8 @@ struct BaseAlgoOrder {
     char pairInstrumentKey[stra::INST_KEY_LEN]{""};
     char baseAsset[stra::ASSET_LEN]{""};
     stra::AlgoOrderStatus algoOrderStatus{stra::ALGO_OS_MIN};
+    // 位置照抄真实头（algoOrderStatus 之后）
+    AlgoRole role{AlgoRole::OPEN_SIGNAL};
 
     char activeInstrumentKey[stra::INST_KEY_LEN]{""};
     int activeAccountId{0};

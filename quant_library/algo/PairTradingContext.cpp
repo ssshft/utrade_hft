@@ -39,6 +39,10 @@
 #include <cmath>
 #include <cstring>
 #include <exception>
+// 本文件（和 SignalGenerator.cpp）有几处 std::cout 调试打印，但此前没有任何头文件
+// include <iostream> ⇒ 两套测试套件都编不过（`no member named 'cout' in namespace 'std'`）。
+// 补这一行只修编译，不改任何行为；那些打印本身是否保留由后续单独决定。
+#include <iostream>
 #include <sys/stat.h>
 #include <thread>
 
@@ -383,44 +387,45 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
              sig.mtCLSignal, sig.mtCSSignal, sig.mtOLSignal, sig.mtOSSignal);
 
     // 优先级 平仓 > 开仓
+    // role 只说明"这单是平仓信号建的还是开仓信号建的"，不参与能不能开仓的判断。
     if (sig.ttCLSignal && canClose) {
-        SubmitAlgoOrder(pi, "TT", "CL");
+        SubmitAlgoOrder(pi, "TT", "CL", 0.0, AlgoRole::CLOSE_SIGNAL);
         return;
     }
 
     if (sig.ttCSSignal && canClose) {
-        SubmitAlgoOrder(pi, "TT", "CS");
+        SubmitAlgoOrder(pi, "TT", "CS", 0.0, AlgoRole::CLOSE_SIGNAL);
         return;
     }
 
     if (sig.mtCLSignal && canClose) {
-        SubmitAlgoOrder(pi, "MT", "CL");
+        SubmitAlgoOrder(pi, "MT", "CL", 0.0, AlgoRole::CLOSE_SIGNAL);
         return;
     }
 
     if (sig.mtCSSignal && canClose) {
-        SubmitAlgoOrder(pi, "MT", "CS");
+        SubmitAlgoOrder(pi, "MT", "CS", 0.0, AlgoRole::CLOSE_SIGNAL);
         return;
     }
 
 
     if (sig.ttOLSignal && canOpen) {
-        SubmitAlgoOrder(pi, "TT", "OL");
+        SubmitAlgoOrder(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         return;
     }
 
     if (sig.ttOSSignal && canOpen) {
-        SubmitAlgoOrder(pi, "TT", "OS");
+        SubmitAlgoOrder(pi, "TT", "OS", 0.0, AlgoRole::OPEN_SIGNAL);
         return;
     }
 
     if (sig.mtOLSignal && canOpen) {
-        SubmitAlgoOrder(pi, "MT", "OL");
+        SubmitAlgoOrder(pi, "MT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         return;
     }
 
     if (sig.mtOSSignal && canOpen) {
-        SubmitAlgoOrder(pi, "MT", "OS");
+        SubmitAlgoOrder(pi, "MT", "OS", 0.0, AlgoRole::OPEN_SIGNAL);
         return;
     }
 }
@@ -481,11 +486,11 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     // 所以这里不需要再显式刷新（风控强平没有信号路径，靠 SubmitAlgoOrder 兜住）。
     if (pi.IsLong()) {
         std::string mode = pi.autoFlag ? "TT" : "MT";
-        SubmitAlgoOrder(pi, mode, "CL", risk.forgoProfit);
+        SubmitAlgoOrder(pi, mode, "CL", risk.forgoProfit, AlgoRole::RISK_CLOSE);
     }
     else if (pi.IsShort()) {
         std::string mode = pi.autoFlag ? "TT" : "MT";
-        SubmitAlgoOrder(pi, mode, "CS", risk.forgoProfit);    
+        SubmitAlgoOrder(pi, mode, "CS", risk.forgoProfit, AlgoRole::RISK_CLOSE);
     }
 
     // SubmitAlgoOrder 只在真正报出单时才把 hasActiveAlgoOrder 置 true
@@ -632,6 +637,22 @@ stra::AlgoOrderModify PairTradingContext::BuildNormalModify(const PairInfo& pi) 
     m.mtCLSwitch = op.mtCLSwitch;
     m.mtCSSwitch = op.mtCSSwitch;
 
+    // **风控强平单**在整个生命周期里都不许开仓（见 PairInfo::activeAlgoIsRiskClose）。
+    // 只有强平要压：普通平仓单（CLOSE_SIGNAL）允许在开仓带回补 —— 它能不能开只看
+    // orderParams 里那 4 个开关和下面 ProcessModify 的几道闸门，本函数不再替它决定。
+    // 建单时 BuildAlgoOrderJson 已经对强平清过一次，但 60s 后这里会把 orderParams 的 4 个
+    // 开仓开关整份推回去 —— RecalcOrderParams 不看持仓，持仓期间它们就是 1。不清的后果：
+    //   AlgoPairOrder::CreatePairOrder 同侧两开关都开时**优先试开仓** ⇒ 强平单先挂开仓子单，
+    //   轻则平不掉，重则逆着强平方向加仓。
+    // 放在 std::cout 之前：那行诊断要打印真正会发出去的值（它现在打在后面两处覆盖之前，
+    // 本来就已经会误导，别再让它多误导一次）。
+    if (pi.activeAlgoIsRiskClose) {
+        m.ttOLSwitch = false;
+        m.ttOSSwitch = false;
+        m.mtOLSwitch = false;
+        m.mtOSSwitch = false;
+    }
+
     std::cout << "BuildNormalModify " << "ttOLSwitch:" << m.ttOLSwitch << " ttOSSwitch:" << m.ttOSSwitch << " ttCLSwitch:" << m.ttCLSwitch << " ttCSSwitch:" << m.ttCSSwitch << " mtOLSwitch:" << m.mtOLSwitch << " mtOSSwitch:" << m.mtOSSwitch << " mtCLSwitch:" << m.mtCLSwitch << " mtCSSwitch:" << m.mtCSSwitch << std::endl;
 
     // 32 个起止价差 / 起止量：整份照搬 pi.orderParams
@@ -763,18 +784,26 @@ void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
     m_algoOrderModifyCb(pi.currentAlgoOrderId, stra::CommandType_MODIFY, &mod);
 }
 
-void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
-    if (!m_algoCommandCb) {
+void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit, AlgoRole role) const {
+    // 直接创建算法单对象（不再拼 JSON 字符串），创建失败返回 nullptr
+    BaseAlgoOrder* pAlgoOrder = BuildAlgoOrderJson(pi, algoMode, direction, forgoProfit, role);
+    if (pAlgoOrder == nullptr) {
+        LOG_WARN("算法单创建失败: BuildAlgoOrderJson 返回 nullptr -> 本次不报单 pairKey:{} algoMode:{} direction:{} forgoProfit:{} role:{}", pi.pairInstrumentKey, algoMode, direction, forgoProfit, static_cast<int>(role));
         return;
     }
 
-    // 直接创建算法单对象（不再拼 JSON 字符串），创建失败返回 nullptr
-    BaseAlgoOrder* pAlgoOrder = BuildAlgoOrderJson(pi, algoMode, direction, forgoProfit);
-    if (pAlgoOrder == nullptr) {
-        LOG_WARN("算法单创建失败: BuildAlgoOrderJson 返回 nullptr -> 本次不报单 pairKey:{} algoMode:{} direction:{} forgoProfit:{}",
-                 pi.pairInstrumentKey, algoMode, direction, forgoProfit);
-        return;
+    // 角色写进算法单（BuildAlgoOrderJson 里写的，这里只做断言式的复核）——
+    // 它只影响"平到 0 算不算结束"，见 BaseAlgoOrder.h 的 AlgoRole。
+    // 另外在 PairInfo 上留一个**派生镜像** activeAlgoIsRiskClose：ProcessModify 那一侧拿不到
+    // 算法单指针（只有 currentAlgoOrderId），只能靠它判断"要不要压开仓开关"。
+    // 放在 nullptr 检查之后：建单失败时不能把标记写进 PairInfo，否则下一张单会被误判。
+    if (pAlgoOrder->role != role) {
+        LOG_ERROR("SubmitAlgoOrder: 算法单 role 与传入不一致 algoOrderId:{} expect:{} actual:{}", pAlgoOrder->algoOrderId, static_cast<int>(role), static_cast<int>(pAlgoOrder->role));
     }
+
+    pi.activeAlgoIsRiskClose = (role == AlgoRole::RISK_CLOSE);
+
+    LOG_INFO("SubmitAlgoOrder: pairKey:{} algoOrderId:{} algoMode:{} direction:{} role:{}", pi.pairInstrumentKey, pAlgoOrder->algoOrderId, algoMode, direction, static_cast<int>(role));
 
     auto& pim = PairInfoManager::Instance();
     pim.SetActiveAlgoOrder(pi.pairInstrumentKey, pAlgoOrder->algoOrderId);
@@ -789,7 +818,7 @@ void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMo
     m_algoCommandCb(pAlgoOrder);
 }
 
-BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const {
+BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit, AlgoRole role) const {
     const auto& op = pi.orderParams;
     const bool isTT = (algoMode == "TT");
     const bool isClose = (direction == "CL" || direction == "CS");
@@ -859,6 +888,9 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
 
     // ---- 身份 / 币对 ----
     pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
+    // 角色在这里落一次，之后只读。放在身份区，因为它是"这单是什么"的一部分，
+    // 不是"这单怎么报"的参数（那部分全在下面的 m_cfg 区）。
+    pAlgoOrder->role = role;
     pAlgoOrder->commandType = stra::CommandType_NEW;
     pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
     pAlgoOrder->insertTime = crypto::getCurrentTime();
@@ -1012,15 +1044,14 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->mtCSEndVolume = op.mtCSEndVolume;
     pAlgoOrder->mtCSSwitch = op.mtCSSwitch;
 
-    // 平仓单必须清掉四个开仓开关（2026-09-27）。
-    // 祖先在平仓路径上就是这么做的（create_close_modify_dict :258-263；建单处 :984-988）。
-    // 不清的两个后果：
-    //   ① AlgoContext.cpp:2106 的 FILLED 门槛要求四个开仓开关全 false —— 只要有一个是 true，
-    //      平仓单在持仓归零之后也无法终结，只能靠显式撤单收场；
-    //   ② AlgoPairOrder::CreatePairOrder 在同一侧两个开关都打开时**优先试开仓**
-    //      （:653-661 / :640-648，MT 同构），于是"平仓单"会先挂出 OPEN 子单 ——
-    //      轻则平不掉，重则加仓。
-    if (isClose) {
+    // **只有风控强平**才在建单时清掉四个开仓开关（2026-10-28 收窄，原来对所有 isClose 清）。
+    // 强平单永远不许开仓 —— 逆着强平方向加仓是最坏的失败模式。
+    // 普通平仓单（CLOSE_SIGNAL）**不清**：它允许在开仓带回补（AlgoRole 只决定"平到 0 算结束"）。
+    // 早先对所有平仓单清的理由是"平仓单不该带开仓许可"，那条约束已经被 AlgoRole 取代：
+    // 现在靠角色判据让它在平到 0 时结束，而不是靠把开关关掉。
+    // 为什么不能留一个"头 60s 纯平"的过渡期：第一次 ProcessModify 在 modifyTimespanSec(60s) 之后，
+    // 那 60s 内行情翻到开仓带也回补不了 —— 是一段真实的机会损失，不是保护。
+    if (role == AlgoRole::RISK_CLOSE) {
         pAlgoOrder->ttOLSwitch = false;
         pAlgoOrder->ttOSSwitch = false;
         pAlgoOrder->mtOLSwitch = false;

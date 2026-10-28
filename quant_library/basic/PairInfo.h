@@ -363,6 +363,20 @@ namespace pt {
         int64_t currentAlgoOrderId{0};
         bool hasActiveAlgoOrder{false};
 
+        // 当前在跑的算法单是不是**风控强平**单（只有 AlgoRole::RISK_CLOSE 为 true）。
+        //
+        // 注意它**不是**"这张单是不是平仓单" —— 普通平仓单（CLOSE_SIGNAL）允许在开仓带回补，
+        // 所以不能压它的开仓开关。"平仓单平到 0 要不要结束"那件事由算法单自己的
+        // BaseAlgoOrder::role 决定（AlgoContext.cpp:1376），与本字段无关。
+        //
+        // 为什么这个标记必须存在：ProcessModify 那一侧只有 currentAlgoOrderId，拿不到算法单指针，
+        // 而 BuildNormalModify 整份照搬 pi.orderParams —— RecalcOrderParams 不看持仓，
+        // 持仓期间 4 个开仓开关就是 1。强平单不清它们，就会先挂出 OPEN 子单（CreatePairOrder
+        // 同侧两开关都开时优先试开仓），轻则平不掉，重则逆着强平方向加仓。
+        //
+        // 运行态字段，**不进快照**（重启后由新的建单重新置位）；SubmitAlgoOrder 置、ClearActiveAlgoOrder 清。
+        bool activeAlgoIsRiskClose{false};
+
         // ---- 启动对账用：该腿是否已收到过 pubsub::Position 推送 ----
         // ⚠️ 不能用 avgPrice > 0 当"推送到位"的判据：空仓时交易所给的 avgPrice 就是 0，
         //    那样空仓的对子会永远等不到推送到位，启动闸门永远打不开。

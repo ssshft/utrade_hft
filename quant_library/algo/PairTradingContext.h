@@ -308,10 +308,12 @@ private:
     void RequestCancelAlgoOrder(const PairInfo& pi) const;
 
     // direction : OL/OS/CL/CS;   algoMode: TT/MT
+    // role : 建单角色，写进算法单后只读，只影响"平到 0 算不算结束"（见 BaseAlgoOrder.h 的 AlgoRole）。
+    //        **刻意不给默认值** —— 漏传就编译不过，比默默把平仓单当开仓单强。
     // 报单成功时会把 pi.satisfyTime 与 pi.algoModifyTime 一起刷成当前时刻（所以形参是非 const 引用）：
-    void SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit = 0.0) const;
+    void SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit, AlgoRole role) const;
 
-    BaseAlgoOrder* BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit) const;
+    BaseAlgoOrder* BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit, AlgoRole role) const;
 
     std::string baseAsset{"USDT"};
 

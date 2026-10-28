@@ -11,6 +11,25 @@
 #include "securitymanager.h"
 #include "LarkRebot.h"
 
+// 算法单的角色：**建单时定，之后只读，永不随行为改变**。
+// 唯一用途是 AlgoContext.cpp:1376 的结束判据 —— 这一单"平到 0"算不算结束：
+//   OPEN_SIGNAL  —— **不算**。开仓单建出来那一刻仓位就是 0（还没成交），
+//                   空仓是它的常态之一，结束了就再也开不了了。
+//   CLOSE_SIGNAL —— 算。它是平仓信号建的，而 CL/CS 信号要求 IsLong/IsShort
+//                   （SignalGenerator.cpp:308/313/328/333）⇒ 建单时必有仓位，
+//                   "平到 0"对它只可能是终态，不可能是中间态。
+//   RISK_CLOSE   —— 算，理由同上。
+// 它**不决定**这一单能不能开仓。能不能开仓只看 4 个开仓开关（orderParams + 各道闸门）；
+// 平仓单在运行期能不能回补，也只看那 4 个开关，跟本字段无关。
+//
+// ⚠️ 1376 是所有 algoType 共用的判据（Rebalance/Fishing 也走），所以**只有 PairTrading 的
+//    建单路径写这个字段**，其它算法单必须保持默认 OPEN_SIGNAL，否则会被提前判成 FILLED。
+enum class AlgoRole {
+    OPEN_SIGNAL  = 0,   // 开仓信号（OL/OS）建的
+    CLOSE_SIGNAL = 1,   // 平仓信号（CL/CS）建的
+    RISK_CLOSE   = 2,   // 风控强平建的
+};
+
 struct BaseAlgoOrder {
     // char sccId[stra::INST_ID_LEN]{""};
     // char toAec[stra::NAME_LEN]{""};
@@ -28,6 +47,11 @@ struct BaseAlgoOrder {
     char pairInstrumentKey[stra::INST_KEY_LEN]{""};
     char baseAsset[stra::ASSET_LEN]{""};
     stra::AlgoOrderStatus algoOrderStatus{stra::ALGO_OS_MIN};
+
+    // 建单角色，见文件头 AlgoRole 的注释。只读：建单时写一次，之后任何地方都不许改
+    // （尤其不许"反手之后升级成 OPEN_SIGNAL"——角色说的是它**是什么**，不是它**做了什么**）。
+    // 不进 DB（Convert.h:88 逐字段拷）、不落盘（SaveToFile 是空实现）⇒ 加字段不动 schema。
+    AlgoRole role{AlgoRole::OPEN_SIGNAL};
 
     char activeInstrumentKey[stra::INST_KEY_LEN]{""};
     int activeAccountId{0};

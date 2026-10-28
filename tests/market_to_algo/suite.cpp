@@ -239,7 +239,7 @@ static void Boot(Fx& fx, const std::string& csv = "", const std::string& statsPa
     cfg.csvStatePath = csv;
     cfg.spreadStatsStatePath = statsPath;
     cfg.spreadStatsMinSamples = 3;      // 让少量样本就能建立统计
-    cfg.spreadSampleIntervalMs = 0;     // 不降频
+    cfg.spreadSampleIntervalSec = 0;     // 不降频
     fx.csvPath = csv;
 
     fx.Wire();
@@ -446,7 +446,7 @@ static void TestA_Create() {
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
-        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
+        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(o != nullptr, "A1 TT/OL 能建单");
         if (o) {
             CHECK(o->algoType == stra::AlgoType_PairTrading, "A1 algoType = AlgoType_PairTrading");
@@ -476,8 +476,8 @@ static void TestA_Create() {
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
-        BaseAlgoOrder* tt = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
-        BaseAlgoOrder* mt = fx.ctx.BuildAlgoOrderJson(pi, "MT", "OL", 0.0);
+        BaseAlgoOrder* tt = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
+        BaseAlgoOrder* mt = fx.ctx.BuildAlgoOrderJson(pi, "MT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(tt && tt->activeOrderType == OT_LIMIT, "A2 TT 主动腿 = OT_LIMIT（穿价限价，效果是吃单）");
         CHECK(mt && mt->activeOrderType == OT_POST_ONLY, "A2 MT 主动腿 = OT_POST_ONLY（必须挂单）");
         CHECK(tt && tt->passiveOrderType == OT_LIMIT, "A2 被动腿恒 = OT_LIMIT");
@@ -489,7 +489,7 @@ static void TestA_Create() {
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
-        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
+        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(o && o->activeDriveType == stra::DriveType_ACTIVE,  "A3 activeDriveType = ACTIVE");
         CHECK(o && o->passiveDriveType == stra::DriveType_PASSIVE, "A3 passiveDriveType = PASSIVE");
         delete o;
@@ -499,7 +499,7 @@ static void TestA_Create() {
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
-        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
+        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         const auto& sg = SignalGenerator::Instance();
         const auto& fs = sg.GetConfig();
         CHECK(o && Near(o->takerTakerFs, sg.CalcExecCost(true)),  "A4 takerTakerFs == CalcExecCost(true)（同源）");
@@ -523,7 +523,7 @@ static void TestA_Create() {
         pi.pairActiveTotalPrice = 0.1234;
         pi.pairPassiveTotalPrice = 0.1235;
         pi.pairPassiveTotalVolume = 3.5;
-        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.0);
+        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.0, AlgoRole::CLOSE_SIGNAL);
         CHECK(o && Near(o->pairTotalVolume, -3.5), "A5 pairTotalVolume 透传");
         CHECK(o && Near(o->pairActiveTotalPrice, 0.1234), "A5 pairActiveTotalPrice 透传");
         CHECK(o && Near(o->pairPassiveTotalPrice, 0.1235), "A5 pairPassiveTotalPrice 透传");
@@ -538,14 +538,14 @@ static void TestA_Create() {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
         pi.orderParams.ttOLSwitch = false;
-        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0) == nullptr,
+        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL) == nullptr,
               "A6 开仓开关关闭 + 无让利 -> 建单失败(nullptr)");
-        BaseAlgoOrder* risk = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.00002);
+        BaseAlgoOrder* risk = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.00002, AlgoRole::OPEN_SIGNAL);
         CHECK(risk != nullptr, "A6 开仓开关关闭但带让利（风控强平）-> 仍能建单");
         delete risk;
 
         pi.orderParams.ttCLSwitch = false;
-        BaseAlgoOrder* cl = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.0);
+        BaseAlgoOrder* cl = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.0, AlgoRole::CLOSE_SIGNAL);
         CHECK(cl != nullptr, "A6 平仓开关关闭 -> 平仓不受开关限制，仍能建单");
         delete cl;
     }
@@ -555,38 +555,48 @@ static void TestA_Create() {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
         pi.ttTargetVolume = 0.0;
-        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0) == nullptr, "A7 targetVolume = 0 -> nullptr");
+        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL) == nullptr, "A7 targetVolume = 0 -> nullptr");
         pi.ttTargetVolume = std::nan("");
-        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0) == nullptr, "A7 targetVolume = NaN -> nullptr");
+        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL) == nullptr, "A7 targetVolume = NaN -> nullptr");
         pi.ttTargetVolume = -1.0;
-        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0) == nullptr, "A7 targetVolume < 0 -> nullptr");
+        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL) == nullptr, "A7 targetVolume < 0 -> nullptr");
         pi.ttTargetVolume = 10.0;
         pi.mtTargetVolume = 0.0;
-        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "MT", "OL", 0.0) == nullptr, "A7 MT 走 mtTargetVolume 校验");
+        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "MT", "OL", 0.0, AlgoRole::OPEN_SIGNAL) == nullptr, "A7 MT 走 mtTargetVolume 校验");
     }
 
     // A8 非法模式/方向
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
-        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "XX", "OL", 0.0) == nullptr, "A8 非法 algoMode -> nullptr");
-        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "ZZ", 0.0) == nullptr, "A8 非法 direction -> nullptr");
-        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "", "", 0.0) == nullptr, "A8 空模式 -> nullptr（不崩）");
+        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "XX", "OL", 0.0, AlgoRole::OPEN_SIGNAL) == nullptr, "A8 非法 algoMode -> nullptr");
+        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "TT", "ZZ", 0.0, AlgoRole::OPEN_SIGNAL) == nullptr, "A8 非法 direction -> nullptr");
+        CHECK(fx.ctx.BuildAlgoOrderJson(pi, "", "", 0.0, AlgoRole::OPEN_SIGNAL) == nullptr, "A8 空模式 -> nullptr（不崩）");
     }
 
-    // A9 平仓单清掉四个开仓开关
+    // A9 建单时的开关处理：只有**风控强平**清掉四个开仓开关，普通平仓单不清
+    //    2026-10-28 收窄。普通平仓单（CLOSE_SIGNAL）允许在开仓带回补，清了就等于
+    //    砍掉它的回补能力；"平到 0 要结束"那件事改由算法单的 role 决定（AlgoContext:1376）。
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         auto& op = pi.orderParams;
         op.ttOLSwitch = op.ttOSSwitch = op.mtOLSwitch = op.mtOSSwitch = true;
         op.ttCLSwitch = op.ttCSSwitch = op.mtCLSwitch = op.mtCSSwitch = true;
-        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.0);
-        CHECK(o && !o->ttOLSwitch && !o->ttOSSwitch && !o->mtOLSwitch && !o->mtOSSwitch,
-              "A9 平仓单：四个开仓开关全部清零");
+
+        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.0, AlgoRole::CLOSE_SIGNAL);
+        CHECK(o && o->ttOLSwitch && o->ttOSSwitch && o->mtOLSwitch && o->mtOSSwitch,
+              "A9 普通平仓单：四个开仓开关原样保留（可以回补）");
+        CHECK(o && o->role == AlgoRole::CLOSE_SIGNAL, "A9 普通平仓单：role = CLOSE_SIGNAL");
         CHECK(o && o->ttCLSwitch, "A9 平仓单：本次触发的平仓开关被强制打开");
         CHECK(o && o->mtCLSwitch && o->mtCSSwitch, "A9 平仓单：不动其它平仓开关");
         delete o;
+
+        BaseAlgoOrder* r = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.00002, AlgoRole::RISK_CLOSE);
+        CHECK(r && !r->ttOLSwitch && !r->ttOSSwitch && !r->mtOLSwitch && !r->mtOSSwitch,
+              "A9 风控强平单：四个开仓开关全部清零（永不开仓）");
+        CHECK(r && r->role == AlgoRole::RISK_CLOSE, "A9 风控强平单：role = RISK_CLOSE");
+        delete r;
     }
 
     // A10 风控让利把触发价差往更容易成交的方向挪
@@ -596,14 +606,14 @@ static void TestA_Create() {
         pi.orderParams.ttCLStartSpread = 0.0010;
         pi.orderParams.ttCLEndSpread   = 0.0011;
         const double shift = 0.00002;
-        BaseAlgoOrder* cl = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", shift);
+        BaseAlgoOrder* cl = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", shift, AlgoRole::CLOSE_SIGNAL);
         CHECK(cl && Near(cl->ttCLStartSpread, 0.0010 - shift), "A10 CL 让利：StartSpread 下移 shift");
         CHECK(cl && Near(cl->ttCLEndSpread, 0.0011 - shift),   "A10 CL 让利：EndSpread 下移 shift");
         delete cl;
 
         pi.orderParams.ttCSStartSpread = -0.0010;
         pi.orderParams.ttCSEndSpread   = -0.0011;
-        BaseAlgoOrder* cs = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CS", shift);
+        BaseAlgoOrder* cs = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CS", shift, AlgoRole::CLOSE_SIGNAL);
         CHECK(cs && Near(cs->ttCSStartSpread, -0.0010 + shift), "A10 CS 让利：StartSpread 上移 shift");
         CHECK(cs && Near(cs->ttCSEndSpread, -0.0011 + shift),   "A10 CS 让利：EndSpread 上移 shift");
         delete cs;
@@ -618,7 +628,7 @@ static void TestA_Create() {
         op.ttOLStartVolume = 0.013; op.ttOLEndVolume = 0.014;
         op.mtCSStartSpread = -0.021; op.mtCSEndSpread = -0.022;
         op.mtCSStartVolume = -0.023; op.mtCSEndVolume = -0.024;
-        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
+        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(o && Near(o->ttOLStartSpread, 0.011) && Near(o->ttOLEndSpread, 0.012), "A11 ttOL 起止价差拷贝");
         CHECK(o && Near(o->ttOLStartVolume, 0.013) && Near(o->ttOLEndVolume, 0.014), "A11 ttOL 起止量拷贝");
         CHECK(o && Near(o->mtCSStartSpread, -0.021) && Near(o->mtCSEndSpread, -0.022), "A11 mtCS 起止价差拷贝");
@@ -632,7 +642,7 @@ static void TestA_Create() {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
         pi.manualFlag = true;
-        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
+        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(o && Near(o->passiveVolumePct, 0.5), "A12 passiveVolumePct = 0.5");
         CHECK(o && o->activeMakerCancelOrderTime == 5LL * 1000 * 1000, "A12 主动 maker 撤单时间 = 5s(us)");
         CHECK(o && o->activeTakerCancelOrderTime == 5LL * 1000 * 1000, "A12 主动 taker 撤单时间 = 5s(us)");
@@ -719,7 +729,7 @@ static void TestA_Create() {
         aoc.passivePriceTickFlag = true;
         aoc.passivePriceTickNum  = 4;
 
-        BaseAlgoOrder* tt = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0);
+        BaseAlgoOrder* tt = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(tt != nullptr, "A12b TT/OL 能建单");
         if (tt) {
             CHECK(tt->activeOrderType == OT_MARKET,      "A12b TT 主动腿 = 配置的 OT_MARKET");
@@ -760,7 +770,7 @@ static void TestA_Create() {
         }
 
         // MT 走的是 mtActiveOrderType，不是 ttActiveOrderType
-        BaseAlgoOrder* mt = fx.ctx.BuildAlgoOrderJson(pi, "MT", "OL", 0.0);
+        BaseAlgoOrder* mt = fx.ctx.BuildAlgoOrderJson(pi, "MT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(mt != nullptr, "A12b MT/OL 能建单");
         if (mt) {
             CHECK(mt->activeOrderType == OT_LIMIT, "A12b MT 主动腿 = 配置的 mtActiveOrderType(OT_LIMIT)");
@@ -773,7 +783,7 @@ static void TestA_Create() {
     {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
-        fx.ctx.SubmitAlgoOrder(pi, "TT", "OL", 0.0);
+        fx.ctx.SubmitAlgoOrder(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(fx.N() == 1, "A13 报单回调被调用一次");
         CHECK(pi.hasActiveAlgoOrder, "A13 hasActiveAlgoOrder = true");
         // algoOrderId 已从字符串（"PT_<n>"）改成 int64_t，两边直接比，
@@ -789,7 +799,7 @@ static void TestA_Create() {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
         pi.orderParams.ttOLSwitch = false;      // 建单会失败
-        fx.ctx.SubmitAlgoOrder(pi, "TT", "OL", 0.0);
+        fx.ctx.SubmitAlgoOrder(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(fx.N() == 0, "A14 建单失败 -> 回调不触发");
         CHECK(!pi.hasActiveAlgoOrder, "A14 建单失败 -> 不占用对子");
     }
@@ -799,7 +809,7 @@ static void TestA_Create() {
         Fx fx; Boot(fx); GoTrading(fx);
         fx.ctx.SetAlgoCommandCallback(nullptr);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
-        fx.ctx.SubmitAlgoOrder(pi, "TT", "OL", 0.0);
+        fx.ctx.SubmitAlgoOrder(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(fx.N() == 0 && !pi.hasActiveAlgoOrder, "A15 未注册回调 -> 直接返回，不占对子");
     }
 
@@ -859,8 +869,8 @@ static void TestB_Open() {
         CHECK(fx.N() == 1, "B5 同时有平仓与开仓信号 -> 只报一单");
         if (fx.N() == 1) {
             const BaseAlgoOrder* o = fx.submits[0];
-            CHECK(!o->ttOLSwitch && !o->ttOSSwitch && !o->mtOLSwitch && !o->mtOSSwitch,
-                  "B5 平仓优先：报出的是平仓单（四个开仓开关被清）");
+            CHECK(o->role == AlgoRole::CLOSE_SIGNAL,
+                  "B5 平仓优先：报出的是平仓单（role = CLOSE_SIGNAL）");
             CHECK(o->ttCLSwitch, "B5 平仓优先：本次触发的平仓开关被打开");
         }
     }
@@ -940,9 +950,10 @@ static void TestC_Close() {
         fx.ctx.ProcessPairSignal(pi);
         CHECK(fx.N() == 1, (std::string("C ") + c.sw + " 信号 -> 报出一单").c_str());
         if (fx.N() == 1) {
-            CHECK(!fx.submits[0]->ttOLSwitch && !fx.submits[0]->ttOSSwitch &&
-                  !fx.submits[0]->mtOLSwitch && !fx.submits[0]->mtOSSwitch,
-                  (std::string("C ") + c.sw + " 平仓单清掉四个开仓开关").c_str());
+            // 2026-10-28：平仓单不再清开仓开关（它允许在开仓带回补），改由 role 决定
+            // "平到 0 算结束"（AlgoContext:1376）。这里钉住的是"报出来的确实是平仓角色"。
+            CHECK(fx.submits[0]->role == AlgoRole::CLOSE_SIGNAL,
+                  (std::string("C ") + c.sw + " 报出的是平仓角色（role = CLOSE_SIGNAL）").c_str());
         }
     }
 
@@ -3251,6 +3262,89 @@ static void TestK_RuntimeConfig() {
                   "K14 平仓开关一个都没动（只平不开 = 平仓照常）");
         }
         CHECK(pi.hasActiveAlgoOrder, "K14 对子仍被这张单占着 —— closeOnly 不撤单");
+    }
+
+    // K15 改参时的开关压制：**只有风控强平**压开仓开关，普通平仓单照搬（可回补）
+    //     2026-10-28 起"平仓单不许开仓"这条约束被 AlgoRole 取代：
+    //       · 普通平仓单（CLOSE_SIGNAL）允许在开仓带回补 —— 压掉就砍掉了回补能力，
+    //         而且第一次改参要等到 modifyTimespanSec(60s) 之后，那 60s 是纯机会损失；
+    //       · 强平单（RISK_CLOSE）必须一直压着 —— 逆着强平方向加仓是最坏的失败模式。
+    //     "平到 0 算不算结束"由算法单自己的 role 判（AlgoContext:1376），与这里无关。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        MakeOpenFriendlyStats(pi);         // orderParams 的 4 个开仓开关是开的
+        fx.ctx.m_cfg.configPath = cfgPath;
+        fx.ctx.StopSignalThread();
+        int64_t lastStats = 0;
+
+        pi.hasActiveAlgoOrder = true;
+        pi.currentAlgoOrderId = 780LL;
+        pi.satisfyTime    = 1000 * SEC;
+        pi.algoModifyTime = 1000 * SEC;
+
+        // ⚠️ cfgPath 是**同一个文件**，K14 往里面写过 closeOnly:true。不覆盖的话
+        //    RecalcOrderParams 末尾的 ApplyNoOpenGate 会把 4 个开仓开关压掉，
+        //    于是下面"照搬 orderParams"验的就成了 closeOnly 的效果，不是角色的效果。
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":false}}})");
+
+        // ① 普通平仓单
+        pi.activeAlgoIsRiskClose = false;
+        fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
+        fx.ctx.OnTimer(1000 * SEC);
+        CHECK(!fx.modifyPayloads.empty(), "K15 普通平仓单 MODIFY 带参数体");
+        if (!fx.modifyPayloads.empty()) {
+            const auto& m = fx.modifyPayloads.back();
+            CHECK(m.mtOSSwitch && m.mtOLSwitch,
+                  "K15 普通平仓单：开仓开关照搬 orderParams（可在开仓带回补）");
+            CHECK(m.ttCLSwitch && m.ttCSSwitch && m.mtCLSwitch && m.mtCSSwitch,
+                  "K15 普通平仓单：平仓开关照常开");
+        }
+
+        // ② 风控强平单
+        //    第一次 MODIFY 是 RunSignalOnce 里"配置变了"把 algoModifyTime 归零触发的；
+        //    这一轮没有新配置，所以要把时间推过 modifyTimespanSec 才会再推一次。
+        fx.modifyCalls.clear();
+        fx.modifyPayloads.clear();
+        pi.activeAlgoIsRiskClose = true;
+        pi.algoModifyTime = 1000 * SEC;
+        fx.ctx.OnTimer(1000 * SEC + 61 * SEC);
+        CHECK(!fx.modifyPayloads.empty(), "K15 强平单 MODIFY 带参数体");
+        if (!fx.modifyPayloads.empty()) {
+            const auto& m = fx.modifyPayloads.back();
+            CHECK(!m.ttOLSwitch && !m.ttOSSwitch && !m.mtOLSwitch && !m.mtOSSwitch,
+                  "K15 强平单：4 个开仓开关全压掉（永不开仓）");
+            CHECK(m.ttCLSwitch && m.ttCSSwitch && m.mtCLSwitch && m.mtCSSwitch,
+                  "K15 强平单：平仓开关一个都没动");
+        }
+    }
+
+    // K16 开仓单不受压制：同一份夹具、只把标记清掉，4 个开仓开关必须原样带过去
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        MakeOpenFriendlyStats(pi);
+        fx.ctx.m_cfg.configPath = cfgPath;
+        fx.ctx.StopSignalThread();
+        int64_t lastStats = 0;
+
+        pi.hasActiveAlgoOrder = true;
+        pi.currentAlgoOrderId = 781LL;
+        pi.activeAlgoIsRiskClose = false;
+        pi.satisfyTime    = 1000 * SEC;
+        pi.algoModifyTime = 1000 * SEC;
+
+        fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
+        fx.ctx.OnTimer(1000 * SEC);
+
+        CHECK(!fx.modifyPayloads.empty(), "K16 MODIFY 带参数体");
+        if (!fx.modifyPayloads.empty()) {
+            const auto& m = fx.modifyPayloads.back();
+            const auto& op = pi.orderParams;
+            CHECK(m.ttOLSwitch == op.ttOLSwitch && m.ttOSSwitch == op.ttOSSwitch &&
+                  m.mtOLSwitch == op.mtOLSwitch && m.mtOSSwitch == op.mtOSSwitch,
+                  "K16 开仓单：4 个开仓开关原样照搬 orderParams（没被误压）");
+        }
     }
 }
 

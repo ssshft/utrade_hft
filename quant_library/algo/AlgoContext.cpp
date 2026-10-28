@@ -1373,7 +1373,24 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                 }
             }
             // 结束订单检查
-            if (it->second->ttOLSwitch == false && it->second->ttOSSwitch == false && it->second->mtOLSwitch == false && it->second->mtOSSwitch == false) {
+            //
+            // 判据 = "这个角色还能不能做事"，不是"开关长什么样"：
+            //   OPEN_SIGNAL  ：四个开仓开关全关 **且** 剩余量不足 —— 原判据，一个字不动。
+            //                  不能只看剩余量：开仓单建出来那一刻仓位就是 0（还没成交），
+            //                  只看剩余量会让它在第一次 OnTimer 就自杀。
+            //   CLOSE_SIGNAL ：剩余量不足就是平完了 —— 结束。
+            //                  它是平仓信号建的，而 CL/CS 信号要求 IsLong/IsShort
+            //                  （SignalGenerator.cpp:308/313/328/333）⇒ 建单那刻必有仓位，
+            //                  所以"平到 0"对它只可能是终态。
+            //   RISK_CLOSE   ：同上。
+            // 为什么必须显式用角色：普通平仓单允许在开仓带回补，它的 4 个开仓开关是**开**的，
+            // 靠"四开关全 false"这个代理永远等不到 ⇒ 平完也终结不了，只能等 150s 空闲超时。
+            //
+            // ⚠️ 本判据被所有 algoType 共用（Rebalance/Fishing 也走），它们必须保持默认
+            //    AlgoRole::OPEN_SIGNAL，否则会被提前判成 FILLED。见 BaseAlgoOrder.h 的 AlgoRole。
+            const bool noOpenPermission = it->second->ttOLSwitch == false && it->second->ttOSSwitch == false &&
+                                          it->second->mtOLSwitch == false && it->second->mtOSSwitch == false;
+            if (noOpenPermission || it->second->role != AlgoRole::OPEN_SIGNAL) {
                 if (it->second->algoType == stra::AlgoType_Rebalance) {
                     AlgoRebalanceOrder* pRebalanceOrder = (AlgoRebalanceOrder*)(it->second);
                     if (pRebalanceOrder->activeTrade == 1) {
@@ -1419,8 +1436,8 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
                         pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
-                        LOG_INFO("算法单终结(剩余量不足不再报单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_FILLED，剩余量 {} < 最小报单量 {} 且无在途 pairOrder",
-                                 it->second->algoOrderId, it->second->pairInstrumentKey, orderAmount, it->second->activeInfo.minSize);
+                        LOG_INFO("算法单终结(剩余量不足不再报单): algoOrderId:{} pairInstrumentKey:{} role:{} -> ALGO_OS_FILLED，剩余量 {} < 最小报单量 {} 且无在途 pairOrder",
+                                 it->second->algoOrderId, it->second->pairInstrumentKey, static_cast<int>(it->second->role), orderAmount, it->second->activeInfo.minSize);
                     }    
                 }        
             }

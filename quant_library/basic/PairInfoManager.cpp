@@ -842,6 +842,8 @@ void PairInfoManager::ClearActiveAlgoOrder(const std::string& pairKey) {
     pi->hasActiveAlgoOrder = false;
     // 算法单已终结，风控强平单的"在途"标记随之失效（ProcessRisk 会重新判断）
     pi->riskCloseOrderInFlight = false;
+    // 强平标记同理：下一张单可能是普通单，必须复位，否则它会被当成强平单压掉开仓开关。
+    pi->activeAlgoIsRiskClose = false;
 }
 
 double PairInfoManager::ceil2min(double val, double minUnit) {

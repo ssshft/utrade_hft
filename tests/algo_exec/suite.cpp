@@ -389,7 +389,7 @@ static void Boot(Fx& fx) {
     cfg.activeAccountId  = kActiveAccountId;
     cfg.passiveAccountId = kPassiveAccountId;
     cfg.spreadStatsMinSamples = 3;
-    cfg.spreadSampleIntervalMs = 0;
+    cfg.spreadSampleIntervalSec = 0;
     fx.ptCtx.SetAlgoCommandCallback([&fx](BaseAlgoOrder* o) {
         fx.created.push_back(o);
         // ★ 链路的关键一步：策略层建好的算法单，立刻注册进执行层
@@ -406,6 +406,21 @@ static void Boot(Fx& fx) {
     fx.algoCtx.SetTradeClient(&fx.tradeClient);
     fx.algoCtx.SetDbp(&fx.dbpReader);
     fx.tradeClient.Clear();
+
+    // ---- 价差槽位 + dbp 订阅：照抄生产的 pre_start ----
+    // 生产里这两件事是**启动时按配置的 pairKeys 一次做完**的
+    // （src/strategy/PairTradingStrategy.cpp:41-46：AddSpreadPara(pairKey) + dbpreader->Subscribe(pairKey)），
+    // **不是**建算法单时做。AlgoContext::SubmitAlgoOrder 里那段订阅是注释掉的死代码
+    // （AlgoContext.cpp:105-114）。
+    //
+    // 谁都不做会怎样：SpreadManager 里没有槽位 -> OnMarketSpread 的 memcpy 无处可写
+    // -> GetSpread 返回 nullptr -> AlgoPairOrder::GetTargetPairOrder:40-43 打一行
+    // "cannot get spread" 就返回空单 -> **一条子单都报不出来**。
+    // 以前这段是靠 SubmitAlgoOrder 兜着的，那段被注释掉之后 B/C/D 三组集体哑火
+    // （A1 的"SpreadManager 里也建好了价差槽位"就是第一个报警）。
+    // 夹具必须自己补上这一环，否则测的就不是执行侧，而是"生产启动代码缺失"。
+    SpreadManager::Instance().AddSpreadPara(kPairKey);
+    fx.dbpReader.Subscribe(kPairKey);
 }
 
 // 策略侧启动闸门打开（跳过对账）
@@ -461,7 +476,18 @@ static void ArmOpen(PairInfo& pi, const char* which, double vol) {
     std::string w(which);
     if (w == "ttOL") { pi.rtSpread.spreadBidAsk = -1.0; pi.orderParams.ttOLStartSpread = 0.0; pi.orderParams.ttOLEndVolume = -1.0; }
     if (w == "ttOS") { pi.rtSpread.spreadAskBid =  1.0; pi.orderParams.ttOSStartSpread = 0.0; pi.orderParams.ttOSEndVolume =  1.0; }
-    if (w == "mtOL") { pi.rtSpread.spreadAskAsk =  0.0; pi.orderParams.mtOLStartSpread = 0.05; pi.orderParams.mtOLEndVolume = -1.0; }
+    // mtOL 用 spreadAskAsk 判方向，这个值必须**同时**过三道闸，区间很窄：
+    //   ① CanOpen 的行情 sanity   SignalGenerator.cpp:394-398  |spreadAskAsk| <= 0.1
+    //   ② 方向闸                  SignalGenerator.cpp:321     spreadAskAsk + F_mt < mtOLStartSpread
+    //   ③ 净利闸                  SignalGenerator.cpp:292     (mtCLStartSpread - spreadAskAsk - F_mt) >= minProfitTarget
+    // 取 -0.01：①过；② -0.01 < 0.05 过；③ 0 - (-0.01) - 0 = 0.01 >= 0.0005 过。
+    //   （F_mt = 主动腿maker费 + 被动腿taker费 + 基本滑点，本夹具里三个费率都是 0 ⇒ F_mt = 0。）
+    // 两个踩过的坑，写在这里免得下次再试：
+    //   · 原来写 0.0：②勉强过，③ 是 0 - 0 - 0 = 0 < 0.0005 恒不成立 -> mtOLSignal 永远 false；
+    //   · 改成 -1.0：③过了，但 ① 的 |−1.0| > 0.1 判成"spreadAskAsk abnormal" -> canOpen=false。
+    // 所以 MT 方向**不能**像上面 ttOL 那样直接填 -1.0（ttOL 走的是 spreadBidAsk，
+    // CanOpen 的 sanity 只看 spreadAskAsk，两条腿的约束不一样）。
+    if (w == "mtOL") { pi.rtSpread.spreadAskAsk = -0.01; pi.orderParams.mtOLStartSpread = 0.05; pi.orderParams.mtOLEndVolume = -1.0; }
     if (w == "mtOS") { pi.rtSpread.spreadBidBid =  1.0; pi.orderParams.mtOSStartSpread = 0.0;  pi.orderParams.mtOSEndVolume =  1.0; }
 }
 
@@ -1690,6 +1716,112 @@ static void TestH_CancelLoop() {
 }
 
 // ===========================================================================
+// I. 角色（AlgoRole）与"平到 0 算不算结束"
+//
+// 这是 D 的落点：AlgoContext.cpp:1391-1393 的结束判据。
+//
+// 改之前判据是"四个开仓开关全 false"（noOpenPermission）—— 它把
+// **角色**（建单时的事实）和**开关**（市场决定的当前状态）当成了同一件事。
+// 一旦允许普通平仓单在开仓带回补，它的开关就是开的，那个代理永远等不到，
+// 平完也终结不了，只能等 150s 空闲超时。
+//
+// 现在：role 只回答"平到 0 算不算结束"，不再参与"能不能开仓"。
+//   CLOSE_SIGNAL / RISK_CLOSE -> 算结束；
+//   OPEN_SIGNAL               -> 不算（建单那刻仓位就是 0，空仓是它的常态）。
+// ===========================================================================
+static void TestI_RoleTermination() {
+    Section("I. 角色与结束判据（平到 0 算不算结束）");
+
+    // I1 普通平仓单（CLOSE_SIGNAL）：有持仓时不结束，平到 0 -> FILLED
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+
+        // pairTotalVolume 是**主动腿**持仓量，符号反着：负 = 对子多（PairInfo.h:403）。
+        // 所以"平多"要喂 -5.0。喂 +5.0 的话 IsLong() 为假，CL 信号不成立。
+        MakeHoldable(pi, -5.0);
+        ArmClose(pi, "ttCL", -5.0);
+        // ⚠️ ArmClose 内部的 OnlySwitch 会把**八个开关全关掉**再单开 ttCL。
+        //    但 D 要处理的恰恰是"平仓单建出来时开仓开关是**开**的"那个场景
+        //    （行情同时落在开仓带里，所以它后面能回补）。这里手动把 ttOL 打开，
+        //    否则这条断言测的只是"开关原样照搬"，测不到"平仓单带着开仓权限"。
+        pi.orderParams.ttOLSwitch = true;
+        fx.ptCtx.ProcessPairSignal(pi);
+
+        BaseAlgoOrder* o = fx.Order0();
+        CHECK(o != nullptr, "I1 前置：平仓信号建出算法单");
+        if (!o) return;
+
+        CHECK(o->role == AlgoRole::CLOSE_SIGNAL, "I1 role = CLOSE_SIGNAL");
+        // 普通平仓单**不**清四个开仓开关 —— 它允许在开仓带回补。
+        // （清开关的只有 RISK_CLOSE，见 I3；这条断言就是"回补能力没被 D 改掉"的证据。）
+        // 也是 D 的**动机**：这一单的 ttOLSwitch 是 true，所以旧的
+        // noOpenPermission（四个开仓开关全 false）永远等不到 —— 平完了也终结不了。
+        CHECK(o->ttOLSwitch, "I1 普通平仓单保留开仓开关（还能在开仓带回补）");
+        CHECK(std::abs(o->pairTotalVolume) > 0.0, "I1 前置：算法单带着持仓建出来");
+
+        // 还有 5 个单位的持仓：判据不能因为它"角色是平仓"就提前终结
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_NEW,
+              "I1 还有持仓 -> OnTimer 不终结（role 不等于立刻结束）");
+
+        // 平到 0：这才是 D 要的那个行为 —— 立刻 FILLED，不用等 150s
+        o->pairTotalVolume = 0.0;
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_FILLED,
+              "I1 平到 0 -> OnTimer 立刻 FILLED（这是 D 的核心）");
+        CHECK(o->commandType == stra::CommandType_FINISHED, "I1 commandType = FINISHED");
+        CHECK(!pi.hasActiveAlgoOrder, "I1 终结回传 -> 对子被释放");
+    }();
+
+    // I2 开仓单（OPEN_SIGNAL）：空仓**不**结束 —— 这是刻意的
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        BaseAlgoOrder* o = OpenTtOL(fx);        // pairTotalVolume = 0，ttOLSwitch = true
+        CHECK(o != nullptr, "I2 前置：开仓信号建出算法单");
+        if (!o) return;
+
+        CHECK(o->role == AlgoRole::OPEN_SIGNAL, "I2 role = OPEN_SIGNAL");
+        CHECK(Near(o->pairTotalVolume, 0.0), "I2 前置：开仓单建出来时仓位就是 0");
+
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_NEW,
+              "I2 空仓 -> 开仓单**不**终结（空仓是它的常态，结束了就再也开不了）");
+
+        // 反向确认：原判据（四个开仓开关全 false）还在生效 —— 开仓单被市场/配置
+        // 压掉全部开仓权限之后，仍然会按老逻辑结束。D 只**增加**了一个入口，没拆掉旧的。
+        o->ttOLSwitch = o->ttOSSwitch = o->mtOLSwitch = o->mtOSSwitch = false;
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_FILLED,
+              "I2 四个开仓开关全关 -> 仍按原判据结束（旧路径未被破坏）");
+    }();
+
+    // I3 风控强平单（RISK_CLOSE）：建单即清四个开仓开关，平到 0 -> FILLED
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        MakeHoldable(pi, 0.0);          // 只为拿到 ttTargetVolume（否则 BuildAlgoOrderJson 报 invalid targetVolume）
+        ArmTinyCloseRisk(pi);           // 小持仓 -> CheckRisk 命中 needForceClose
+
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        CHECK(o != nullptr, "I3 前置：风控强平建出算法单");
+        if (!o) return;
+
+        CHECK(o->role == AlgoRole::RISK_CLOSE, "I3 role = RISK_CLOSE");
+        // 强平单在整个生命周期都不许开仓，所以建单时就压掉四个开关
+        CHECK(!o->ttOLSwitch && !o->ttOSSwitch && !o->mtOLSwitch && !o->mtOSSwitch,
+              "I3 强平单建单即清掉四个开仓开关");
+        // ProcessModify 那一侧拿不到算法单指针，只能靠 PairInfo 上的派生镜像
+        CHECK(pi.activeAlgoIsRiskClose, "I3 PairInfo.activeAlgoIsRiskClose = true（MODIFY 侧靠它压开关）");
+
+        o->pairTotalVolume = 0.0;
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_FILLED, "I3 强平单平到 0 -> FILLED");
+    }();
+}
+
+// ===========================================================================
 // 主
 // ===========================================================================
 int main() {
@@ -1704,6 +1836,7 @@ int main() {
     TestF_RiskClose();
     TestG_FillLoop();
     TestH_CancelLoop();
+    TestI_RoleTermination();
 
     std::printf("\n=================================================\n");
     std::printf("PASS: %d   FAIL: %d\n", g_pass, g_fail);
