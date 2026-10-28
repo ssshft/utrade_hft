@@ -632,6 +632,8 @@ stra::AlgoOrderModify PairTradingContext::BuildNormalModify(const PairInfo& pi) 
     m.mtCLSwitch = op.mtCLSwitch;
     m.mtCSSwitch = op.mtCSSwitch;
 
+    std::cout << "BuildNormalModify " << "ttOLSwitch:" << m.ttOLSwitch << " ttOSSwitch:" << m.ttOSSwitch << " ttCLSwitch:" << m.ttCLSwitch << " ttCSSwitch:" << m.ttCSSwitch << " mtOLSwitch:" << m.mtOLSwitch << " mtOSSwitch:" << m.mtOSSwitch << " mtCLSwitch:" << m.mtCLSwitch << " mtCSSwitch:" << m.mtCSSwitch << std::endl;
+
     // 32 个起止价差 / 起止量：整份照搬 pi.orderParams
     m.ttOLStartSpread = op.ttOLStartSpread;
     m.ttOLEndSpread = op.ttOLEndSpread;
