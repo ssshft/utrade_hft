@@ -66,6 +66,10 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
 
     }
 
+    // GetAllPairInfos() 的缓存表：必须在这里建 —— 这是全仓库唯一往 m_pairInfoMap 插入的地方，
+    // 建完对子集合就不再变，之后每次调用只是返回它的 const 引用（零分配、零哈希查找）。
+    RebuildPairPtrs();
+
     LOG_INFO("PairInfoManager::Init 完成: 配置对子数:{} 已注册对子数:{}", m_pairKeys.size(), m_pairInfoMap.size());
 }
 
@@ -617,18 +621,24 @@ PairInfo* PairInfoManager::GetPairInfo(const char* pairKey) {
     return GetPairInfo(std::string((pairKey)));
 }
 
-std::vector<PairInfo*> PairInfoManager::GetAllPairInfos() {
-    std::vector<PairInfo*> result;
-    result.reserve(m_pairKeys.size());
+void PairInfoManager::RebuildPairPtrs() {
+    m_pairPtrs.clear();
+    m_pairPtrs.reserve(m_pairKeys.size());
 
     for (const auto& pk : m_pairKeys) {
         auto it = m_pairInfoMap.find(pk);
         if (it != m_pairInfoMap.end()) {
-            result.push_back(&it->second);
+            m_pairPtrs.push_back(&it->second);
         }
     }
+}
 
-    return result;
+const std::vector<PairInfo*>& PairInfoManager::GetAllPairInfos() {
+    if (m_pairPtrs.size() != m_pairInfoMap.size()) {
+        RebuildPairPtrs();
+    }
+
+    return m_pairPtrs;
 }
 
 // 所有对子持仓市值之和（全局持仓闸门的输入）。

@@ -1067,6 +1067,8 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
         pSwitch = &pAlgoOrder->mtCSSwitch;
     }
 
+    std::cout << "pAlgoOrder->ttOLSwitch:" << pAlgoOrder->ttOLSwitch << " pAlgoOrder->ttOSSwitch:" << pAlgoOrder->ttOSSwitch << " pAlgoOrder->ttCLSwitch:" << pAlgoOrder->ttCLSwitch << " pAlgoOrder->ttCSSwitch:" << pAlgoOrder->ttCSSwitch << " pAlgoOrder->mtOLSwitch:" << pAlgoOrder->mtOLSwitch << " pAlgoOrder->mtOSSwitch:" << pAlgoOrder->mtOSSwitch << " pAlgoOrder->mtCLSwitch:" << pAlgoOrder->mtCLSwitch << " pAlgoOrder->mtCSSwitch:" << pAlgoOrder->mtCSSwitch << std::endl;
+
     // 风控强平：放弃一部分利润，把触发价差往更容易成交的方向挪
     if (isClose && forgoProfit > 0.0) {
         if (direction == "CL") {

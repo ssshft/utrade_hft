@@ -58,14 +58,21 @@
             return m_pairKeys;
         }
 
-        std::vector<PairInfo*> GetAllPairInfos();
+        // 所有对子指针，**配置序**（= m_pairKeys 序，与快照文件行序一致）。
+        // 返回的是 Init 时建好的缓存表 m_pairPtrs 的 const 引用 ⇒ 稳态零分配、零哈希查找。
+        // 前提：对子集合在 Init 之后不变。现在成立（m_pairInfoMap 只有 Init 一处插入、从不 erase，
+        // 且 unordered_map 的元素地址跨 rehash 是稳定的，所以指针永远有效）。万一将来真支持
+        // 运行期加对子，RebuildPairPtrs 的 size 比较会自愈，不会静默漏掉新对子。
+        // **只读 PairInfo，必须在交易线程调用。**
+        // 注意：不是 const 方法 —— 缓存失配时它要重建（见 .cpp 里的 size 比较）。
+        const std::vector<PairInfo*>& GetAllPairInfos();
 
         // 所有对子持仓市值之和：Σ |pairTotalVolume × 腿价 × 面值|（逐对子**现算**）。
         // 这是"全局持仓闸门"的输入（祖先 cc_pricespread_gb_ltp.py:825 的 position_value_all）。
         //
         // 为什么放在这里而不是调用方自己遍历：
-        //   ① m_pairInfoMap 只有本类能直接遍历，走 GetAllPairInfos() 每次要拷一份
-        //      vector<PairInfo*>（500 对子实测 5.4 µs，见 docs 执行线程清单 B4）；
+        //   ① 这里只需要一个和、不需要指针列表 —— 在类内直接遍历 m_pairInfoMap 就够了，
+        //      不必为了它对外暴露容器（实测 2.6 µs @500，1 次/秒，快慢无所谓）；
         //   ② ⚠️ 不能用缓存的 pi.positionValue —— 它只在 UpdateOnAlgoOrder 里刷
         //      （PairInfoManager.cpp:800），两次成交之间价格变动不会更新，
         //      拿它当风控输入会滞后。这里现算，成本只是一次乘法。
@@ -121,6 +128,14 @@
         std::unordered_map<std::string, PairInfo> m_pairInfoMap;
         std::unordered_map<std::string, std::vector<std::string>> m_instrToPairs;
         std::vector<std::string> m_pairKeys;
+
+        // GetAllPairInfos() 的返回值：m_pairInfoMap 里每个元素的地址，**配置序**。
+        // 只存指针（8 B/对子，500 对子 = 4 KB），不存 PairInfo 副本 —— 本体只有 map 那一份。
+        // 在 Init 末尾建一次；见 GetAllPairInfos() 注释里的前提说明。
+        std::vector<PairInfo*> m_pairPtrs;
+
+        // 按 m_pairKeys 序重建 m_pairPtrs（Init 末尾调一次；GetAllPairInfos 里 size 失配时兜底调）
+        void RebuildPairPtrs();
 
         void RegisterInstrument(const std::string& instrKey, const std::string& pairKey);
 
