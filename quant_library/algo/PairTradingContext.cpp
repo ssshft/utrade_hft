@@ -977,7 +977,7 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->activePriceTickNum = aoc.activePriceTickNum;
     pAlgoOrder->passivePriceTickFlag = aoc.passivePriceTickFlag;
     pAlgoOrder->passivePriceTickNum = aoc.passivePriceTickNum;
-    pAlgoOrder->isManual = pi.manualFlag;
+    pAlgoOrder->isManual = !pi.autoFlag; // autoFlag为false，即为手动模式
 
     // ---- 32 个开平仓触发参数整体拷贝 ----
     pAlgoOrder->ttOLStartSpread = op.ttOLStartSpread;
