@@ -826,7 +826,7 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     }
 
 
-    std::cout << "BuildAlgoOrderJson op->ttOLSwitch:" << op->ttOLSwitch << " op->ttOSSwitch:" << op->ttOSSwitch << " op->ttCLSwitch:" << op->ttCLSwitch << " op->ttCSSwitch:" << op->ttCSSwitch << " op->mtOLSwitch:" << op->mtOLSwitch << " op->mtOSSwitch:" << op->mtOSSwitch << " op->mtCLSwitch:" << op->mtCLSwitch << " op->mtCSSwitch:" << op->mtCSSwitch << std::endl;
+    std::cout << "BuildAlgoOrderJson op->ttOLSwitch:" << op.ttOLSwitch << " op->ttOSSwitch:" << op.ttOSSwitch << " op->ttCLSwitch:" << op.ttCLSwitch << " op->ttCSSwitch:" << op.ttCSSwitch << " op->mtOLSwitch:" << op.mtOLSwitch << " op->mtOSSwitch:" << op.mtOSSwitch << " op->mtCLSwitch:" << op.mtCLSwitch << " op->mtCSSwitch:" << op.mtCSSwitch << std::endl;
 
     const bool sw = *pSw;
 
