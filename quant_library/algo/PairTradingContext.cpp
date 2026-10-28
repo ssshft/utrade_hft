@@ -39,10 +39,6 @@
 #include <cmath>
 #include <cstring>
 #include <exception>
-// 本文件（和 SignalGenerator.cpp）有几处 std::cout 调试打印，但此前没有任何头文件
-// include <iostream> ⇒ 两套测试套件都编不过（`no member named 'cout' in namespace 'std'`）。
-// 补这一行只修编译，不改任何行为；那些打印本身是否保留由后续单独决定。
-#include <iostream>
 #include <sys/stat.h>
 #include <thread>
 
@@ -638,22 +634,13 @@ stra::AlgoOrderModify PairTradingContext::BuildNormalModify(const PairInfo& pi) 
     m.mtCSSwitch = op.mtCSSwitch;
 
     // **风控强平单**在整个生命周期里都不许开仓（见 PairInfo::activeAlgoIsRiskClose）。
-    // 只有强平要压：普通平仓单（CLOSE_SIGNAL）允许在开仓带回补 —— 它能不能开只看
-    // orderParams 里那 4 个开关和下面 ProcessModify 的几道闸门，本函数不再替它决定。
-    // 建单时 BuildAlgoOrderJson 已经对强平清过一次，但 60s 后这里会把 orderParams 的 4 个
-    // 开仓开关整份推回去 —— RecalcOrderParams 不看持仓，持仓期间它们就是 1。不清的后果：
-    //   AlgoPairOrder::CreatePairOrder 同侧两开关都开时**优先试开仓** ⇒ 强平单先挂开仓子单，
-    //   轻则平不掉，重则逆着强平方向加仓。
-    // 放在 std::cout 之前：那行诊断要打印真正会发出去的值（它现在打在后面两处覆盖之前，
-    // 本来就已经会误导，别再让它多误导一次）。
+    // 只有强平要压：普通平仓单（CLOSE_SIGNAL）允许在开仓带回补
     if (pi.activeAlgoIsRiskClose) {
         m.ttOLSwitch = false;
         m.ttOSSwitch = false;
         m.mtOLSwitch = false;
         m.mtOSSwitch = false;
     }
-
-    std::cout << "BuildNormalModify " << "ttOLSwitch:" << m.ttOLSwitch << " ttOSSwitch:" << m.ttOSSwitch << " ttCLSwitch:" << m.ttCLSwitch << " ttCSSwitch:" << m.ttCSSwitch << " mtOLSwitch:" << m.mtOLSwitch << " mtOSSwitch:" << m.mtOSSwitch << " mtCLSwitch:" << m.mtCLSwitch << " mtCSSwitch:" << m.mtCSSwitch << std::endl;
 
     // 32 个起止价差 / 起止量：整份照搬 pi.orderParams
     m.ttOLStartSpread = op.ttOLStartSpread;
@@ -853,9 +840,6 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
         LOG_ERROR("invalid algoMode:{} direction:{}", algoMode, direction);
         return nullptr;
     }
-
-
-    std::cout << "BuildAlgoOrderJson op->ttOLSwitch:" << op.ttOLSwitch << " op->ttOSSwitch:" << op.ttOSSwitch << " op->ttCLSwitch:" << op.ttCLSwitch << " op->ttCSSwitch:" << op.ttCSSwitch << " op->mtOLSwitch:" << op.mtOLSwitch << " op->mtOSSwitch:" << op.mtOSSwitch << " op->mtCLSwitch:" << op.mtCLSwitch << " op->mtCSSwitch:" << op.mtCSSwitch << std::endl;
 
     const bool sw = *pSw;
 
@@ -1102,8 +1086,6 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
         pEndSpread = &pAlgoOrder->mtCSEndSpread;
         pSwitch = &pAlgoOrder->mtCSSwitch;
     }
-
-    std::cout << "pAlgoOrder->ttOLSwitch:" << pAlgoOrder->ttOLSwitch << " pAlgoOrder->ttOSSwitch:" << pAlgoOrder->ttOSSwitch << " pAlgoOrder->ttCLSwitch:" << pAlgoOrder->ttCLSwitch << " pAlgoOrder->ttCSSwitch:" << pAlgoOrder->ttCSSwitch << " pAlgoOrder->mtOLSwitch:" << pAlgoOrder->mtOLSwitch << " pAlgoOrder->mtOSSwitch:" << pAlgoOrder->mtOSSwitch << " pAlgoOrder->mtCLSwitch:" << pAlgoOrder->mtCLSwitch << " pAlgoOrder->mtCSSwitch:" << pAlgoOrder->mtCSSwitch << std::endl;
 
     // 风控强平：放弃一部分利润，把触发价差往更容易成交的方向挪
     if (isClose && forgoProfit > 0.0) {

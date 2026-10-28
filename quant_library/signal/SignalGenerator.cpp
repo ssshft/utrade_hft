@@ -1,7 +1,5 @@
 #include "SignalGenerator.h"
-// RecalcOrderParams 末尾有一处 std::cout 调试打印；没有这一行两套测试套件都编不过。
-// 只修编译，不改行为。
-#include <iostream>
+
 
 namespace pt {
 
@@ -219,10 +217,6 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
 
     // 全局持仓闸门必须放**最后**：上面几段都在重写这 4 个开仓开关，压在前面会被它们打开。
     ApplyNoOpenGate(op);
-
-
-    std::cout << "RecalcOrderParams " << "ttOLSwitch:" << op.ttOLSwitch << " ttOSSwitch:" << op.ttOSSwitch << " ttCLSwitch:" << op.ttCLSwitch << " ttCSSwitch:" << op.ttCSSwitch << " mtOLSwitch:" << op.mtOLSwitch << " mtOSSwitch:" << op.mtOSSwitch << " mtCLSwitch:" << op.mtCLSwitch << " mtCSSwitch:" << op.mtCSSwitch << std::endl;
-
 }
 
 // 只平不开：把 4 个开仓开关压成 false，平仓开关（ttCL/ttCS/mtCL/mtCS）不动。
