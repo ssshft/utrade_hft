@@ -5,9 +5,6 @@
 #include "Convert.h"
 #include "StrategyConfig.h"
 #include "algo/PairTradingContext.h"
-// CancelOrderOnSpread 里有 std::cout 即时诊断。必须自己 include：
-// libstdc++ 会经其它头顺带带进 <iostream>，libc++ 不会 ⇒ 只有部署机编得过。
-#include <iostream>
 
 
 CONTENTQUEUE contentQueue;
@@ -449,7 +446,6 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
             }
         }
     } else {
-        std::cout << "CancelOrderOnSpread ============= ===== activeMakerCancelOrderTime:" << activeMakerCancelOrderTime << std::endl;
         auto& allOrders = orderMgr.GetAllOrders();
         for (auto it = allOrders.begin(); it != allOrders.end(); ++it) {
             if (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED){
@@ -464,15 +460,12 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
                     continue;
                 }
 
-                std::cout << "CancelOrderOnSpread ============= ===== activeMakerCancelOrderTime:" << activeMakerCancelOrderTime << "  nowTime - it->second.updateTime: " << nowTime - it->second.updateTime << std::endl;
-
                 if (it->second.isActiveOrder) {
                     // 主动腿订单撤单
                     if (it->second.orderType == OT_POST_ONLY){
                         // 主动腿Maker
                         // 时间撤单
                         if (nowTime - it->second.updateTime > activeMakerCancelOrderTime) {
-                            std::cout << "CancelOrderOnSpread ============= ===== activeMakerCancelOrderTime:" << activeMakerCancelOrderTime << "  nowTime - it->second.updateTime: " << nowTime - it->second.updateTime << " it->second.price: " << it->second.price  << " pdata->activeBidPrice[0]:" << pdata->activeBidPrice[0] << std::endl;
 			                if ((it->second.direction == DT_LONG && it->second.price < pdata->activeBidPrice[0] - stra::MIN_FLOAT) || (it->second.direction == DT_SHORT && it->second.price > pdata->activeAskPrice[0] + stra::MIN_FLOAT)) {
                                 bool cancel_flag = QuantTrade::Instance().CancelOrder(it->second);
                                 if (cancel_flag) {
