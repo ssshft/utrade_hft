@@ -825,6 +825,9 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
         return nullptr;
     }
 
+
+    std::cout << "BuildAlgoOrderJson op->ttOLSwitch:" << op->ttOLSwitch << " op->ttOSSwitch:" << op->ttOSSwitch << " op->ttCLSwitch:" << op->ttCLSwitch << " op->ttCSSwitch:" << op->ttCSSwitch << " op->mtOLSwitch:" << op->mtOLSwitch << " op->mtOSSwitch:" << op->mtOSSwitch << " op->mtCLSwitch:" << op->mtCLSwitch << " op->mtCSSwitch:" << op->mtCSSwitch << std::endl;
+
     const bool sw = *pSw;
 
     // 2. 开关校验：正常开仓必须开关打开；平仓（含风控强平）不受开关限制
