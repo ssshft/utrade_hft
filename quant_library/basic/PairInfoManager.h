@@ -21,7 +21,7 @@
 
     bool WriteSpreadStatsFile(const std::string& path, const std::vector<SpreadStatsMsg>& v);
 
-    // 把 PairInfoRecord 列表按 33 列格式化成 CSV，写 .tmp 再 rename 原子替换。
+    // 把 PairInfoRecord 列表按 32 列格式化成 CSV，写 .tmp 再 rename 原子替换。
     // 空列表 ⇒ 写"只有表头"的文件（与老 SaveSnapshot 行为一致）。
     // 纯 IO + 格式化，不碰 PairInfo —— 可以在任何线程调（生产就在 T_signal 上调）。
     bool WritePairInfoRecordFile(const std::string& path, const std::vector<PairInfoRecord>& v);

@@ -80,7 +80,7 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
 // 账户真值（持仓 / 均价 / 浮盈 / 强平价 / 标记价 / ADL / 强平状态）一律不存 ——
 // 由 pubsub 推送自愈。派生字段（ttTargetVolume / orderParams / *Stats）也不存。
 //
-// 列布局（33 列）。字符串列放最后，避免空字段 / 逗号带来的歧义：
+// 列布局（32 列）。字符串列放最后，避免空字段 / 逗号带来的歧义：
 //   1   pairInstrumentKey                      行键
 //   3   持仓账本   pairTotalVolume / pairActiveTotalPrice / pairPassiveTotalPrice
 //   2   建仓基准   openSmallSpreadBidBidUQ / openSmallSpreadAskAskDQ
@@ -203,7 +203,7 @@ void ReadAbnormalState(const std::vector<std::string>& f, size_t off, AbnormalCl
 
 // 快照：PairInfo -> PairInfoRecord / PairInfoRecord -> 文件
 void MakePairInfoRecord(const PairInfo& p, PairInfoRecord& r) {
-    // 不 memset：下面每个字段都写到了（33 列是"全字段覆盖"）。
+    // 不 memset：下面每个字段都写到了（32 列是"全字段覆盖"）。
     std::strncpy(r.pairKey, p.pairInstrumentKey, sizeof(r.pairKey) - 1);
 
     r.pairTotalVolume = p.pairTotalVolume;
@@ -289,8 +289,9 @@ bool WritePairInfoRecordFile(const std::string& path, const std::vector<PairInfo
     ofs << kSnapshotHeader << "\n";
 
     // ⚠️ 列序必须与 kSnapshotHeader / LoadSnapshot 的下标严格一致。
-    //    尤其：profitPct 在第 30 列，errorFlag / hasActiveAlgoOrder 在 31 / 32 ——
-    //    这三个换个位置，LoadSnapshot 不会报错，只会把 0/1 读成 profitPct（账读歪）。
+    //    尤其尾部：profitPct 在 29，hasActiveAlgoOrder / currentAlgoOrderId 在 30 / 31 ——
+    //    这几个换个位置，LoadSnapshot 不会报错，只会把 0/1 读成 profitPct（账读歪）。
+    //    （errorFlag 那一列已随三态模型删除；LoadSnapshot 只认当前列数，旧文件升级前直接删。）
     for (size_t i = 0; i < v.size(); ++i) {
         const PairInfoRecord& r = v[i];
         ofs << r.pairKey << ","
@@ -373,11 +374,20 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
         return -1;
     }
 
-    // 先验表头列数，挡住不兼容的旧格式（例如老的 5 列 CSV）
+    // 先验表头列数：**只认当前列数，不兼容任何旧格式**
+    //
+    // 33 列 = 2026-10-29 之前（profitPct(29) 之后多一列已删除的 errorFlag）的旧格式。
+    // 不做兼容，升级时直接删掉旧快照文件 —— 但**删之前必须先平干净、并确认没有在途算法单**，
+    // 因为整份被拒等于同时丢掉三样东西（Init 只 warn 一句"按无持仓启动"，不会中断）：
+    //   · hasActiveAlgoOrder —— 孤儿单告警/冻结靠它，丢了就会在残留子单上再开一笔；
+    //   · 风控档位（adlClose / spreadNoRegression / fundingAbnormal）—— 重置成"没耐心"；
+    //   · 建仓基准 pairActiveTotalPrice —— 留在 -1 哨兵 ⇒ GetLockedSpread() 算成
+    //     (-1)/(-1)-1 = 0 ⇒ 平仓阶梯的 profitPct 守卫用错基准。
+    // （pairTotalVolume 例外：ReconcilePair 会从交易所实时持仓纠正。）
     {
         const auto header = SplitCsv(line);
         if (header.size() != kSnapshotColumns) {
-            LOG_ERROR("LoadSnapshot: header has {} columns, expected {} -> 忽略该快照（格式不兼容）",
+            LOG_ERROR("LoadSnapshot: header has {} columns, expected {} -> 忽略该快照（只认当前格式；33 列旧快照请先删除文件再启动）",
                       header.size(), kSnapshotColumns);
             return -1;
         }

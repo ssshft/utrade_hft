@@ -188,13 +188,13 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         }
     }
 
-    bool canOpenLong = (op.mtOLStartSpread < -m_cfg.minSpreadTarget) && !pi.closeFlag;
-    bool canOpenShort = (op.mtOSStartSpread > m_cfg.minSpreadTarget) && !pi.closeFlag;
+    bool canOpenLong = op.mtOLStartSpread < -m_cfg.minSpreadTarget;
+    bool canOpenShort = op.mtOSStartSpread > m_cfg.minSpreadTarget;
 
-    op.ttOLSwitch = canOpenLong && pi.autoFlag;
-    op.ttOSSwitch = canOpenShort && pi.autoFlag;
-    op.mtOLSwitch = canOpenLong && pi.autoFlag;
-    op.mtOSSwitch = canOpenShort && pi.autoFlag;
+    op.ttOLSwitch = canOpenLong && !pi.closeFlag;
+    op.ttOSSwitch = canOpenShort && !pi.closeFlag;
+    op.mtOLSwitch = canOpenLong && !pi.closeFlag;
+    op.mtOSSwitch = canOpenShort && !pi.closeFlag;
 
     // 始终开启，除非stopFlag且无持仓
     op.ttCLSwitch = op.ttCSSwitch = true;

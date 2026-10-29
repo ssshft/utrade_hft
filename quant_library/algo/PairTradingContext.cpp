@@ -296,21 +296,12 @@ void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData
     // 喂一条价差样本进 24h 滚动窗口（内部按 spreadSampleIntervalSec 降频）
     AccumulateSpreadSample(pairKey, pdata);
 
-    // 启动闸门：对账完成前不下任何单。
-    if (!IsTradingReady()) {
-        return;
-    }
-
-    // 停掉所有算法单：不创建新单。
-    if (m_cfg.stopAllAlgo) {
-        return;
-    }
-
     PairInfo* pi = pim.GetPairInfo(pairKey);
     if (!pi) {
         return;
     }
 
+    // 启动闸门 / stopAllAlgo 的早退在 ProcessPairSignal 开头（见那里的注释）
     ProcessPairSignal(*pi);
 }
 
@@ -339,6 +330,19 @@ void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, cons
 }
 
 void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
+    // ---- 两个"这一轮什么都不做"的闸门 ----
+    // 放在这里而不是 OnSpread：OnSpread 是唯一调用方，两者对生产等价，但
+    //   ① 本函数是公开接口（头文件 :282），闸门留在函数内，将来多一个调用方也不会绕过；
+    //   ② 启动闸门 / stopAllAlgo 的用例（B10 / G14 / K11 / K13）都以本函数为被测入口 ——
+    //      OnSpread 会先 UpdateRtSpread 把 pi.rtSpread 覆盖成入参行情，这些用例没法改走它。
+    // ⚠️ 闸门必须早于 CanOpen/CanClose：那两个会写 reason，且在 stopAllAlgo 下不该有任何判定动作。
+    if (!IsTradingReady()) {
+        return;
+    }
+    if (m_cfg.stopAllAlgo) {
+        return;
+    }
+
     auto& sg = SignalGenerator::Instance();
 
     std::string reason = "";
@@ -463,6 +467,19 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
 }
 
 void PairTradingContext::RequestCancelAlgoOrder(const PairInfo& pi) const {
+    // 两个前置判断都必须在：m_algoOrderModifyCb 是 std::function，没注册时直接调用会抛
+    // bad_function_call，而调用方（CheckExposureAbnormal / CheckAlgoOrderTimeout /
+    // OnTimer 的 stopAllAlgo 分支）都没有 try/catch —— 异常会一路冒到 heavy_work 的外层
+    // catch，把**本轮所有对子**的处理一起吃掉。
+    // hasActiveAlgoOrder 判断同理：没有在途算法单时 currentAlgoOrderId 是上一张单的残留 id，
+    // 透传下去可能撤到执行端已复用的 id。
+    if (!m_algoOrderModifyCb) {
+        return;
+    }
+    if (!pi.hasActiveAlgoOrder) {
+        return;
+    }
+
     m_algoOrderModifyCb(pi.currentAlgoOrderId, stra::CommandType_CANCEL, nullptr);
 }
 
@@ -523,6 +540,15 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
 }
 
 void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
+    // one-shot：已经判死的对子不再重复处理。
+    // 没有这一行时，只要敞口一直异常（很常见：强平单还没成交），每个 tick 都会
+    // 重复 LOG_ERROR + 重复 RequestCancelAlgoOrder，日志刷屏而且会打断强平单的追价节奏
+    // （刚报出去就被撤）。stopFlag 已经是"这个对子停手、只等人工"的终态，再检查没有意义。
+    // 顺带覆盖孤儿单冻结（HandleOrphanAlgoOrders）的路径：那种情况下账本本就不可信。
+    if (pi.stopFlag) {
+        return;
+    }
+
     // 两条腿都必须有实盘持仓，且都有实盘均价 —— 只有单边有仓属于正常的开仓中间态
     if (std::abs(pi.activeRealPosition) <= 1e-9 || std::abs(pi.passiveRealPosition) <= 1e-9) {
         return;
@@ -700,10 +726,22 @@ void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
     pi.algoModifyTime = nowUs;
 
     LOG_INFO("ProcessModify: pairKey:{} algoOrderId:{} aggressiveClose:{} stopFlag:{} closeFlag:{} -> CommandType_MODIFY", pi.pairInstrumentKey, pi.currentAlgoOrderId, aggressiveClose, pi.stopFlag, pi.closeFlag);
+    // 没注册回调时直接返回：OnTimer 第 3/4/5 步是同一个 for 循环里的连续调用，
+    // 抛异常会让排在后面的对子本轮全部跳过（同 RequestCancelAlgoOrder 的理由）。
+    if (!m_algoOrderModifyCb) {
+        return;
+    }
     m_algoOrderModifyCb(pi.currentAlgoOrderId, stra::CommandType_MODIFY, &mod);
 }
 
 void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit, AlgoRole role) const {
+    // 必须在最前面：没注册回调时既不该建单（BuildAlgoOrderJson 会 new 一个对象），
+    // 也不该 SetActiveAlgoOrder 占用对子 —— 否则对子被一张永远报不出去的单锁死。
+    // 这条判断在 9d80d0d（AlgoRole 重构）里被误删过，A15 就是钉它的。
+    if (!m_algoCommandCb) {
+        return;
+    }
+
     // 直接创建算法单对象（不再拼 JSON 字符串），创建失败返回 nullptr
     BaseAlgoOrder* pAlgoOrder = BuildAlgoOrderJson(pi, algoMode, direction, forgoProfit, role);
     if (pAlgoOrder == nullptr) {

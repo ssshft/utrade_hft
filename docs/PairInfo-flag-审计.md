@@ -10,6 +10,9 @@
 > ⚠️ **§1–§5 描述的是"现状"（HEAD 的行为）；§6 是"目标模型"** —— 2026-10-29 定：
 > 三个 flag 就是一个三态枚举（正常 / 只平不开 / 全停），`autoFlag` 退出权限模型。
 > 两者冲突时以 §6 为准，但代码还没改。
+>
+> ✅ **2026-10-29 已落地**（`00d7b3f` / `d7913b4` / `f8af754`）：`limitFlag` / `errorFlag` 已删，
+> 只留 `autoFlag` / `closeFlag` / `stopFlag`。落地复核见 **§7**。
 
 ---
 
@@ -438,3 +441,111 @@ inline bool CanCloseByGate(PairGate g) { return g != PairGate::kStopped; }
 
 紧急平仓只用到 `closeFlag`（= `kCloseOnly`），它已经在这个枚举里 ——
 所以模型落地不会给紧急平仓增加改动量，"平一半"只是在枚举之外多带一个 `closeRemainVolume`。
+
+---
+
+## 7. 落地复核（2026-10-29，commit `00d7b3f` / `d7913b4` / `f8af754`）
+
+### 7.1 改对的
+
+| # | 改动 | 位置 |
+|---|---|---|
+| 1 | 只留 `autoFlag` / `closeFlag` / `stopFlag`，`limitFlag` / `errorFlag` 删除，注释与模型一致 | `PairInfo.h:313-315` |
+| 2 | `CanClose` 加 `stopFlag` ⇒ 全停档连平仓一起挡 | `SignalGenerator.cpp:389-392` |
+| 3 | `CanOpen` 删掉 `limitFlag` / `errorFlag` 两条，保留 `stopFlag` / `closeFlag` | `SignalGenerator.cpp:345-357` |
+| 4 | 快照 33 → 32 列，header / writer / parse **三处都是 32、列序一致**（逐列数过） | `PairInfoManager.cpp:95-110 / 298-335 / 435-443` |
+| 5 | 孤儿冻结与敞口失控都改置 `stopFlag`，RESUME 仍是唯一清除路径 | `PairTradingContext.cpp:284` / `:552` |
+| 6 | `ProcessModify` 仍按 `stopFlag \|\| closeFlag` 压 4 个开仓开关 | `PairTradingContext.cpp:690-695` |
+| 7 | `algo_exec` **212 / 0 全绿** | — |
+
+### 7.2 必须处理
+
+**P0-1 `ProcessRisk` 强平方式硬编码成 `"MT"`**（`:451` / `:455`）—— ✅ **已决定：保留 `"MT"`**
+原来是 `pi.autoFlag ? "TT" : "MT"`，默认 `autoFlag=true` ⇒ 走 TT（两腿吃单立刻成交）。
+现在一律 MT（主动腿挂单等成交）。用户 2026-10-29 决定**默认 MT**，代码不动。
+遗留：`algo_exec:1408` 那个 `pi.autoFlag = false; // 手动模式 -> algoMode = "MT"` 的用例
+**现在是空断言**（无论 autoFlag 是什么都是 MT），TT 分支没有任何覆盖 —— 想守住"强平走 MT"
+这个决定，应该把它改成直接断言 `algoMode`，否则将来谁改回去都不会红。
+
+**P0-2 旧快照（33 列）在升级后第一次重启会被整份拒绝** —— ✅ **已定：不做兼容，升级前删文件**
+- 现状：`LoadSnapshot` 表头列数不等于 `kSnapshotColumns` 就 `return -1`，`Init:101-105` 只
+  `LOG_WARN` 一句"按无持仓启动"，**不中断**。
+- `pairTotalVolume` 还能靠 `ReconcilePair`（`:1253`）从交易所纠正；但 `pairActiveTotalPrice` 会留在
+  `-1` 哨兵 ⇒ `GetLockedSpread()`（`BaseAlgoOrder.cpp:361-364`）算成 `(-1)/(-1)-1 = 0`
+  ⇒ 平仓阶梯的 `profitPct` 守卫用错基准。
+- **决定（2026-10-29）**：不写兼容分支，升级时直接删掉旧快照文件，一律按 32 列读。
+- ⚠️ **删文件的前提**（整份被拒会同时丢三样东西，而且只 warn 不报错）：
+  1. `hasActiveAlgoOrder` —— 孤儿单告警/冻结靠它，丢了会在残留子单上再开一笔；
+  2. 风控档位（`adlClose` / `spreadNoRegression` / `fundingAbnormal`）—— 重置成"没耐心"；
+  3. 建仓基准 `pairActiveTotalPrice` —— 见上面的 `-1` 哨兵。
+  ⇒ **先平干净 + 确认没有在途算法单，再删文件重启**。
+- `LOG_ERROR` 已带提示："只认当前格式；33 列旧快照请先删除文件再启动"。
+
+**P1-1 两套测试都编译不过** —— ✅ **已修：`market_to_algo` 493 / 0、`algo_exec` 212 / 0、`param_calc` 正常出报告**
+原来 `market_to_algo` **15 个错误**、`param_calc` **3 个**（`suite.cpp:644 pi.manualFlag` 是 `f8af754` 留下的，
+`limitFlag` / `errorFlag` 那 14 个是 `00d7b3f` 留下的）。修法不是简单删断言，而是按三态语义重写：
+`B6` 的 blocker 列表缩到 `{stopFlag, closeFlag}`；`B9` / `E8` / `E10` / `E11` / `G5` / `G6` / `G16` / `J1`
+全部改判 `stopFlag`；`A12` 的 `manualFlag` 改成 `autoFlag = false`（`isManual = !autoFlag`）。
+⇒ **三态语义现在有覆盖了**（`CanClose` 挡平仓 = `B9`，敞口 one-shot = `E10`）。
+
+编译通过后还暴露出 3 个**运行时**回归（都不是编译错误，是 `00d7b3f` / `9d80d0d` 顺手删掉的防御）：
+1. `RequestCancelAlgoOrder` 的 `!m_algoOrderModifyCb` / `!hasActiveAlgoOrder` 两个守卫 → `E6` 抛
+   `bad_function_call` 并让"无活跃单 → 不撤单"失效；**已恢复**。
+2. `ProcessModify` 的 `!m_algoOrderModifyCb` → 同源问题；**已恢复**。
+3. `SubmitAlgoOrder` 开头的 `!m_algoCommandCb`（`9d80d0d` 删的）→ `A15` 直接 abort；**已恢复**
+   （必须放在 `BuildAlgoOrderJson` 之前，否则对子会被一张永远报不出去的单锁死）。
+4. 启动闸门 / `stopAllAlgo` 被 `00d7b3f` 从 `ProcessPairSignal` 搬到 `OnSpread` ⇒ `B10` / `G14` /
+   `K11` / `K13` 四条红。**已搬回 `ProcessPairSignal` 开头**：`OnSpread` 是唯一调用方，生产等价；
+   而这些用例没法改走 `OnSpread`（它先 `UpdateRtSpread` 会用入参行情覆盖 `pi.rtSpread`）。
+
+**P1-2 `CheckExposureAbnormal` 丢了 one-shot guard** —— ✅ **已修**
+原来开头是 `if (pi.errorFlag) return;`，`00d7b3f` 之后没有对应判断 ⇒ 敞口仍异常时**每秒**重复
+`LOG_ERROR` + 重复 `RequestCancelAlgoOrder`（强平单刚报出去就被撤，档位升不上去）。
+修法：函数开头 `if (pi.stopFlag) return;`，顺带覆盖孤儿冻结（那种情况账本本就不可信）。
+`E10` 重新钉住这条不变量。
+
+**P1-3 `autoFlag` 仍然禁开**（`SignalGenerator.cpp:194-197` 的 `&& pi.autoFlag`）—— 🟡 **工作区已改，但带出一个新洞**
+与"`autoFlag` 只是自动/手动标签，两种模式都能开平"矛盾。删掉这个条件就是"手动对子会开仓"，
+是真实的行为变化 ⇒ 这一条要单独确认。
+
+> **2026-10-29 晚工作区现状**（未提交）：`RecalcOrderParams:191-197` 把
+> `&& !pi.closeFlag` 和 `&& pi.autoFlag` **两个都删了**。前者删掉带来一个洞：
+> `pi.closeFlag` 从此**只**影响 `CanOpen:350` 与 `ProcessModify:717`，**不再进 `orderParams`**。
+> 而 `BuildAlgoOrderJson:927` 是原样拷贝 `op.ttOLSwitch` 的 ⇒ `closeFlag` 期间新报出的
+> **平仓单**会带着 4 个开仓开关 = true，要等下一次 `ProcessModify`（周期 `modifyTimespanSec=60`）
+> 才被压掉 ⇒ 最长 60s 内这张平仓单可以在开仓带**反向开仓**，与"只平不开"相反。
+> 改之前不会：那时 `canOpenLong` 带了 `!pi.closeFlag`，开关在建单前就是 false。
+> 两个修法（二选一，都只动一处）：
+> ① 在 `BuildAlgoOrderJson` 拷完 4 个开仓开关后加 `if (pi.stopFlag || pi.closeFlag) { 4 个 = false; }`
+> （与 `ProcessModify:717` 同一判据，单点收口）；
+> ② 保留 `&& !pi.closeFlag`，只删 `&& pi.autoFlag`（最小改动，回到原状 + P1-3 的目的）。
+
+### 7.3 一致性问题（不阻塞，但会咬人）
+
+| 位置 | 问题 |
+|---|---|
+| `PairInfoManager.cpp:993` | ⬜ `PairCmd_STOP` 仍写 `autoFlag = false` ⇒ 停止开仓顺带把对子变成"手动单"（免超时撤单） |
+| `PairInfoManager.cpp:1002` | ⬜ `PairCmd_RESUME` 仍写 `autoFlag = true` ⇒ 覆盖运维设的手动/自动 |
+| `PairTradingContext.cpp:465` | ✅ 已恢复 `RequestCancelAlgoOrder` 的 `!m_algoOrderModifyCb` / `!hasActiveAlgoOrder` 两个守卫（`00d7b3f` 删的；不恢复则 `E6` 抛 `bad_function_call`） |
+| `PairTradingContext.cpp:712` | ✅ 已恢复 `ProcessModify` 的 `!m_algoOrderModifyCb` 检查（同源） |
+| `PairTradingContext.cpp:736` | ✅ 已恢复 `SubmitAlgoOrder` 开头的 `!m_algoCommandCb`（`9d80d0d` 删的；不恢复则 `A15` abort，且回调为空时会 `SetActiveAlgoOrder` 白占对子） |
+| `PairInfoManager.cpp:999` | ⬜ 注释断句："错误态也在这里复活：stopFlag 的唯一写入方是 CheckExposureAbnormal，" —— 实际还有 `HandleOrphanAlgoOrders:284` |
+| `PairInfoManager.cpp:291` | ✅ 注释已改成 profitPct=29 / hasActiveAlgoOrder=30 / currentAlgoOrderId=31，并说明只认当前列数 |
+| `PairTradingContext.h:144` / `:294` | ✅ 注释里的 `errorFlag` 已改成 `stopFlag` |
+| `PairTradingContext.cpp:499` | ⬜ "风控强平单不豁免" 后面接 "两头都站不住："，前半句被删成了断句 |
+
+### 7.4 修复记录（2026-10-29 晚）
+
+| 项 | 动作 | 验证 |
+|---|---|---|
+| P0-1 | **不改代码**，保留 `ProcessRisk` 的 `"MT"`（用户决定） | — |
+| P0-2 | **不写兼容**：`LoadSnapshot` 只认 32 列，旧文件升级前删掉；`LOG_ERROR` 里带上提示 | `market_to_algo` 全绿（无 33 列用例） |
+| P1-1 | 两套测试按三态语义重写（不是删断言）；另恢复 4 处被顺手删掉的运行时防御 | `market_to_algo` **493 / 0**、`algo_exec` **212 / 0**、`param_calc` 正常 |
+| P1-2 | `CheckExposureAbnormal` 开头加 `if (pi.stopFlag) return;` | `E10` 重新钉住"已标记 → 不重复撤单" |
+| 注释 | `PairInfoManager.cpp:291`、`PairTradingContext.h:144/:294` 的 `errorFlag` 改成 `stopFlag` | 编译通过 |
+
+用例数变化：`market_to_algo` 从 495 → **493**（`B6` 的 blocker 从 4 个减到 2 个，−2）。
+（中途曾加过 `G15b` 验证 33 列兼容读，随"不做兼容"的决定一起删掉了。）
+
+⬜ **仍未做**：P1-3（`autoFlag` 仍禁开）、§7.3 里标 ⬜ 的 3 条、以及 §7.2 P0-1 提到的
+"`algo_exec:1408` 是空断言，TT 分支无覆盖"。

@@ -141,7 +141,7 @@ struct PairTradingConfig {
     double reconcileTolRatio{1e-6}; // 对账判据容差：|pairTotalVolume - activeRealPosition| <= max(1e-9, |activeRealPosition| * ratio)
     int reconcileWarnIntervalSec{30}; // 等持仓推送的超时告警周期。超时只告警、**不放行** —— 按"无持仓"放行的后果是重复开仓
 
-    bool freezeOnOrphanAlgoOrder{true}; // 快照里 hasActiveAlgoOrder == true（上一轮有算法单未终结）时，把该对子置 errorFlag 冻结，
+    bool freezeOnOrphanAlgoOrder{true}; // 快照里 hasActiveAlgoOrder == true（上一轮有算法单未终结）时，把该对子置 stopFlag 冻结，
 
     // ---- 运行时配置（可热改）----
     bool closeOnly{false};
@@ -291,7 +291,8 @@ private:
     // nowUs - satisfyTime > algoOrderTimeoutMs 时请求撤单。
     void CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs) const;
 
-    // 双腿都有实盘持仓、且净敞口超过 exposureCancelTimes * ttTargetVolume 时，置 pi.errorFlag 停止该对子的一切报单，并撤掉在跑的算法单。
+    // 双腿都有实盘持仓、且净敞口超过 exposureCancelTimes * ttTargetVolume 时，置 pi.stopFlag 停止该对子的一切报单，并撤掉在跑的算法单。
+    // one-shot：pi.stopFlag 已为 true 时直接返回，不重复告警/重复撤单（见 .cpp 里的实现注释）。
     void CheckExposureAbnormal(PairInfo& pi) const;
 
     // 改参触发（祖先 :1059-1078）：每 modifyTimespanSec 秒把最新参数推给在跑的算法单。

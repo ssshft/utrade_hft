@@ -83,14 +83,13 @@ static PairInfo MakePairInfo(const Stat& s, double maxVolume = 10.0) {
     pi.mtTargetVolume = maxVolume;
 
     // 开仓允许、平仓允许、自动模式（autoFlag=true -> TT；false -> MT）
+    // limitFlag / errorFlag / manualFlag 已删除：前两个并入 stopFlag / orderParams 的 4 个开关，
+    // manualFlag 并入 autoFlag（isManual = !autoFlag）。
     pi.autoFlag     = true;
     pi.closeFlag    = false;
     pi.stopFlag     = false;
-    pi.limitFlag    = false;
-    pi.errorFlag    = false;
     pi.profitSwitch = true;
     pi.profitPct    = 0.0001;
-    pi.manualFlag   = false;
 
     // 流动性 / 保证金都正常，否则 RecalcOrderParams 末尾会把开仓开关全关掉
     pi.activeLiquidStatus = pi.passiveLiquidStatus = 0;

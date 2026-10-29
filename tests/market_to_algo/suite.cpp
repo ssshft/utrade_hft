@@ -641,7 +641,7 @@ static void TestA_Create() {
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
-        pi.manualFlag = true;
+        pi.autoFlag = false;   // 手动模式（原 manualFlag 已并入 autoFlag：isManual = !autoFlag）
         BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "TT", "OL", 0.0, AlgoRole::OPEN_SIGNAL);
         CHECK(o && Near(o->passiveVolumePct, 0.5), "A12 passiveVolumePct = 0.5");
         CHECK(o && o->activeMakerCancelOrderTime == 5LL * 1000 * 1000, "A12 主动 maker 撤单时间 = 5s(us)");
@@ -669,7 +669,7 @@ static void TestA_Create() {
         CHECK(o && o->targetSpreadType == stra::TargetSpredPrice_NOW, "A12 targetSpreadType = NOW");
         CHECK(o && o->activeVolumeCalcualteType == stra::ActiveVolumeCalcualteType_PassiveVolumePct,
               "A12 activeVolumeCalcualteType = PassiveVolumePct");
-        CHECK(o && o->isManual == true, "A12 isManual 跟随 pi.manualFlag");
+        CHECK(o && o->isManual == true, "A12 isManual 跟随 pi.autoFlag（!autoFlag = 手动）");
         delete o;
     }
 
@@ -876,8 +876,12 @@ static void TestB_Open() {
     }
 
     // B6 canOpen = false 时不开仓
+    //
+    // 三态模型下能挡住开仓的只有两个：stopFlag（开平都停）/ closeFlag（只许平）。
+    // 原来的 limitFlag / errorFlag 已删除 —— 持仓上限只压 orderParams 的 4 个开仓开关，
+    // 不再单独占一个 bool。
     {
-        const char* blockers[] = {"stopFlag", "closeFlag", "limitFlag", "errorFlag"};
+        const char* blockers[] = {"stopFlag", "closeFlag"};
         for (const char* b : blockers) {
             Fx fx; Boot(fx); GoTrading(fx);
             PairInfo& pi = *fx.pi(); MakeHoldable(pi, 0.0);
@@ -885,8 +889,6 @@ static void TestB_Open() {
             std::string bs(b);
             if (bs == "stopFlag") pi.stopFlag = true;
             if (bs == "closeFlag") pi.closeFlag = true;
-            if (bs == "limitFlag") pi.limitFlag = true;
-            if (bs == "errorFlag") pi.errorFlag = true;
             fx.ctx.ProcessPairSignal(pi);
             CHECK(fx.N() == 0, (std::string("B6 ") + b + " -> 不报单").c_str());
         }
@@ -913,14 +915,14 @@ static void TestB_Open() {
         CHECK(first == 1 && fx.N() == 1, "B8 hasActiveAlgoOrder -> 第二个 tick 不重复报单");
     }
 
-    // B9 errorFlag 阻断派发（平仓侧）
+    // B9 stopFlag 阻断派发（平仓侧）
     {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
         ArmClose(pi, "ttCL", -1.0);
-        pi.errorFlag = true;
+        pi.stopFlag = true;
         fx.ctx.ProcessPairSignal(pi);
-        CHECK(fx.N() == 0, "B9 errorFlag -> 平仓也不派发（留人工处理）");
+        CHECK(fx.N() == 0, "B9 stopFlag -> 平仓也不派发（留人工处理）");
     }
 
     // B10 启动闸门：未放行时一切信号都不派发
@@ -1878,7 +1880,7 @@ static void TestE_Cancel() {
               "E7 撤单回调原样透传 id（int64 直传，不再有解析失败路径）");
     }
 
-    // E8 敞口异常 -> errorFlag + 撤单
+    // E8 敞口异常 -> stopFlag + 撤单
     {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -10.0);
@@ -1889,7 +1891,7 @@ static void TestE_Cancel() {
         pi.hasActiveAlgoOrder = true;
         pi.currentAlgoOrderId = 555LL;
         fx.ctx.CheckExposureAbnormal(pi);
-        CHECK(pi.errorFlag, "E8 净敞口超阈值 -> errorFlag 置位（判死、留人工）");
+        CHECK(pi.stopFlag, "E8 净敞口超阈值 -> stopFlag 置位（判死、留人工）");
         CHECK(fx.modifyCalls.size() == 1 && fx.LastCmd() == stra::CommandType_CANCEL,
               "E8 同时撤掉在跑的算法单");
     }
@@ -1902,19 +1904,19 @@ static void TestE_Cancel() {
         pi.activeAvgPrice = 100.0;      pi.passiveAvgPrice = 100.0;
         pi.ttTargetVolume = 1.0;
         fx.ctx.CheckExposureAbnormal(pi);
-        CHECK(!pi.errorFlag, "E9 单腿有仓 -> 不判敞口异常");
+        CHECK(!pi.stopFlag, "E9 单腿有仓 -> 不判敞口异常");
     }
 
-    // E10 已 errorFlag -> 不重复处理
+    // E10 已 stopFlag -> 不重复处理（one-shot guard）
     {
         Fx fx; Boot(fx); GoTrading(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -10.0);
-        pi.errorFlag = true;
+        pi.stopFlag = true;
         pi.activeRealPosition = 100.0; pi.passiveRealPosition = -2.0;
         pi.activeAvgPrice = 100.0;     pi.passiveAvgPrice = 100.0;
         pi.ttTargetVolume = 1.0;
         fx.ctx.CheckExposureAbnormal(pi);
-        CHECK(fx.modifyCalls.empty(), "E10 已 errorFlag -> 不重复撤单");
+        CHECK(fx.modifyCalls.empty(), "E10 已 stopFlag -> 不重复撤单");
     }
 
     // E11 阈值无效（ttTargetVolume <= 0 / NaN）-> 不判异常
@@ -1925,10 +1927,10 @@ static void TestE_Cancel() {
         pi.activeAvgPrice = 100.0;     pi.passiveAvgPrice = 100.0;
         pi.ttTargetVolume = 0.0;
         fx.ctx.CheckExposureAbnormal(pi);
-        CHECK(!pi.errorFlag, "E11 ttTargetVolume = 0 -> 阈值无效，不判异常（否则任何敞口都算异常）");
+        CHECK(!pi.stopFlag, "E11 ttTargetVolume = 0 -> 阈值无效，不判异常（否则任何敞口都算异常）");
         pi.ttTargetVolume = std::nan("");
         fx.ctx.CheckExposureAbnormal(pi);
-        CHECK(!pi.errorFlag, "E11 ttTargetVolume = NaN -> 不判异常");
+        CHECK(!pi.stopFlag, "E11 ttTargetVolume = NaN -> 不判异常");
     }
 
     // E12 撤单是异步的：请求撤单不释放对子
@@ -2301,7 +2303,7 @@ static void TestG_Restart() {
         }
         Fx fx; Boot(fx, csv);
         PairInfo& pi = *fx.pi();
-        CHECK(pi.errorFlag, "G5 快照里 hasActiveAlgoOrder -> errorFlag 冻结（账本不可信）");
+        CHECK(pi.stopFlag, "G5 快照里 hasActiveAlgoOrder -> stopFlag 冻结（账本不可信）");
         CHECK(pi.hasActiveAlgoOrder, "G5 冻结时不静默清掉残留标记");
     }
 
@@ -2330,7 +2332,7 @@ static void TestG_Restart() {
         fx.Wire();
         fx.ctx.Init(cfg, &fx.smc);
         PairInfo& pi = *fx.pi();
-        CHECK(!pi.errorFlag, "G6 freezeOnOrphanAlgoOrder = false -> 不冻结");
+        CHECK(!pi.stopFlag, "G6 freezeOnOrphanAlgoOrder = false -> 不冻结");
     }
 
     // G7 对账等待
@@ -2460,12 +2462,11 @@ static void TestG_Restart() {
     {
         Fx fx; Boot(fx);
         PairInfo& pi = *fx.pi(); MakeHoldable(pi, -5.0);
-        pi.errorFlag = true;
         pi.stopFlag = true;
         pi.autoFlag = false;
         PairInfoManager::Instance().ApplyCommand(kPairKey, PairCmd_RESUME);
-        CHECK(!pi.errorFlag, "G16 RESUME 清掉 errorFlag（孤儿冻结 / 敞口异常的唯一复活路径）");
-        CHECK(!pi.stopFlag && pi.autoFlag, "G16 RESUME 恢复自动交易");
+        CHECK(!pi.stopFlag, "G16 RESUME 清掉 stopFlag（孤儿冻结 / 敞口异常的唯一复活路径）");
+        CHECK(pi.autoFlag, "G16 RESUME 恢复自动交易");
     }
 
     // G17 分位数快照：重启免预热
@@ -2906,7 +2907,7 @@ static void TestJ_TotalAccount() {
         pi.pairTotalVolume     = 3.0;
         pi.activeRealPosition  = -3.0;
         pi.passiveRealPosition = -3.0;
-        pi.errorFlag           = true;
+        pi.stopFlag            = true;
 
         pubsub::TotalAccount ta;
         ta.totalEquity = 1e6;
@@ -2915,7 +2916,7 @@ static void TestJ_TotalAccount() {
         CHECK(Near(pi.pairTotalVolume, 3.0),      "J1 UpdateOnTotalAccount 空实现 -> 账本不变");
         CHECK(Near(pi.activeRealPosition, -3.0),  "J1 主动腿实时持仓不变");
         CHECK(Near(pi.passiveRealPosition, -3.0), "J1 被动腿实时持仓不变");
-        CHECK(pi.errorFlag,                       "J1 errorFlag 不变");
+        CHECK(pi.stopFlag,                        "J1 stopFlag 不变");
     }
 }
 
