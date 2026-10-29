@@ -281,16 +281,12 @@ SignalResult SignalGenerator::CheckSignalForSatisfy(const PairInfo& pi) const {
     //    带宽够时又永远放行（哪怕这一笔刚好卡在阈值上、实际一分不赚）。
     //    这里选逐 tick 版：判据要回答"**这一笔**能不能赚"，不是"这套配置理论上能不能赚"。
     //    （要阈值差那版的话，该放进 RecalcOrderParams 和 canOpen* 一起，不是放在逐 tick 的比较里。）
-    const bool profitGateOn = m_cfg.minProfitTarget > 0.0;
+    const bool profitOn = m_cfg.minProfitTarget > 0.0;
     const double minProfit  = m_cfg.minProfitTarget;
-    const bool mtOLProfitOk = !profitGateOn ||
-        (op.mtCLStartSpread - rt.spreadAskAsk  - F_mt) >= minProfit;
-    const bool mtOSProfitOk = !profitGateOn ||
-        (rt.spreadBidBid    - op.mtCSStartSpread - F_mt) >= minProfit;
-    const bool ttOLProfitOk = !profitGateOn ||
-        (op.ttCLStartSpread - rt.spreadBidAsk  - F_tt) >= minProfit;
-    const bool ttOSProfitOk = !profitGateOn ||
-        (rt.spreadAskBid    - op.ttCSStartSpread - F_tt) >= minProfit;
+    const bool mtOLProfitOk = !profitOn || (op.mtCLStartSpread - rt.spreadAskAsk - F_mt) >= minProfit;
+    const bool mtOSProfitOk = !profitOn || (rt.spreadBidBid - op.mtCSStartSpread - F_mt) >= minProfit;
+    const bool ttOLProfitOk = !profitOn || (op.ttCLStartSpread - rt.spreadBidAsk - F_tt) >= minProfit;
+    const bool ttOSProfitOk = !profitOn || (rt.spreadAskBid - op.ttCSStartSpread - F_tt) >= minProfit;
 
     if (op.ttOLSwitch && ttOLProfitOk && rt.spreadBidAsk + F_tt < op.ttOLStartSpread && vol > op.ttOLEndVolume + 1e-9) {
         result.ttOLSignal = true;
@@ -356,16 +352,6 @@ bool SignalGenerator::CanOpen(const PairInfo& pi, std::string& reason) const {
         return false;
     }
 
-    if (pi.limitFlag) {
-        reason = "limitFlag = true";
-        return false;
-    }
-
-    if (pi.errorFlag) {
-        reason = "errorFlag = true";
-        return false;
-    }
-
     // 暂时注释，等待数据落入持仓量和成交量数据
     /*
     if (!std::isnan(pi.activeOIUsdt) && pi.activeOIUsdt < 500000) {
@@ -397,6 +383,11 @@ bool SignalGenerator::CanOpen(const PairInfo& pi, std::string& reason) const {
 bool SignalGenerator::CanClose(const PairInfo& pi, std::string& reason) const {
     if (!pi.HasPosition()) {
         reason = "no position";
+        return false;
+    }
+
+    if (pi.stopFlag) {
+        reason = "stopFlag = true";
         return false;
     }
 

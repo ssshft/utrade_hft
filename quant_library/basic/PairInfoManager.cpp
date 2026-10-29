@@ -87,12 +87,11 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
 //   18  风控档位   adlClose / spreadNoRegression / fundingAbnormal 各 6 个字段
 //   2   风控计时   positionExceedThresholdStartTime / spreadNoRegressionStartTime
 //   4   运维意图   autoFlag / stopFlag / closeFlag / profitPct
-//   1   错误态     errorFlag
 //   2   残留标记   hasActiveAlgoOrder / currentAlgoOrderId
 // ---------------------------------------------------------------------------
 namespace {
 
-constexpr size_t kSnapshotColumns = 33;
+constexpr size_t kSnapshotColumns = 32;
 
 constexpr const char* kSnapshotHeader =
     "pairInstrumentKey,"
@@ -106,7 +105,6 @@ constexpr const char* kSnapshotHeader =
     "fundingAbnormal.tier1Times,fundingAbnormal.tier2Times,fundingAbnormal.tier3Times,"
     "positionExceedThresholdStartTime,spreadNoRegressionStartTime,"
     "autoFlag,stopFlag,closeFlag,profitPct,"
-    "errorFlag,"
     "hasActiveAlgoOrder,"
     "currentAlgoOrderId";
 
@@ -241,7 +239,6 @@ void MakePairInfoRecord(const PairInfo& p, PairInfoRecord& r) {
     r.autoFlag = p.autoFlag;
     r.stopFlag = p.stopFlag;
     r.closeFlag = p.closeFlag;
-    r.errorFlag = p.errorFlag;
     r.hasActiveAlgoOrder = p.hasActiveAlgoOrder;
 
     r.profitPct = p.profitPct;
@@ -333,7 +330,6 @@ bool WritePairInfoRecordFile(const std::string& path, const std::vector<PairInfo
             << static_cast<int>(r.stopFlag) << ","
             << static_cast<int>(r.closeFlag) << ","
             << r.profitPct << ","
-            << static_cast<int>(r.errorFlag) << ","
             << static_cast<int>(r.hasActiveAlgoOrder) << ","
             << r.algoOrderId << "\n";
     }
@@ -439,12 +435,9 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
         p.closeFlag = ParseBool(f[28], p.closeFlag);
         p.profitPct = ParseDouble(f[29], p.profitPct, "profitPct", pk);
 
-        // ---- 错误态（判死的对子不能静默复活；复活走 PairCmd_RESUME）----
-        p.errorFlag = ParseBool(f[30], p.errorFlag);
-
         // ---- 上一轮残留标记（只用于启动告警，见 §5.4）----
-        p.hasActiveAlgoOrder = ParseBool(f[31], false);
-        p.currentAlgoOrderId = ParseI64(f[32], 0, "currentAlgoOrderId", pk);
+        p.hasActiveAlgoOrder = ParseBool(f[30], false);
+        p.currentAlgoOrderId = ParseI64(f[31], 0, "currentAlgoOrderId", pk);
         p.modifyTime = crypto::getCurrentTime();
 
         ++restored;
@@ -1003,14 +996,7 @@ void PairInfoManager::ApplyCommand(const std::string& pairKey, PairCommandType c
             pi->closeFlag = true;
             break;
         case PairCmd_RESUME:
-            // 错误态也在这里复活：errorFlag 的唯一写入方是 CheckExposureAbnormal，
-            // 语义是"该对子判死、停自动、留人工处理"。RESUME = "恢复自动"，
-            // 正是它的对偶操作，否则置位后除了改快照/重启没有第二条路。
-            // 风险自限：敞口若没真正解决，下一轮 CheckExposureAbnormal 会立刻再次置位。
-            if (pi->errorFlag) {
-                LOG_WARN("ApplyCommand RESUME: pairKey:{} clear errorFlag (was set by CheckExposureAbnormal)", pairKey);
-                pi->errorFlag = false;
-            }
+            // 错误态也在这里复活：stopFlag 的唯一写入方是 CheckExposureAbnormal，
             pi->stopFlag = false;
             pi->closeFlag = false;
             pi->autoFlag = true;

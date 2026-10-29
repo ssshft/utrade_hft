@@ -118,9 +118,8 @@ namespace pt {
         int64_t positionExceedThresholdStartTime;
         int64_t spreadNoRegressionStartTime;
         bool autoFlag;
-        bool stopFlag;
         bool closeFlag;
-        bool errorFlag;
+        bool stopFlag;
         bool hasActiveAlgoOrder;
 
         double  profitPct;
@@ -312,10 +311,8 @@ namespace pt {
         double maxShortVolume{0.0};
 
         bool autoFlag{true}; // true 自动模式, false手动模式
-        bool stopFlag{false}; // 停止开仓
-        bool closeFlag{false}; // 强制平仓
-        bool limitFlag{false}; // 持仓上限已达
-        bool errorFlag{false}; // 发生错误
+        bool closeFlag{false}; // 只允许平仓
+        bool stopFlag{false}; // 停止开仓和平仓
 
         bool profitSwitch{true}; // 平仓是否需要盈利保护
         double profitPct{0.0001}; // 平仓最低期望利润

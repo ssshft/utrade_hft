@@ -296,6 +296,16 @@ void PairTradingContext::OnSpread(const dbp::DbpTopic* topic, const dbp::DbpData
     // 喂一条价差样本进 24h 滚动窗口（内部按 spreadSampleIntervalSec 降频）
     AccumulateSpreadSample(pairKey, pdata);
 
+    // 启动闸门：对账完成前不下任何单。
+    if (!IsTradingReady()) {
+        return;
+    }
+
+    // 停掉所有算法单：不创建新单。
+    if (m_cfg.stopAllAlgo) {
+        return;
+    }
+
     PairInfo* pi = pim.GetPairInfo(pairKey);
     if (!pi) {
         return;
@@ -329,22 +339,6 @@ void PairTradingContext::AccumulateSpreadSample(const std::string& pairKey, cons
 }
 
 void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
-    // 启动闸门：对账完成前不下任何单。
-    // 价差推送通常早于持仓推送，此时 pairTotalVolume 还是快照值（或 0），照常跑信号会：
-    //   账本 = 0 而交易所有仓  -> 在孤儿仓上再开一笔（CanOpen 没有持仓门槛，CanClose 又平不掉）
-    //   账本 ≠ 0 而交易所为空  -> 平仓单实际是反向开仓
-    if (!IsTradingReady()) {
-        return;
-    }
-
-    // 停掉所有算法单：不创建新单。
-    // 放在信号计算之前 —— 与上面的启动闸门同一个位置，语义都是"这个对子本轮什么都不做"。
-    // 代价：satisfyTime 不再刷新，CheckAlgoOrderTimeout 会把在跑的单按超时撤掉；
-    // 而"停掉所有算法单"本来就要撤，方向一致，不用额外处理。
-    if (m_cfg.stopAllAlgo) {
-        return;
-    }
-
     auto& sg = SignalGenerator::Instance();
 
     std::string reason = "";
@@ -360,16 +354,9 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
     // 派发侧不受影响：下面 hasActiveAlgoOrder 的早退保证走到派发时它必然为 false，
     // 此时 CheckSignalForSatisfy 与 CheckSignal 完全等价。
     const SignalResult sig = sg.CheckSignalForSatisfy(pi);
-
     UpdateSatisfyTime(pi, sig, canOpen, canClose);
 
     if (pi.hasActiveAlgoOrder) {
-        return;
-    }
-
-    // 敞口异常（CheckExposureAbnormal 打的 errorFlag）：祖先把该对子 status 打成 ERROR 之后
-    // 既不开也不平，留人工处理。CanOpen 内部已经挡了 errorFlag，这里补上平仓侧。
-    if (pi.errorFlag) {
         return;
     }
 
@@ -426,12 +413,10 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
     }
 }
 
-
 void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     // 这里刻意不判 HasPosition：风控要对每个对子每 tick 都跑一遍，因为
     // CheckADLRisk / CheckSpreadNoRegression 内部依赖这个时机清理自己的计时起点
     // （无持仓时把 positionExceedThresholdStartTime / spreadNoRegressionStartTime 归零）。
-    // 一旦加了早退，这两个归零就永远跑不到，下次开仓会带着上一轮的陈旧时间戳。
     auto& rm = RiskManager::Instance();
     RiskCheckResult risk = rm.CheckRisk(pi, nowUs);
 
@@ -442,38 +427,20 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     // 停掉所有算法单：连风控强平也不发 —— 强平单也是算法单，与"不再创建新的"冲突。
     // 注意上面那行 CheckRisk 必须照常调：它内部在"无持仓"时要把几个计时起点归零，
     // 跳过它等于把陈旧时间戳带进恢复之后（下一轮恢复就会立刻按旧档位强平）。
+    // stopFlag不挡风控强平单
     if (m_cfg.stopAllAlgo) {
         return;
     }
 
-    // ⚠️ 占着对子的就是上一轮自己发出去的风控强平单：这里不撤，让它跑完。
-    // 强平期间 needForceClose 一直为 true（档位要靠算法单终结后的 OnAlgoFinished 才推进），
-    // 所以下面那个 RequestCancelAlgoOrder 每一轮都会命中，把刚报出去的强平单撤掉 ——
-    // 表现为"报单 -> 下个 tick 撤单 -> 再报 -> 再撤"，强平永远发不出去。
-    // 注意这里只是**不提前撤**，不是给强平单豁免：它跑满 algoOrderTimeoutMs 之后
-    // 照样由 CheckAlgoOrderTimeout 撤掉，再按新档位重报（见该函数注释）。
+    // 占着对子的就是上一轮自己发出去的风控强平单：这里不撤，跑满algoOrderTimeoutMs,由CheckAlgoOrderTimeout 撤掉
     if (pi.hasActiveAlgoOrder && pi.riskCloseOrderInFlight) {
         return;
     }
 
     // 对子被（非强平的）算法单占着时，先请求撤掉它。撤单是异步的：要等它终结、回传、释放对子之后，
     // 下一轮才会走到下面的 SubmitAlgoOrder。这里必须 return，不能继续报单 ——
-    // 否则 SetActiveAlgoOrder 会把 currentAlgoOrderId 换成新单，旧单的后续回传会因为
-    // id 对不上被 OnAlgoOrderUpdate 丢掉，两个算法单的状态彻底错位。
-    //
-    // 注意 CANCELLING 的语义是"撤掉主动腿的报价、等被动腿成交把敞口平掉"，
-    // 不是"立刻中止、宁可留敞口"（2026-09-23 确认过的刻意设计）：
-    //   - OnSpread 里"只有 NEW/PARTFILLED 才继续报单"那道判断拦住报新的 pairOrder（不再开新仓）；
-    //   - CancelOrderOnSpread 的 CANCELLING 分支只撤主动腿，门槛 1000*10 微秒（=10ms，
-    //     crypto::getCurrentTime 是微秒，所以基本是下一个 tick 就撤）；
-    //     被动腿留着等成交 —— 被动腿挂着就说明主动腿已成交、场上存在单边敞口；
-    //   - OnTimer 仍会每 tick 调 PairOrderTrade 给"尚未对冲完"的 pairOrder 续报被动腿；
-    //   - pairOrder 全部删掉后 allPairOrders.size() 归零 -> ALGO_OS_CANCELED -> 回传释放对子。
-    // 已知残余风险（未兜底）：被动腿长期不成交时算法单会一直停在 CANCELLING，
-    // 见 memory 2026-09-23「唯一残余风险：这个"等待"没有上界」。
     if (pi.hasActiveAlgoOrder) {
         LOG_INFO("ProcessRisk RequestCancelAlgoOrder pairKey:{} algoOrderId:{}", pi.pairInstrumentKey, pi.currentAlgoOrderId);
-
         RequestCancelAlgoOrder(pi);
         return;
     }
@@ -481,30 +448,21 @@ void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     // satisfyTime / algoModifyTime 由 SubmitAlgoOrder 在报单成功时一起归零，
     // 所以这里不需要再显式刷新（风控强平没有信号路径，靠 SubmitAlgoOrder 兜住）。
     if (pi.IsLong()) {
-        std::string mode = pi.autoFlag ? "TT" : "MT";
+        std::string mode = "MT";
         SubmitAlgoOrder(pi, mode, "CL", risk.forgoProfit, AlgoRole::RISK_CLOSE);
     }
     else if (pi.IsShort()) {
-        std::string mode = pi.autoFlag ? "TT" : "MT";
+        std::string mode = "MT";
         SubmitAlgoOrder(pi, mode, "CS", risk.forgoProfit, AlgoRole::RISK_CLOSE);
     }
 
     // SubmitAlgoOrder 只在真正报出单时才把 hasActiveAlgoOrder 置 true
-    // （BuildAlgoOrderJson 返回 nullptr 时不会置），所以报完再判一次即可。
     if (pi.hasActiveAlgoOrder) {
         pi.riskCloseOrderInFlight = true;
     }
 }
 
 void PairTradingContext::RequestCancelAlgoOrder(const PairInfo& pi) const {
-    if (!m_algoOrderModifyCb) {
-        return;
-    }
-
-    if (!pi.hasActiveAlgoOrder) {
-        return;
-    }
-
     m_algoOrderModifyCb(pi.currentAlgoOrderId, stra::CommandType_CANCEL, nullptr);
 }
 
@@ -537,9 +495,7 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
         return;
     }
 
-    // 风控强平单**不豁免**（2026-09-27 确认）。
-    // 曾经在这里加过 `if (pi.riskCloseOrderInFlight) return;`，理由是"强平是在平仓条件
-    // 不成立的时候才发的，satisfyTime 天然刷不动，不豁免的话每次只有 150s 窗口"。这个理由
+    // 风控强平单不豁免
     // 两头都站不住：
     //   ① 算法单自身的 active*CancelOrderTime = 5s 只撤**子单**（BaseAlgoOrder::
     //      CancelOrderOnSpread 的 else 分支），算法单会换个价继续追，不会被终结 ——
@@ -548,11 +504,8 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
     //      tierNTimes++ -> GetCurrentTier 才可能升到下一档。豁免之后强平单永不终结，
     //      tier1Times 恒为 0，档位永远停在 tier1 用最温和的让利追价，升不上去。
     // 所以强平单和普通单走同一套规则：长时间不成交就撤掉、下一轮按新档位重报。
-    // 注意 ProcessRisk 里仍保留 riskCloseOrderInFlight 的早退 —— 那是为了不让 ProcessRisk
-    // 在报单后的下一个 tick 就把强平单撤掉（needForceClose 全程为 true），
-    // 好让它完整跑完这里的 150s 窗口。
 
-    // 手动单不撤（祖先 :1018-1020：auto_flag == False 直接 continue）
+    // 手动单不撤
     if (!pi.autoFlag) {
         return;
     }
@@ -566,16 +519,10 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
     }
 
     LOG_INFO("CheckAlgoOrderTimeout: pairKey:{} algoOrderId:{} idleSec:{} > {}s -> cancel", pi.pairInstrumentKey, pi.currentAlgoOrderId, static_cast<double>(idleUs) / 1000000.0, static_cast<double>(m_cfg.algoOrderTimeoutMs) / 1000.0);
-
     RequestCancelAlgoOrder(pi);
 }
 
 void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
-    // 祖先 :1081 的 status != ERROR 门槛：已经打过标记的对子不再重复处理
-    if (pi.errorFlag) {
-        return;
-    }
-
     // 两条腿都必须有实盘持仓，且都有实盘均价 —— 只有单边有仓属于正常的开仓中间态
     if (std::abs(pi.activeRealPosition) <= 1e-9 || std::abs(pi.passiveRealPosition) <= 1e-9) {
         return;
@@ -601,12 +548,9 @@ void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
         return;
     }
 
-    // 敞口失控：置 errorFlag（= 祖先的 status = ERROR），该对子此后既不开也不平，留人工处理。
-    // 祖先 :1083 只打标记、:1090 才撤单；这里先停单再撤，避免中间再报出新单。
-    pi.errorFlag = true;
-    LOG_ERROR("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (ttTargetVolume:{} activePos:{} passivePos:{}) -> errorFlag + cancel",
-              pi.pairInstrumentKey, netExposure, threshold, pi.ttTargetVolume,
-              pi.activeRealPosition, pi.passiveRealPosition);
+    // 只保留风控强平单，普通单不发
+    pi.stopFlag = true;
+    LOG_ERROR("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (ttTargetVolume:{} activePos:{} passivePos:{}) -> errorFlag + cancel", pi.pairInstrumentKey, netExposure, threshold, pi.ttTargetVolume, pi.activeRealPosition, pi.passiveRealPosition);
 
     if (pi.hasActiveAlgoOrder) {
         RequestCancelAlgoOrder(pi);
@@ -715,25 +659,15 @@ stra::AlgoOrderModify PairTradingContext::BuildCloseModify(const PairInfo& pi, d
 }
 
 void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
-    if (!m_algoOrderModifyCb) {
-        return;
-    }
-
-    // 祖先 :1059 只遍历在跑的算法单
     if (!pi.hasActiveAlgoOrder) {
         return;
     }
 
-    // 停掉所有算法单时不给在跑的单推参数：单子正在被撤（OnTimer 步骤 0.7 每 tick 撤一次），
-    // 推过去要么被执行端跳过（算法单已在撤单流程里），要么在撤单延迟期间把刚压掉的
-    // 开仓开关又推回去 —— 两个结果都不是"停掉所有算法单"想要的。
-    // 注意放在 algoModifyTime 判断**之前**：这一步不能动 algoModifyTime，
-    // 否则恢复时会把 60s 的计时起点挪走（这里根本没发消息，不该记账）。
+    // 停掉所有算法单时不给在跑的单推参数：单子正在被撤
     if (m_cfg.stopAllAlgo) {
         return;
     }
 
-    // 祖先 :1060：按 modify_time 计时。
     // 用 algoModifyTime 而不是 PairInfo::modifyTime —— 后者被 PairInfoManager 在
     // UpdateRtSpread 等七处刷新，等于每个价差 tick 刷一次，用它这个判断永远不成立。
     if (nowUs - pi.algoModifyTime < m_cfg.modifyTimespanSec * 1000000LL) {
@@ -742,10 +676,9 @@ void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
 
     // 祖先 :1063-1068：流动性危险时改用更激进的平仓参数，否则按最新行情重算
     const bool aggressiveClose = (pi.activeLiquidStatus == 2 || pi.passiveLiquidStatus == 2);
-    stra::AlgoOrderModify mod = aggressiveClose ? BuildCloseModify(pi, m_cfg.modifyShiftPct)
-                                                : BuildNormalModify(pi);
+    stra::AlgoOrderModify mod = aggressiveClose ? BuildCloseModify(pi, m_cfg.modifyShiftPct) : BuildNormalModify(pi);
 
-    // 祖先 :1069-1073：满足 just_close_flag / 资金费不合格 / 价差不合格时，把开仓开关压掉。
+    // 资金费不合格 / 价差不合格时，把开仓开关压掉。
     // C++ 侧现在有三个等价输入：
     //   ① stopFlag / closeFlag —— 运维意图，直接读（就是下面这个 if）；
     //   ② just_close_flag —— 全局持仓闸门（SignalGenerator::m_globalPosExceeded）。
@@ -766,8 +699,7 @@ void PairTradingContext::ProcessModify(PairInfo& pi, int64_t nowUs) const {
     // 也不要在 60s 内反复重试（祖先 :1077 同样是无条件重置）
     pi.algoModifyTime = nowUs;
 
-    LOG_INFO("ProcessModify: pairKey:{} algoOrderId:{} aggressiveClose:{} stopFlag:{} closeFlag:{} -> CommandType_MODIFY",
-             pi.pairInstrumentKey, pi.currentAlgoOrderId, aggressiveClose, pi.stopFlag, pi.closeFlag);
+    LOG_INFO("ProcessModify: pairKey:{} algoOrderId:{} aggressiveClose:{} stopFlag:{} closeFlag:{} -> CommandType_MODIFY", pi.pairInstrumentKey, pi.currentAlgoOrderId, aggressiveClose, pi.stopFlag, pi.closeFlag);
     m_algoOrderModifyCb(pi.currentAlgoOrderId, stra::CommandType_MODIFY, &mod);
 }
 
@@ -779,29 +711,18 @@ void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMo
         return;
     }
 
-    // 角色写进算法单（BuildAlgoOrderJson 里写的，这里只做断言式的复核）——
-    // 它只影响"平到 0 算不算结束"，见 BaseAlgoOrder.h 的 AlgoRole。
-    // 另外在 PairInfo 上留一个**派生镜像** activeAlgoIsRiskClose：ProcessModify 那一侧拿不到
-    // 算法单指针（只有 currentAlgoOrderId），只能靠它判断"要不要压开仓开关"。
-    // 放在 nullptr 检查之后：建单失败时不能把标记写进 PairInfo，否则下一张单会被误判。
+    // 角色写进算法单（BuildAlgoOrderJson 里写的，这里只做断言式的复核）
     if (pAlgoOrder->role != role) {
         LOG_ERROR("SubmitAlgoOrder: 算法单 role 与传入不一致 algoOrderId:{} expect:{} actual:{}", pAlgoOrder->algoOrderId, static_cast<int>(role), static_cast<int>(pAlgoOrder->role));
     }
 
     pi.activeAlgoIsRiskClose = (role == AlgoRole::RISK_CLOSE);
-
-    LOG_INFO("SubmitAlgoOrder: pairKey:{} algoOrderId:{} algoMode:{} direction:{} role:{}", pi.pairInstrumentKey, pAlgoOrder->algoOrderId, algoMode, direction, static_cast<int>(role));
-
     auto& pim = PairInfoManager::Instance();
     pim.SetActiveAlgoOrder(pi.pairInstrumentKey, pAlgoOrder->algoOrderId);
-
-    // 报单即"参数已经推给算法单了"，把两个计时起点一起归零（详见头文件注释）：
-    //   satisfyTime    供 CheckAlgoOrderTimeout 算"机会连续不成立"的时长
-    //   algoModifyTime 供 ProcessModify 算"距上次推参数多久"
     pi.satisfyTime = crypto::getCurrentTime();
     pi.algoModifyTime = pi.satisfyTime;
 
-    // 交给 AlgoContext 注册：Init / 插入 algoOrderManager / 落库 / 订阅价差
+    LOG_INFO("SubmitAlgoOrder: pairKey:{} algoOrderId:{} algoMode:{} direction:{} role:{}", pi.pairInstrumentKey, pAlgoOrder->algoOrderId, algoMode, direction, static_cast<int>(role));
     m_algoCommandCb(pAlgoOrder);
 }
 
@@ -842,11 +763,9 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     }
 
     const bool sw = *pSw;
-
     // 2. 开关校验：正常开仓必须开关打开；平仓（含风控强平）不受开关限制
     if (!sw && !isClose && forgoProfit == 0.0) {
-        LOG_INFO("算法单创建失败: 开仓开关关闭且非平仓且无让利 -> 不报单 pairKey:{} algoMode:{} direction:{} switch:{} forgoProfit:{}",
-                 pi.pairInstrumentKey, algoMode, direction, sw, forgoProfit);
+        LOG_INFO("算法单创建失败: 开仓开关关闭且非平仓且无让利 -> 不报单 pairKey:{} algoMode:{} direction:{} switch:{} forgoProfit:{}", pi.pairInstrumentKey, algoMode, direction, sw, forgoProfit);
         return nullptr;
     }
 
@@ -858,22 +777,10 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     }
 
     // 4. 创建算法单对象
-    //    可调参数**全部**来自 m_cfg（= etc/config.json 的 op 段），本函数不再有硬编码的
-    //    调参值；剩下的常量是协议/身份类的（algoStrategyName、baseAsset、isManual 等）。
-    //
-    //    ⚠️ algoOrderId 必须在这里就分配好，且后续**不能再改**：
-    //       SubmitAlgoOrder:598 会立刻把它写进 pi.currentAlgoOrderId，
-    //       而 AlgoContext::SubmitAlgoOrder 里的重新分配会让两边脱钩
-    //       （那是个已修的线上级 bug，见 AlgoContext.cpp:89 的注释）。
     const char* algoStrategyName = "pair_trading";
-
     AlgoPairOrder* pAlgoOrder = new AlgoPairOrder();
     pAlgoOrder->algoType = stra::AlgoType_PairTrading;
-
-    // ---- 身份 / 币对 ----
     pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
-    // 角色在这里落一次，之后只读。放在身份区，因为它是"这单是什么"的一部分，
-    // 不是"这单怎么报"的参数（那部分全在下面的 m_cfg 区）。
     pAlgoOrder->role = role;
     pAlgoOrder->commandType = stra::CommandType_NEW;
     pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
@@ -889,21 +796,16 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->activeAccountId = pi.activeAccountId;
     pAlgoOrder->passiveAccountId = pi.passiveAccountId;
 
-    // ---- 算法单参数：全部来自 PairTradingConfig（etc/config.json 的 op.pairTrading 段）----
-    // 这里以前是一大段硬编码，改一个值要重编译整个工程；现在改配置即可。
-    // 各字段的含义、单位、以及"2026-10-01 改过哪几个"见 PairTradingContext.h 的
-    // PairTradingConfig 定义。
+    // ---- 算法单参数
     const auto& aoc = m_cfg;
 
     // ---- 腿属性 ----
     pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
     pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
-
     pAlgoOrder->tradingTypeOrder = isTT ? stra::TAKER_TAKER : stra::MAKER_TAKER;
 
     // 报单类型。判据最终落在**子单**的 orderType 上（BaseAlgoOrder.cpp:457
-    // 用它决定走 Maker 还是 Taker 撤单分支），子单类型直接取自这里
-    // （AlgoPairOrder.cpp:321-322 / 388-389 / 439-440 / 503-504）。
+    // 用它决定走 Maker 还是 Taker 撤单分支），子单类型直接取自这里。
     pAlgoOrder->activeOrderType  = isTT ? aoc.ttActiveOrderType : aoc.mtActiveOrderType;
     pAlgoOrder->passiveOrderType = aoc.passiveOrderType;
 
@@ -1028,13 +930,9 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     pAlgoOrder->mtCSEndVolume = op.mtCSEndVolume;
     pAlgoOrder->mtCSSwitch = op.mtCSSwitch;
 
-    // **只有风控强平**才在建单时清掉四个开仓开关（2026-10-28 收窄，原来对所有 isClose 清）。
+    // **只有风控强平**才在建单时清掉四个开仓开关。
     // 强平单永远不许开仓 —— 逆着强平方向加仓是最坏的失败模式。
     // 普通平仓单（CLOSE_SIGNAL）**不清**：它允许在开仓带回补（AlgoRole 只决定"平到 0 算结束"）。
-    // 早先对所有平仓单清的理由是"平仓单不该带开仓许可"，那条约束已经被 AlgoRole 取代：
-    // 现在靠角色判据让它在平到 0 时结束，而不是靠把开关关掉。
-    // 为什么不能留一个"头 60s 纯平"的过渡期：第一次 ProcessModify 在 modifyTimespanSec(60s) 之后，
-    // 那 60s 内行情翻到开仓带也回补不了 —— 是一段真实的机会损失，不是保护。
     if (role == AlgoRole::RISK_CLOSE) {
         pAlgoOrder->ttOLSwitch = false;
         pAlgoOrder->ttOSSwitch = false;
@@ -1101,9 +999,7 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
 
     // 本次已经决定报单，开关必须是打开的（风控强平时对应开关可能是关的）
     *pSwitch = true;
-
-    LOG_INFO("create algo order pairKey:{} algoMode:{} direction:{} startSpread:{} endSpread:{} forgoProfit:{}",
-             pi.pairInstrumentKey, algoMode, direction, *pStartSpread, *pEndSpread, forgoProfit);
+    LOG_INFO("create algo order pairKey:{} algoMode:{} direction:{} startSpread:{} endSpread:{} forgoProfit:{}", pi.pairInstrumentKey, algoMode, direction, *pStartSpread, *pEndSpread, forgoProfit);
 
     return pAlgoOrder;
 }
