@@ -58,7 +58,7 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     if (!ls.IsValid()) {
         // 早退路径也必须过闸门。这里 4 个开关保持上一轮的值，而"刚重启 + 统计还没攒够"
         // 正是带着恢复的大仓位、最该只平不开的时刻 —— 漏了这条闸门在预热期等于不存在。
-        ApplyNoOpenGate(op);
+        ApplyNoOpenGate(pi, op);
         return;
     }
 
@@ -191,6 +191,8 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     bool canOpenLong = op.mtOLStartSpread < -m_cfg.minSpreadTarget;
     bool canOpenShort = op.mtOSStartSpread > m_cfg.minSpreadTarget;
 
+    // closeFlag 在这里就压（而不是只靠函数末尾的 ApplyNoOpenGate）：计算点先落一次，
+    // 将来中间多插一个 return 也不会漏。末尾那道闸门再兜一次，覆盖早退出口。
     op.ttOLSwitch = canOpenLong && !pi.closeFlag;
     op.ttOSSwitch = canOpenShort && !pi.closeFlag;
     op.mtOLSwitch = canOpenLong && !pi.closeFlag;
@@ -215,14 +217,15 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
         op.mtOLSwitch = op.mtOSSwitch = false;
     }
 
-    // 全局持仓闸门必须放**最后**：上面几段都在重写这 4 个开仓开关，压在前面会被它们打开。
-    ApplyNoOpenGate(op);
+    // 全局持仓闸门 / 全局急停 / 按对子的 closeFlag 必须放**最后**：
+    // 上面几段都在重写这 4 个开仓开关，压在前面会被它们打开。
+    ApplyNoOpenGate(pi, op);
 }
 
 // 只平不开：把 4 个开仓开关压成 false，平仓开关（ttCL/ttCS/mtCL/mtCS）不动。
-// 两个来源任一成立就压：算出来的持仓超限 / 人给的配置开关。
-void SignalGenerator::ApplyNoOpenGate(OrderParams& op) const {
-    if (!m_globalPosExceeded && !m_closeOnly) {
+// 三个来源任一成立就压：算出来的持仓超限 / 全局急停配置 / 按对子的 closeFlag。
+void SignalGenerator::ApplyNoOpenGate(const PairInfo& pi, OrderParams& op) const {
+    if (!m_globalPosExceeded && !m_closeOnly && !pi.closeFlag) {
         return;
     }
 

@@ -148,6 +148,10 @@ if (pi.stopFlag && !pi.HasPosition()) {
 
 ## 3. 与"单对子紧急平仓"改动的碰撞检查
 
+> ⚠️ **本节写于五 flag 模型（`errorFlag` / `limitFlag` 还在，快照 33 列）。**
+> 三态模型落地后，**§3.2 / §3.3 / §3.5 的论据已失效**（结论大部分仍成立）。
+> 修订见 **§3.9**，要落地只看 §3.9 的清单。
+
 被审的改动三件套（尚未落码）：
 
 - **A**：`PairInfo::closeRemainVolume{0.0}` + `SignalGenerator::RecalcOrderParams` 里 4 行，
@@ -273,6 +277,99 @@ profitPct = 0.0001         // ← 恢复默认（也可以不回，但要明确�
 
 ---
 
+### 3.9 修订（2026-10-29，三态模型落地后）
+
+**结论：主体不变** —— `closeFlag` 当 park、`profitPct` 放松门槛、`closeRemainVolume` 决定平到哪、
+`pairCommands` 差集即恢复。但有 6 处要改，其中 **§3.9.3 是唯一会改变实现范围的一条**。
+
+| # | 原文 | 现在 | 处理 |
+|---|---|---|---|
+| 1 | §3.2「`stopFlag` 与 `closeFlag` 差别只有 `SignalGenerator.cpp:249` 一处」 | ❌ **失效**：`CanClose:389` 现在也判 `stopFlag` ⇒ 拿它 park 连平仓单都发不出去 | 结论不变（用 `closeFlag`），理由改成"`closeFlag` 是**唯一**能只平不开的状态" |
+| 2 | §3.3「`errorFlag` 让命令静默无效，日志里什么都没有」 | 🟡 **换壳 + 部分改善**：`errorFlag` 已删，`stopFlag` 接管；但 `ProcessPairSignal` 那个早退删了 ⇒ **有日志**（"信号触发…canClose:false reason:stopFlag = true"）却不下单 | 仍必须**显式拒绝 + LOG_ERROR**；"顺手清 `stopFlag`"现在**更**不能做（§3.9.1） |
+| 3 | §3.5「加一列会移动 30/31/32 三个索引」 | ❌ **失效**：`errorFlag` 已删、快照 32 列，加在尾部不动任何索引 | **仍不加**，换理由：32+1 = 33 撞上刚废弃的旧格式，而校验只数个数（§3.9.2） |
+| 4 | §3.1 碰撞矩阵 | `limitFlag` / `errorFlag` 两行作废；`autoFlag` 现在只是标签，"绝对不要写"从"危险"降级为"无意义" | 按三态重画 |
+| 5 | 方案 B「`RuntimeConfig` 加 `pairCommands`」 | ⚠️ **新约束**：`m_cfgQ` 是 `boost::lockfree::spsc_queue<RuntimeConfig, capacity<16>>`（`PairTradingContext.h:31`），元素整份按值拷，现在 `RuntimeConfig` 是可平凡拷贝的 2 个 bool | 必须用**定长 POD**，不能 `std::string` / `std::vector` |
+| 6 | §3.6 恢复路径 | ⚠️ `ApplyCommand` 与三态脱节：`STOP` 仍写 `autoFlag=false`、`RESUME` 写 `autoFlag=true`，都不 `RecalcOrderParams`、不清 `algoModifyTime` | 差集恢复只清 `closeFlag`（+ `closeRemainVolume`），**不碰** `autoFlag` / `stopFlag` |
+
+#### 3.9.1 为什么"顺手清 `stopFlag`"现在更不能做
+
+`CheckExposureAbnormal` 开头现在有 `if (pi.stopFlag) return;`（one-shot，2026-10-29 补的）。
+命令把 `stopFlag` 清掉 ⇒ 下一 tick 敞口仍异常 ⇒ 重新置位 + `RequestCancelAlgoOrder`
+⇒ **刚发出去的平仓单被撤**；每一轮都这样 ⇒ 永远平不掉。
+敞口没解决之前 `stopFlag` 只能人工在交易所处理，不能靠策略自己解。
+
+#### 3.9.2 `closeRemainVolume` 仍然不进快照（理由换了）
+
+`kSnapshotColumns` 现在是 32，再加一列就是 **33** —— 与 2026-10-29 之前的旧格式**列数相同**。
+而 `LoadSnapshot` 的表头校验只比较**个数**、不比名字 ⇒ 一份遗留的旧 33 列文件会被当成
+"新格式 + `closeRemainVolume`"读进来：`f[30]` 读到的是旧 `errorFlag` 的 `0/1` 却被当成
+`hasActiveAlgoOrder`，`f[31]` 读到的是旧 `hasActiveAlgoOrder` 却被当成 `currentAlgoOrderId`
+—— **整行错位且不报错**。
+⇒ 保持"不进快照"：重启后"平一半"退化成"平干净"（方向安全），写进运维文档即可。
+
+#### 3.9.3 ⚠️ per-pair `closeFlag` 与全局 `m_closeOnly` 的"只平不开"不是同一道闸门
+
+| 来源 | 压 4 个开仓开关的地方 | 新建的平仓单带不带开仓能力 |
+|---|---|---|
+| 全局 `m_closeOnly`（`RuntimeConfig`） | `RecalcOrderParams` 末尾的 `ApplyNoOpenGate`（`SignalGenerator.cpp:219`）—— **两个出口都过** | 不带 |
+| per-pair `pi.closeFlag` | `RecalcOrderParams:194-197` 的 `&& !pi.closeFlag`（**只在正常出口**）+ `ProcessModify:717`（60s 节流） | 正常出口不带；**早退出口仍带** |
+
+⇒ 差别只剩"早退出口"，见 §3.9.3b。
+
+**修法**：把 per-pair 判定收进 `ApplyNoOpenGate`，让两个出口共用同一道闸门。
+
+#### 3.9.3b 现状更新（2026-10-29 晚）：`!closeFlag` 已加回，但只盖住**正常出口**
+
+工作区已改成 `op.ttOLSwitch = canOpenLong && !pi.closeFlag;`（`:194-197`，4 行都是），
+所以**正常路径**上"closeFlag 期间建出的平仓单不带开仓能力"已经成立。
+
+⚠️ 但 `RecalcOrderParams` 有**两个出口**，`!closeFlag` 只写在正常出口上：
+
+| 出口 | 条件 | 4 个开仓开关 |
+|---|---|---|
+| 早退 `:58-63` | `!pi.largeStats.IsValid()`（刚重启 / 统计没攒够 / 分位数文件丢了） | **保持上一轮的值**，只过 `ApplyNoOpenGate`（只管全局 `m_closeOnly` / `m_globalPosExceeded`）⇒ **`closeFlag` 在这里不生效** |
+| 正常 `:194-197` → `:219` | 统计有效 | 被 `!closeFlag` 压掉 ✅ |
+
+而 `:59-60` 那行注释自己就写着："刚重启 + 统计还没攒够 正是带着恢复的大仓位、最该只平不开的时刻"
+—— per-pair `closeFlag` 恰恰漏在这个时刻。
+
+**修法（最小）**：把 per-pair 判定收进 `ApplyNoOpenGate`，两个出口共用 ——
+`ApplyNoOpenGate(OrderParams&)` → `ApplyNoOpenGate(const PairInfo&, OrderParams&)`，
+判据 `m_globalPosExceeded || m_closeOnly || pi.closeFlag`；`:194-197` 的 `&& !pi.closeFlag` 留着也无害（幂等）。
+两个调用点（`:61`、`:219`）`pi` 都在手。
+
+> `pi.stopFlag` **不必**并进来：`CanClose:389` 已经挡死 stopFlag 下新建平仓单，而 `ApplyNoOpenGate`
+> 只影响"建单那一刻"，所以加不加对行为无影响 —— 不加，少一处要同步的判据。
+
+✅ **已落地（2026-10-29）**：签名改成 `ApplyNoOpenGate(const PairInfo&, OrderParams&)`，判据加了
+`pi.closeFlag`，两个调用点都传 `pi`；`:194-197` 的 `&& !pi.closeFlag` 保留（计算点先落一次，
+中间多插一个 return 也不会漏，末尾闸门再兜）。回归：**D8b**（正常出口）+ **D8c**（早退出口，
+用 `ttOLStartSpread` 哨兵证明真的走了早退分支）。
+
+> 遗留（未改）：早退路径下 4 个**平仓**开关也会停在默认 `false`（`PairInfo.h:179-216` 默认全 false，
+> 而 `:200-201` 的 `= true` 在早退点之后）⇒ 预热期信号平仓单建不出来。**故意不动**：
+> 把它置 true 会让"阈值还是默认 0"的平仓单在预热期立刻成交（等于市价平），是行为变化，要单独决定。
+
+#### 3.9.4 修订后的落点清单
+
+| 项 | 改动 | 位置 |
+|---|---|---|
+| A | `PairInfo::closeRemainVolume{0.0}`，4 处 `*CLEndVolume / *CSEndVolume` 用它替代 `0.0` | `SignalGenerator.cpp:37/43/49/55` |
+| A' | 强平单把这 4 个归零（原 §3.4，不变；`ProcessRisk:434` 明确不判三态 ⇒ 一定会传播） | `BuildAlgoOrderJson` 的 `RISK_CLOSE` 分支、`BuildNormalModify` 的 `activeAlgoIsRiskClose` 分支 |
+| A'' | ✅ 已做：`ApplyNoOpenGate(const PairInfo&, OrderParams&)` 并入 `pi.closeFlag`，补上**早退出口**；`stopFlag` 不必并 | `SignalGenerator.h:184`、`.cpp:224` + 调用点 `:61` / `:219` |
+| B | `RuntimeConfig` 加**定长 POD** 的 `pairCommands`（`char[64]` 键 + 三态 + `profitPct` + `closeRemainVolume`），差集 = 恢复 | `RuntimeConfig.h`、`ReadRuntimeConfigFile` |
+| B' | 命令落地：写三态 + `RecalcOrderParams` + `algoModifyTime = 0`；`stopFlag` 为真则**拒绝 + LOG_ERROR** | `OnTimer` 0.6（`:1188` 那段） |
+| B'' | `m_appliedCmdPairs` 启动时从 `closeFlag == true` 的对子播种（`closeFlag` 在快照里，下标 `f[28]`） | `Init` |
+| C | 终结判据**不动**（§3.8 结论不变：多一次 `CANCELED` + 一条 Lark） | — |
+
+> ⚠️ **别"顺手清理"`BuildAlgoOrderJson:1039` 的 `*pSwitch = true`**：
+> `OrderParams` 的 8 个开关默认**全 false**（`PairInfo.h:173-216`），而 `RecalcOrderParams` 在
+> `!largeStats.IsValid()` 时早退、跳过 `op.*CLSwitch = true` 那两行 ⇒ 预热期建出来的强平单
+> `op.mtCLSwitch` 可能就是 false，这行是它"真的会去平"的唯一保证。
+> 它只把 (algoMode, direction) 对应的**那一个**开关置 true，碰不到 4 个开仓开关（`A11b` 钉住）。
+
+---
+
 ## 4. 真问题清单（按优先级）
 
 | # | 问题 | 影响 | 是否属于本次改动 |
@@ -289,6 +386,8 @@ profitPct = 0.0001         // ← 恢复默认（也可以不回，但要明确�
 ---
 
 ## 5. 一句话
+
+> ⚠️ 这段是五 flag 时期的结论，**字段名已变**（`errorFlag` → `stopFlag`），修订见 §3.9。
 
 **五个 flag 里，只有 `closeFlag` 是目标改动真正要碰的（它就是 park 机制本身）；
 `autoFlag` / `stopFlag` 一行都别写；`limitFlag` 是死的；`errorFlag` 是唯一会

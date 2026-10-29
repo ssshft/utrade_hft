@@ -177,11 +177,13 @@ public:
 private:
     SignalGenerator() = default;
 
-    // 把 4 个开仓开关压成 false（平仓开关不动 = 只平不开）。两个来源任一成立就压。
+    // 把 4 个开仓开关压成 false（平仓开关不动 = 只平不开）。三个来源任一成立就压：
+    //   ① 算出来的跨对子持仓超限 m_globalPosExceeded；② 全局急停 m_closeOnly；
+    //   ③ 按对子的运维意图 pi.closeFlag（单对子紧急平仓就用它）。
     // 两个调用点必须都调：统计无效时 RecalcOrderParams 会早退，而早退路径上开关
     // 保持上一轮的值 —— 恰恰是"刚重启、带着恢复的大仓位、分位数还没攒够"的时刻，
-    // 最需要这道闸门。
-    void ApplyNoOpenGate(OrderParams& op) const;
+    // 最需要这道闸门。closeFlag 只写在正常出口上会漏掉这一段。
+    void ApplyNoOpenGate(const PairInfo& pi, OrderParams& op) const;
 
     std::pair<double, double> CalcExpectSpread(double quantileBound, bool isTT, int direction) const;
 

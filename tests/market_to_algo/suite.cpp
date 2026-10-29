@@ -419,9 +419,10 @@ static void MakeHoldable(PairInfo& pi, double vol) {
 //   费率是 main() 里写死的那套（F_mt = 0.0009 / F_tt = 0.0013），spreadAdjPct = 0.8，
 //   minSpreadTarget = 0.002（2026-10-26 起），所以 RecalcOrderParams 末尾那道"绝对地板"
 //   也会参与：
-//   canOpenLong  = (mtOLStartSpread < -minSpreadTarget) && !closeFlag
+//   canOpenLong  = (mtOLStartSpread < -minSpreadTarget)        // 不含 closeFlag
 //                = (askAskDQ*0.8 + F_mt < -0.002)              <- -0.8+0.0009 => -0.7991 ✓
 //   canOpenShort = (mtOSStartSpread > -minSpreadTarget)        <- 0.8-0.0009 => 0.7991 ✓
+//   （closeFlag 在下一行才参与：op.ttOLSwitch = canOpenLong && !pi.closeFlag）
 //   地板本身不生效：|±0.7991| 远深于 0.002005，夹逼只抬高不压低。
 //   spreadSpan   = bidBidUQ - askAskDQ = 2.0 >= minSpreadSpan(0) => 不触发"套利空间不足"早退 ✓
 // 其余四个分位数只用来填 CalcExpectSpread 的入参，取 ±1.0 保证不是 NaN。
@@ -634,6 +635,26 @@ static void TestA_Create() {
         CHECK(o && Near(o->mtCSStartSpread, -0.021) && Near(o->mtCSEndSpread, -0.022), "A11 mtCS 起止价差拷贝");
         CHECK(o && Near(o->mtCSStartVolume, -0.023) && Near(o->mtCSEndVolume, -0.024), "A11 mtCS 起止量拷贝");
         CHECK(o && o->ttOLSwitch == true, "A11 本次触发的开关被强制打开");
+        delete o;
+    }
+
+    // A11b 平仓单：`*pSwitch = true` 只打开**本次触发的那一个**开关，碰不到 4 个开仓开关
+    //
+    // 为什么钉它：`OrderParams` 的 8 个开关默认全是 false（PairInfo.h:173-216），而
+    // RecalcOrderParams 在 `!largeStats.IsValid()` 时会早退（跳过 `op.ttCLSwitch = true` 那两行）
+    // ⇒ 预热期建出来的强平单，`op.mtCLSwitch` 完全可能是 false。
+    // BuildAlgoOrderJson:1039 的 `*pSwitch = true` 就是这张单"真的会去平"的唯一保证 ——
+    // 而它指向的是 (algoMode, direction) 对应的那一个开关，与开仓开关无关。
+    {
+        Fx fx; Boot(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        auto& op = pi.orderParams;
+        op.mtCLSwitch = false;                     // 模拟"没重算过 / 走的是早退路径"的默认值
+        op.ttOLSwitch = op.ttOSSwitch = op.mtOLSwitch = op.mtOSSwitch = false;
+        BaseAlgoOrder* o = fx.ctx.BuildAlgoOrderJson(pi, "MT", "CL", 0.0, AlgoRole::CLOSE_SIGNAL);
+        CHECK(o && o->mtCLSwitch, "A11b 本次触发的平仓开关被强制打开（op 里是 false 也照样报）");
+        CHECK(o && !o->ttOLSwitch && !o->ttOSSwitch && !o->mtOLSwitch && !o->mtOSSwitch,
+              "A11b 只动那一个开关：4 个开仓开关原样保持 false，没被顺手打开");
         delete o;
     }
 
@@ -1144,6 +1165,61 @@ static void TestD_Timer() {
             CHECK(!m.ttOLSwitch && !m.ttOSSwitch && !m.mtOLSwitch && !m.mtOSSwitch,
                   "D8 stopFlag -> 改参时压掉四个开仓开关");
         }
+    }
+
+    // D8b closeFlag -> RecalcOrderParams 就把 4 个开仓开关压掉（不依赖 60s 的 ProcessModify）
+    //
+    // 钉的是"紧急平仓生效后，新报出的平仓单还是平仓单"：BuildAlgoOrderJson 原样拷
+    // op.ttOLSwitch，而 RecalcOrderParams 是**周期**跑的（OnTimer 第 1 步 volumeRecalcIntervalSec、
+    // 第 2 步统计刷新），不是每 tick ⇒ 命令设了 closeFlag 之后必须**显式**再调一次本函数，
+    // 否则最长一个周期内建出的单仍带着开仓能力（2026-10-29 删掉 `!closeFlag` 后出现过、
+    // 又补回来的正是这个洞；D8 只测了 ProcessModify 那条 60s 的补刀，测不到这里）。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        auto& sg = SignalGenerator::Instance();
+        sg.SetGlobalPositionExceeded(false);   // 排除全局闸门，只验 per-pair 这一条
+        sg.SetCloseOnly(false);
+        MakeOpenFriendlyStats(pi);
+
+        pi.closeFlag = false;
+        sg.RecalcOrderParams(pi);
+        CHECK(pi.orderParams.ttOLSwitch && pi.orderParams.ttOSSwitch &&
+              pi.orderParams.mtOLSwitch && pi.orderParams.mtOSSwitch,
+              "D8b 对照组：closeFlag=false -> 4 个开仓开关都打开");
+
+        pi.closeFlag = true;
+        sg.RecalcOrderParams(pi);
+        CHECK(!pi.orderParams.ttOLSwitch && !pi.orderParams.ttOSSwitch &&
+              !pi.orderParams.mtOLSwitch && !pi.orderParams.mtOSSwitch,
+              "D8b closeFlag -> RecalcOrderParams 直接压掉四个开仓开关（建单时就不带开仓能力）");
+        CHECK(pi.orderParams.ttCLSwitch && pi.orderParams.ttCSSwitch &&
+              pi.orderParams.mtCLSwitch && pi.orderParams.mtCSSwitch,
+              "D8b 平仓开关一个都没动（只平不开 = 平仓照常）");
+    }
+
+    // D8c 早退出口（!largeStats.IsValid()）也必须过同一道闸门
+    //
+    // 这是 closeFlag 最容易漏的一处：RecalcOrderParams:58 在统计无效时直接 return，
+    // 而"刚重启 + 分位数还没攒够"正是带着恢复的大仓位、最该只平不开的时刻。
+    // 用 ttOLStartSpread 当哨兵：正常出口一定会重写它（:78/:174），早退出口不会。
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -1.0);
+        auto& sg = SignalGenerator::Instance();
+        sg.SetGlobalPositionExceeded(false);
+        sg.SetCloseOnly(false);
+
+        pi.largeStats.valid = false;                  // 逼进 :58 的早退分支
+        pi.orderParams.ttOLStartSpread = 123.0;       // 哨兵：早退则保持，正常出口会覆盖
+        pi.orderParams.ttOLSwitch = pi.orderParams.ttOSSwitch = true;
+        pi.orderParams.mtOLSwitch = pi.orderParams.mtOSSwitch = true;
+        pi.closeFlag = true;
+        sg.RecalcOrderParams(pi);
+        CHECK(Near(pi.orderParams.ttOLStartSpread, 123.0), "D8c 前置：确实走了早退分支");
+        CHECK(!pi.orderParams.ttOLSwitch && !pi.orderParams.ttOSSwitch &&
+              !pi.orderParams.mtOLSwitch && !pi.orderParams.mtOSSwitch,
+              "D8c 统计无效 -> 早退出口照样压掉四个开仓开关（closeFlag 不漏在预热期）");
     }
 
     // D9 没有活跃算法单 -> 不改参
