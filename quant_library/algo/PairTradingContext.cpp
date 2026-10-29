@@ -281,9 +281,9 @@ void PairTradingContext::HandleOrphanAlgoOrders() {
         LarkRebot::GetInstance().SendMsg(msg);
 
         if (m_cfg.freezeOnOrphanAlgoOrder) {
-            // 复用 errorFlag 的"判死、停自动、留人工处理"语义（它现在有清除路径：PairCmd_RESUME）
-            pi->errorFlag = true;
-            LOG_ERROR("孤儿单冻结: pairKey:{} errorFlag = true（运维确认交易所已清干净后发 PairCmd_RESUME 复活）", pi->pairInstrumentKey);
+            // 复用 stopFlag 的"判死、停自动、留人工处理"语义（它现在有清除路径：PairCmd_RESUME）
+            pi->stopFlag = true;
+            LOG_ERROR("孤儿单冻结: pairKey:{} stopFlag = true（运维确认交易所已清干净后发 PairCmd_RESUME 复活）", pi->pairInstrumentKey);
         }
     }
 }
@@ -550,7 +550,7 @@ void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
 
     // 只保留风控强平单，普通单不发
     pi.stopFlag = true;
-    LOG_ERROR("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (ttTargetVolume:{} activePos:{} passivePos:{}) -> errorFlag + cancel", pi.pairInstrumentKey, netExposure, threshold, pi.ttTargetVolume, pi.activeRealPosition, pi.passiveRealPosition);
+    LOG_ERROR("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (ttTargetVolume:{} activePos:{} passivePos:{}) -> stopFlag + cancel", pi.pairInstrumentKey, netExposure, threshold, pi.ttTargetVolume, pi.activeRealPosition, pi.passiveRealPosition);
 
     if (pi.hasActiveAlgoOrder) {
         RequestCancelAlgoOrder(pi);
@@ -1217,7 +1217,7 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     // 4. 撤单触发检查 (每次定时器触发)
     //    祖先 on_timer 的五条撤单触发里已落地的两条：
     //      ① 机会超时（:1021-1026）—— satisfyTime 连续 algoOrderTimeoutMs 不成立
-    //      ⑤ 敞口异常（:1081-1092）—— 净敞口超阈值，置 errorFlag 并撤单
+    //      ⑤ 敞口异常（:1081-1092）—— 净敞口超阈值，置 stopFlag 并撤单
     //    敞口检查不判 autoFlag（祖先 :1081 那一段没有 auto_flag 门槛）；
     //    超时检查自带 autoFlag 门槛（祖先 :1018-1020）。
     for (PairInfo* pi : pim.GetAllPairInfos()) {
