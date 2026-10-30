@@ -30,29 +30,40 @@ void SignalGenerator::RecalcOrderParams(PairInfo& pi) const {
     // 分开写之后：maxVolume 一变就重算，与分位数是否就绪无关。
     
     const double mv = pi.maxVolume;
+
+    // 平仓阶梯的末端 r：0 = 平干净，r > 0 = 只平到还剩 r（见 PairInfo::closeRemainVolume）。
+    // 默认 0 ⇒ 下面 8 行与改动前完全等价；只有运维下发 pairCommands 时才是非 0。
+    double r = pi.closeRemainVolume;
+    if (r < 0.0) {
+        r = 0.0;
+    }
+    if (r > mv) {
+        r = mv;
+    }
+
     op.ttOLStartVolume = 0.0;   
     op.ttOLEndVolume = -mv;
 
     op.ttCLStartVolume = -mv;  
-    op.ttCLEndVolume = 0.0;
+    op.ttCLEndVolume = -r;
 
     op.ttOSStartVolume = 0.0;  
     op.ttOSEndVolume = mv;
 
     op.ttCSStartVolume = mv;   
-    op.ttCSEndVolume = 0.0;
+    op.ttCSEndVolume = r;
 
     op.mtOLStartVolume = 0.0;  
     op.mtOLEndVolume = -mv;
 
     op.mtCLStartVolume = -mv;
-    op.mtCLEndVolume = 0.0;
+    op.mtCLEndVolume = -r;
     
     op.mtOSStartVolume = 0.0;   
     op.mtOSEndVolume = mv;
 
     op.mtCSStartVolume = mv;    
-    op.mtCSEndVolume = 0.0;
+    op.mtCSEndVolume = r;
     
 
     if (!ls.IsValid()) {

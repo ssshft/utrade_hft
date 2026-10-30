@@ -246,6 +246,24 @@ private:
     // 变更队列（T_signal 生产 / T_market 消费）。元素是整份 RuntimeConfig。
     RuntimeParamQueue m_cfgQ;
 
+    // 把 rc.pairCommands 落到 PairInfo 上，按 cmdType 分三支：
+    //   1 STOP     stopFlag = true  （开仓、平仓都不发 = 冻结该对子）
+    //   2 CLOSE    closeFlag = true （只平不开）+ 按需写 profitPct / closeRemainVolume
+    //   3 RESUME   清两个 flag，closeRemainVolume 回 0，profitPct 回 kDefaultProfitPct
+    // **不碰 autoFlag**（那是"参数由谁算"的标签，写成 false 会免掉超时撤单）。
+    //
+    // **单向**：不记账、不做差集，删掉条目 = 什么都不做，字段一直粘着。
+    // 恢复靠 cmdType=3，或人工改快照 + 重启：`stopFlag` 第 28 列、`closeFlag` 第 29 列、
+    // `profitPct` 第 30 列；`closeRemainVolume` 不进快照，重启后自动回 0 = 平干净。
+    // 为什么不做差集恢复：那要记住"上一版命令了哪些对子"，还要区分"快照带来的 closeFlag"与
+    // "命令写的 closeFlag"（否则启动 1 秒就会把人工停机解开）—— 一整套账本 + 基线，
+    // 只为一件很少发生的事。
+    //
+    // 调用点：OnTimer 第 0.6 步，**必须在全局那份 RecalcOrderParams 循环之前** ——
+    // 那个循环要用到这里刚写进去的 closeFlag / closeRemainVolume / profitPct。
+    // 本函数只写字段、不重算参数、不动 algoModifyTime（都由调用点统一做）。
+    void ApplyPairCommands(const RuntimeConfig& rc);
+
     // 配置文件指纹（T_signal 独占）：inode + mtime(纳秒) + size 三者都没变就不重读。
     // 用纳秒而不是秒级 mtime：脚本/编辑器在同一秒里改两次，秒级精度看不出来。
     // 带上 inode 是为了覆盖"写临时文件 + rename 替换"这种原子写法（inode 会变）。

@@ -12,15 +12,6 @@
 #include "DataStruct.h"
 
 namespace pt {
-
-    enum PairCommandType {
-        PairCmd_NONE = 0,
-        PairCmd_STOP = 1, // 停止开仓
-        PairCmd_CLOSE = 2, // 强制平仓
-        PairCmd_RESUME = 3, // 恢复自动
-        PairCmd_MODIFY = 4 // 修改参数
-    };
-
     // 异常平仓类型
     enum AbnormalCloseType {
         AbnormalClose_NONE = 0,
@@ -316,6 +307,11 @@ namespace pt {
 
         bool profitSwitch{true}; // 平仓是否需要盈利保护
         double profitPct{0.0001}; // 平仓最低期望利润
+
+        // 平仓阶梯的末端：0 = 平干净，r > 0 = 只平到还剩 r（r 恒为非负绝对值）。
+        // 写入方只有 `pairCommands` 的 cmdType=2（CLOSE）/ 3（RESUME，回 0）；
+        // 不进快照 ⇒ 重启自动回 0。
+        double closeRemainVolume{0.0};
 
         bool reBalance{false}; // 是否需要再平衡
         bool stopMarginTrade{false};

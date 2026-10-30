@@ -3426,6 +3426,404 @@ static void TestK_RuntimeConfig() {
 }
 
 // ===========================================================================
+// L. 指定币对命令（op.pairTrading.pairCommands）
+//
+// 每条命令 = { pairKey(必填), cmdType(必填), profitPct?, closeRemainVolume? }，
+// cmdType: 1=停止交易 2=只平不开 3=恢复（4=改参数未实现，解析期就拒）。
+// 用例按"解析 -> 链路 -> 落地 -> 三态"分层：
+//   L0     解析器（定长 POD，任何一条写错都整份拒绝）
+//   L1~L5  closeRemainVolume 如何进到 orderParams 与信号闸门（符号是这里唯一的坑）
+//   L6~L11 cmdType=2 的落地 / 粘住 / 拒绝路径
+//   L12~L13 传播面：残余量绝不能漏进风控强平单
+//   L14~L16 cmdType=1/3 的三态：STOP 冻结、RESUME 能解开 STOP（回归点）、缺省字段 = 0
+// ===========================================================================
+static void TestL_PairCommands() {
+    Section("L. 指定币对平仓 (pairCommands)");
+
+    const std::string cfgPath = "/tmp/ptsuite/out/runtime_cfg_paircmd.json";
+    auto& sg = SignalGenerator::Instance();
+
+    // ---- L0 解析器 ----
+    {
+        RuntimeConfig rc;
+
+        // 裸数字：kParseNumbersAsStringsFlag 会让它变成字符串，必须 stoi/stod 才读得出来
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"A|B","cmdType":2,"profitPct":-0.002,"closeRemainVolume":3}
+        ]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.pairCmdCount == 1, "L0 解析出一条命令");
+        CHECK(std::string(rc.pairCommands[0].pairKey) == "A|B", "L0 pairKey 拷进定长数组");
+        CHECK(rc.pairCommands[0].cmdType == PairCmd_CLOSE, "L0 cmdType 2 -> PairCmd_CLOSE");
+        CHECK(Near(rc.pairCommands[0].profitPct, -0.002),
+              "L0 profitPct 读成 -0.002（负号是让利平仓，不能丢）");
+        CHECK(Near(rc.pairCommands[0].closeRemainVolume, 3.0), "L0 closeRemainVolume 读成 3");
+
+        // 带引号的数字也接受（kParseNumbersAsStringsFlag 让两者本来就等价）
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"A|B","cmdType":"2","profitPct":"-0.002","closeRemainVolume":"3"}
+        ]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && Near(rc.pairCommands[0].profitPct, -0.002) &&
+              rc.pairCommands[0].cmdType == PairCmd_CLOSE,
+              "L0 带引号的数字同样能读");
+
+        // 只写 pairKey + cmdType：两个数值字段是**结构体缺省 0**，不是"不改"。
+        //    命令要按完整一条写 —— 钉住这一点，免得将来有人以为"不写 = 保持原值"。
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[{"pairKey":"A|B","cmdType":2}]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.pairCmdCount == 1 &&
+              Near(rc.pairCommands[0].profitPct, 0.0) && Near(rc.pairCommands[0].closeRemainVolume, 0.0),
+              "L0 只写 pairKey+cmdType -> 两个字段都是缺省 0（不是 NaN/不改）");
+
+        // cmdType 的三种合法值
+        for (int t = 1; t <= 3; ++t) {
+            rc = RuntimeConfig{};
+            WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[{"pairKey":"A|B","cmdType":)" +
+                                  std::to_string(t) + R"(}]}}})");
+            CHECK(ReadRuntimeConfigFile(cfgPath, rc) && int(rc.pairCommands[0].cmdType) == t,
+                  ("L0 cmdType " + std::to_string(t) + " 能解析").c_str());
+        }
+
+        // 没有 pairCommands 这个 key = 空列表 = 这一版什么都不写（既不下发也不撤销）
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"closeOnly":false}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.pairCmdCount == 0,
+              "L0 没有 pairCommands -> 空列表（= 这一版什么都不写）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":{"pairKey":"A|B"}}}})");
+        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "L0 pairCommands 不是数组 -> false");
+
+        // 解析层**只做类型转换，不做业务校验**：缺字段/越界值一律放行，
+        // 由 ApplyPairCommands 在落地时 LOG_ERROR 并跳过。钉住这个分工，
+        // 免得有人以为"写错就整份拒绝"（那是上一版的语义，已按用户要求撤回）。
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[{"cmdType":2,"profitPct":-0.002}]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.pairCmdCount == 1 &&
+              rc.pairCommands[0].pairKey[0] == '\0',
+              "L0 缺 pairKey -> 解析通过，pairKey 是空串（落地时报未知对子）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[{"pairKey":"A|B"}]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.pairCommands[0].cmdType == PairCmd_NONE,
+              "L0 缺 cmdType -> 解析通过，cmdType = NONE（落地时报未实现）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[{"pairKey":"A|B","cmdType":5}]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && int(rc.pairCommands[0].cmdType) == 5,
+              "L0 cmdType 越界（5）-> 解析通过，落地时报未实现");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[{"pairKey":"A|B","cmdType":4}]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.pairCommands[0].cmdType == PairCmd_MODIFY,
+              "L0 cmdType 4(MODIFY) -> 解析通过（枚举里有它），落地时报未实现");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"A|B","cmdType":2,"closeRemainVolume":-1}
+        ]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && Near(rc.pairCommands[0].closeRemainVolume, -1.0),
+              "L0 负残余量 -> 解析通过（SignalGenerator 把它当 0 = 平干净）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"A|B","cmdType":2},{"pairKey":"A|B","cmdType":3}
+        ]}}})");
+        CHECK(ReadRuntimeConfigFile(cfgPath, rc) && rc.pairCmdCount == 2,
+              "L0 重复 pairKey -> 解析通过（两条都落地，后一条覆盖前一条）");
+
+        // 非数字：std::stoi / std::stod **会抛异常**，而调用点 T_signal 没有 try/catch
+        // ⇒ 这里必须被 catch 住并返回 false（保留上一次的命令），不能把进程带走。
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"A|B","cmdType":"abc"}
+        ]}}})");
+        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "L0 cmdType 非数字 -> false（异常被兜住，不是崩溃）");
+
+        rc = RuntimeConfig{};
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"A|B","cmdType":2,"profitPct":"abc"}
+        ]}}})");
+        CHECK(!ReadRuntimeConfigFile(cfgPath, rc), "L0 profitPct 非数字 -> false（异常被兜住）");
+
+        // 超长 key：strncpy 取 INST_KEY_LEN-1 并补 '\0' ⇒ 截断到 127 字符，不会越界读
+        {
+            std::string longKey(stra::INST_KEY_LEN + 10, 'X');
+            rc = RuntimeConfig{};
+            WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[{"pairKey":")" + longKey + R"(","cmdType":2}]}}})");
+            CHECK(ReadRuntimeConfigFile(cfgPath, rc) &&
+                  std::strlen(rc.pairCommands[0].pairKey) == static_cast<size_t>(stra::INST_KEY_LEN - 1),
+                  "L0 超长 pairKey -> 截断到 INST_KEY_LEN-1 并补 '\\0'（不越界）");
+        }
+
+        // 条数上限：超了整份拒绝，不静默截断（半份命令比没有命令更危险）
+        {
+            std::string many = R"({"op":{"pairTrading":{"pairCommands":[)";
+            for (int i = 0; i <= kMaxPairCommands; ++i) {
+                if (i) many += ",";
+                many += "{\"pairKey\":\"P" + std::to_string(i) + "\",\"cmdType\":2}";
+            }
+            many += "]}}}";
+            rc = RuntimeConfig{};
+            WriteTextFile(cfgPath, many);
+            CHECK(!ReadRuntimeConfigFile(cfgPath, rc),
+                  "L0 超过 kMaxPairCommands 条 -> false（整份拒绝）");
+        }
+    }
+
+    // ---- L1~L5 closeRemainVolume 进 orderParams ----
+    {
+        Fx fx; Boot(fx);
+        PairInfo& pi = *fx.pi();
+        MakeHoldable(pi, -5.0);              // maxVolume = 10
+
+        // L1 默认 0：与改动前完全等价（End 全 0 = 平干净）
+        pi.closeRemainVolume = 0.0;
+        sg.RecalcOrderParams(pi);
+        CHECK(Near(pi.orderParams.ttCLEndVolume, 0.0) && Near(pi.orderParams.mtCLEndVolume, 0.0) &&
+              Near(pi.orderParams.ttCSEndVolume, 0.0) && Near(pi.orderParams.mtCSEndVolume, 0.0),
+              "L1 closeRemainVolume = 0 -> 4 个平仓末端仍是 0（平干净，行为不变）");
+
+        // L2 符号：pairTotalVolume 多负空正（IsLong() = vol < 0），所以 CL 末端 -r、CS 末端 +r
+        pi.closeRemainVolume = 3.0;
+        sg.RecalcOrderParams(pi);
+        CHECK(Near(pi.orderParams.ttCLEndVolume, -3.0) && Near(pi.orderParams.mtCLEndVolume, -3.0),
+              "L2 CL 末端 = -r（多头持仓是负数，平到 -3 就停）");
+        CHECK(Near(pi.orderParams.ttCSEndVolume, 3.0) && Near(pi.orderParams.mtCSEndVolume, 3.0),
+              "L2 CS 末端 = +r（空头持仓是正数）");
+        CHECK(Near(pi.orderParams.ttCLStartVolume, -10.0) && Near(pi.orderParams.ttCSStartVolume, 10.0),
+              "L2 起点不变（只改末端，不动阶梯长度以外的东西）");
+
+        // L3 r > maxVolume：夹到 maxVolume，绝不出现反向阶梯（End 比 Start 更远离 0）
+        pi.closeRemainVolume = 99.0;
+        sg.RecalcOrderParams(pi);
+        CHECK(Near(pi.orderParams.ttCLEndVolume, -10.0) && Near(pi.orderParams.ttCSEndVolume, 10.0),
+              "L3 r > maxVolume -> 夹到 maxVolume（阶梯退化成平线，不会反向）");
+
+        // L4 负值当 0（平干净）。
+        //    ⚠️ 只挡负数，**不挡 NaN** —— NaN 走不到这里：唯一的写入方是 pairCommands，而
+        //    ReadRuntimeConfigFile 的 ParseDouble 已经用 isfinite 拒掉了，字段也不进快照。
+        //    写成 `if (!(r > 0.0))` 也能挡 NaN，但比 `r < 0.0` 难读，换不来任何东西。
+        pi.closeRemainVolume = -3.0;
+        sg.RecalcOrderParams(pi);
+        CHECK(Near(pi.orderParams.ttCLEndVolume, 0.0), "L4 负残余量 -> 当 0（平干净）");
+
+        // L5 信号闸门：末端就是"还剩多少就不再报平仓单"
+        //    多头 5（vol = -5），CL 判据 `vol < End - 1e-9`
+        pi.closeRemainVolume = 2.0;
+        sg.RecalcOrderParams(pi);
+        pi.rtSpread.valid = true;
+        pi.rtSpread.spreadAskBid = 1.0;                 // CL: spreadAskBid - F_tt > ttCLStartSpread
+        pi.orderParams.ttCLStartSpread = 0.0;
+        CHECK(sg.CheckSignalForSatisfy(pi).ttCLSignal,
+              "L5 持仓 5 > 残余 2 -> CL 信号成立（还没到目标）");
+
+        pi.closeRemainVolume = 6.0;
+        sg.RecalcOrderParams(pi);
+        pi.rtSpread.valid = true;
+        pi.rtSpread.spreadAskBid = 1.0;
+        pi.orderParams.ttCLStartSpread = 0.0;
+        CHECK(!sg.CheckSignalForSatisfy(pi).ttCLSignal,
+              "L5 持仓 5 < 残余 6 -> CL 信号不成立（已经到目标，不再平）");
+    }
+
+    // ---- L6~L11 OnTimer 0.6 的落地 / 粘住 / 拒绝 ----
+    {
+        Fx fx; Boot(fx); GoTrading(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -5.0);
+        MakeOpenFriendlyStats(pi);           // 统计有效 -> RecalcOrderParams 走完整路径
+        fx.ctx.m_cfg.configPath = cfgPath;
+        fx.ctx.StopSignalThread();
+        int64_t lastStats = 0;
+
+        // L6 下发 CLOSE：三个字段一次落地，且 orderParams 立刻重算、algoModifyTime 归零
+        pi.algoModifyTime = 999 * SEC;       // 先设一个"刚刚推过参数"的时刻
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT",
+             "cmdType":2,"profitPct":-0.002,"closeRemainVolume":3}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1000 * SEC, lastStats);
+        fx.ctx.OnTimer(1000 * SEC);
+        CHECK(pi.closeFlag, "L6 closeFlag 被置位（只平不开）");
+        CHECK(Near(pi.profitPct, -0.002), "L6 profitPct = -0.002（让利平仓）");
+        CHECK(Near(pi.closeRemainVolume, 3.0), "L6 closeRemainVolume = 3");
+        CHECK(Near(pi.orderParams.ttCLEndVolume, -3.0),
+              "L6 OnTimer 同一步就把 orderParams 重算了（平仓末端 = -3）");
+        CHECK(!pi.orderParams.ttOLSwitch && !pi.orderParams.ttOSSwitch &&
+              !pi.orderParams.mtOLSwitch && !pi.orderParams.mtOSSwitch,
+              "L6 4 个开仓开关被 ApplyNoOpenGate 压掉（closeFlag 生效）");
+        CHECK(pi.algoModifyTime == 0,
+              "L6 algoModifyTime 归零 -> 在跑的算法单下一轮 ProcessModify 立刻拿到新参数");
+
+        // L7 删条目 = 什么都不做（单向写字段，**没有**自动恢复）
+        //    ⚠️ 这是刻意语义：恢复要发 cmdType=3，或人工改快照再重启
+        //    （stopFlag 第 28 列 / closeFlag 第 29 列 / profitPct 第 30 列；
+        //     closeRemainVolume 不进快照，重启后自动回 0）。钉住它，免得将来有人"顺手"
+        //    把差集恢复加回来 —— 那需要一整套账本 + 基线，只为一件很少发生的事。
+        pi.autoFlag = false;
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[]}}})");
+        fx.ctx.RunSignalOnce(1001 * SEC, lastStats);
+        fx.ctx.OnTimer(1001 * SEC);
+        CHECK(pi.closeFlag, "L7 删条目不恢复 -> closeFlag 仍为 true（靠人工改快照 + 重启）");
+        CHECK(Near(pi.profitPct, -0.002), "L7 profitPct 粘住 -0.002");
+        CHECK(Near(pi.closeRemainVolume, 3.0), "L7 closeRemainVolume 粘住 3");
+        CHECK(!pi.autoFlag, "L7 autoFlag 一个都没动");
+
+        // L8 同一对子再下发：命令是"整条覆盖"，不是补丁
+        //    ⚠️ 没写的字段会被写成缺省 0（不是"保持原值"）。所以命令要按完整一条写。
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT","cmdType":2,"closeRemainVolume":5}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1002 * SEC, lastStats);
+        fx.ctx.OnTimer(1002 * SEC);
+        CHECK(Near(pi.closeRemainVolume, 5.0),
+              "L8 再下发能改（命令是写字段，不是一次性事件）");
+        CHECK(Near(pi.orderParams.ttCLEndVolume, -5.0), "L8 orderParams 跟着改（末端 = -5）");
+        CHECK(Near(pi.profitPct, 0.0),
+              "L8 没写 profitPct -> 被写成缺省 0（整条覆盖，不是保持 -0.002）");
+        CHECK(pi.closeFlag, "L8 closeFlag 仍为 true（命令里没有撤销这个动作）");
+
+        // L9 stopFlag 下拒绝 CLOSE：closeFlag 不能置位（置了也发不出平仓单，还会被下一轮重新置位）
+        //    注意 RESUME 必须**不被**这道闸门挡住 —— 见 L15。
+        pi.stopFlag = true;
+        pi.closeFlag = false;
+        pi.closeRemainVolume = 0.0;
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT","cmdType":2,"closeRemainVolume":3}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1003 * SEC, lastStats);
+        fx.ctx.OnTimer(1003 * SEC);
+        CHECK(!pi.closeFlag, "L9 stopFlag 下 CLOSE 被拒绝 -> closeFlag 保持 false");
+        CHECK(Near(pi.closeRemainVolume, 0.0), "L9 stopFlag 下 closeRemainVolume 也没写进去");
+
+        // L15 RESUME 必须能解开 STOP（回归点）
+        //    ⚠️ 曾经写成"stopFlag 就拒绝整条命令"，而 STOP 自己写的就是 stopFlag ⇒
+        //    发完 STOP 之后 RESUME 永远进不来，对子只能靠重启救。闸门现在只拦 CLOSE。
+        pi.closeFlag = false;
+        pi.profitPct = -0.002;
+        pi.closeRemainVolume = 3.0;
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT","cmdType":3}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1003 * SEC + 1, lastStats);
+        fx.ctx.OnTimer(1003 * SEC + 1);
+        CHECK(!pi.stopFlag, "L15 RESUME 能解开 STOP（stopFlag -> false）");
+        CHECK(!pi.closeFlag, "L15 RESUME 一并清 closeFlag");
+        CHECK(Near(pi.closeRemainVolume, 0.0), "L15 RESUME 把残余量回 0（否则下一轮又平到半路）");
+        CHECK(Near(pi.profitPct, 0.0),
+              "L15 RESUME 把 profitPct 写成命令里的值；没写就是 0（覆盖掉 -0.002 的让利门槛）");
+        CHECK(!pi.autoFlag, "L15 RESUME 不碰 autoFlag（还是 L7 设的 false）");
+
+        // L10 未知 pairKey 只跳过自己，同批其它命令照常生效
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"NO_SUCH_PAIR","cmdType":2,"closeRemainVolume":7},
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT","cmdType":2,"closeRemainVolume":2}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1004 * SEC, lastStats);
+        fx.ctx.OnTimer(1004 * SEC);
+        CHECK(pi.closeFlag && Near(pi.closeRemainVolume, 2.0),
+              "L10 未知对子只跳过自己，同批的已知对子照常落地");
+
+        // L11 dust：残余量落在 (0, activeParam.minVolume) 时那一段永远平不掉 -> 该字段不生效
+        pi.closeFlag = false;
+        pi.closeRemainVolume = 0.0;
+        pi.activeParam.minVolume = 1.0;
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT","cmdType":2,"closeRemainVolume":0.5}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1005 * SEC, lastStats);
+        fx.ctx.OnTimer(1005 * SEC);
+        CHECK(pi.closeFlag, "L11 dust 只挡残余量，不挡 closeFlag（急停仍然生效）");
+        CHECK(Near(pi.closeRemainVolume, 0.0),
+              "L11 残余量 0.5 < minVolume 1 -> 该字段不生效（保留原值 0 = 平干净）");
+
+        // L14 STOP：开仓和平仓都不发（CanOpen / CanClose 都判 stopFlag）
+        pi.closeFlag = false;
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT","cmdType":1}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1006 * SEC, lastStats);
+        fx.ctx.OnTimer(1006 * SEC);
+        CHECK(pi.stopFlag, "L14 STOP -> stopFlag = true");
+        {
+            // 隔离全局闸门：CanOpen 先判 m_closeOnly，前面几组可能留下 true
+            sg.SetCloseOnly(false);
+            sg.SetGlobalPositionExceeded(false);
+            std::string r1, r2;
+            CHECK(!sg.CanOpen(pi, r1) && r1 == "stopFlag = true", "L14 STOP 后开仓被挡（reason 说得出原因）");
+            CHECK(!sg.CanClose(pi, r2) && r2 == "stopFlag = true",
+                  "L14 STOP 后**连平仓也被挡**（这就是 STOP 与 CLOSE 的区别）");
+        }
+
+        // L16 整条覆盖：CLOSE 只写 pairKey+cmdType ⇒ 两个数值字段被写成缺省 0
+        //    先 RESUME 解除 L14 的 stopFlag（顺带带一个 closeRemainVolume，让这份配置
+        //    与下面那份长度不同 —— 指纹只看 mtime/size/inode，同长度文件在粗粒度
+        //    文件系统上可能被判成"没改"而根本不重读）
+        pi.profitPct = -0.002;   // 先放一个非 0 值，才能看出下面确实被覆盖了
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT","cmdType":3,"closeRemainVolume":0}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1007 * SEC, lastStats);
+        fx.ctx.OnTimer(1007 * SEC);
+        CHECK(!pi.stopFlag && !pi.closeFlag, "L16 前置：RESUME 把 STOP 解开");
+
+        pi.profitPct = -0.002;   // 再放一次（RESUME 那条命令里没写 profitPct，已把它写成 0）
+        WriteTextFile(cfgPath, R"({"op":{"pairTrading":{"pairCommands":[
+            {"pairKey":"BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT","cmdType":2}
+        ]}}})");
+        fx.ctx.RunSignalOnce(1008 * SEC, lastStats);
+        fx.ctx.OnTimer(1008 * SEC);
+        CHECK(pi.closeFlag, "L16 CLOSE 只写 pairKey+cmdType 也能生效");
+        CHECK(Near(pi.profitPct, 0.0),
+              "L16 没写 profitPct -> 被写成缺省 0（整条覆盖；要保留原值就得写进命令）");
+        CHECK(Near(pi.closeRemainVolume, 0.0), "L16 没写 closeRemainVolume -> 缺省 0");
+    }
+
+    // ---- L12~L13 传播面：残余量绝不能漏进风控强平单 ----
+    {
+        Fx fx; Boot(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -5.0);
+        pi.closeRemainVolume = 3.0;
+        sg.RecalcOrderParams(pi);
+
+        // RecalcOrderParams 之后开关可能被压掉，这里显式全开（A9 同款做法）
+        auto& op = pi.orderParams;
+        op.ttOLSwitch = op.ttOSSwitch = op.ttCLSwitch = op.ttCSSwitch = true;
+        op.mtOLSwitch = op.mtOSSwitch = op.mtCLSwitch = op.mtCSSwitch = true;
+
+        // L12 建单：强平单归零，普通平仓单继承
+        BaseAlgoOrder* risk = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.0, AlgoRole::RISK_CLOSE);
+        CHECK(risk && Near(risk->ttCLEndVolume, 0.0) && Near(risk->mtCLEndVolume, 0.0) &&
+              Near(risk->ttCSEndVolume, 0.0) && Near(risk->mtCSEndVolume, 0.0),
+              "L12 风控强平单的 4 个平仓末端被归零（强平的定义是平干净）");
+        delete risk;
+
+        BaseAlgoOrder* cl = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.0, AlgoRole::CLOSE_SIGNAL);
+        CHECK(cl && Near(cl->ttCLEndVolume, -3.0) && Near(cl->mtCSEndVolume, 3.0),
+              "L12 普通平仓单继承残余量（部分平仓是它自己的语义）");
+        delete cl;
+
+        // L13 改参：强平单归零，普通单继承
+        pi.activeAlgoIsRiskClose = true;
+        stra::AlgoOrderModify mRisk = PairTradingContext::BuildNormalModify(pi);
+        CHECK(Near(mRisk.ttCLEndVolume, 0.0) && Near(mRisk.mtCLEndVolume, 0.0) &&
+              Near(mRisk.ttCSEndVolume, 0.0) && Near(mRisk.mtCSEndVolume, 0.0),
+              "L13 强平单 MODIFY 也归零（否则 60s 后被改回平到半路）");
+
+        pi.activeAlgoIsRiskClose = false;
+        stra::AlgoOrderModify mNorm = PairTradingContext::BuildNormalModify(pi);
+        CHECK(Near(mNorm.ttCLEndVolume, -3.0) && Near(mNorm.mtCSEndVolume, 3.0),
+              "L13 普通单 MODIFY 继承残余量");
+
+        // 流动性告急（aggressiveClose）走 BuildCloseModify：一律平干净
+        stra::AlgoOrderModify mAggr = PairTradingContext::BuildCloseModify(pi, 0.001);
+        CHECK(Near(mAggr.ttCLEndVolume, 0.0) && Near(mAggr.mtCLEndVolume, 0.0) &&
+              Near(mAggr.ttCSEndVolume, 0.0) && Near(mAggr.mtCSEndVolume, 0.0),
+              "L13 流动性告急（BuildCloseModify）一律平干净");
+    }
+}
+
+// ===========================================================================
 int main() {
     // 固定配置，让成本口径可预测。
     //
@@ -3464,6 +3862,7 @@ int main() {
     TestI_Balance();
     TestJ_TotalAccount();
     TestK_RuntimeConfig();
+    TestL_PairCommands();
 
     std::printf("\n=================================================\n");
     std::printf("PASS: %d   FAIL: %d\n", g_pass, g_fail);

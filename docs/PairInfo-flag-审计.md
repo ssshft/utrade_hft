@@ -279,8 +279,11 @@ profitPct = 0.0001         // ← 恢复默认（也可以不回，但要明确�
 
 ### 3.9 修订（2026-10-29，三态模型落地后）
 
-**结论：主体不变** —— `closeFlag` 当 park、`profitPct` 放松门槛、`closeRemainVolume` 决定平到哪、
-`pairCommands` 差集即恢复。但有 6 处要改，其中 **§3.9.3 是唯一会改变实现范围的一条**。
+**结论：主体不变** —— `closeFlag` 当 park、`profitPct` 放松门槛、`closeRemainVolume` 决定平到哪。
+但有 6 处要改，其中 **§3.9.3 是唯一会改变实现范围的一条**。
+
+> 🔴 下表的"差集即恢复"**已在 2026-10-29 二次简化里整个删掉**（用户要求：只要平仓，
+> 恢复靠人工改快照 + 重启）。落地清单看 §3.9.4，理由与实现要点看 §3.9.5 开头。
 
 | # | 原文 | 现在 | 处理 |
 |---|---|---|---|
@@ -289,7 +292,7 @@ profitPct = 0.0001         // ← 恢复默认（也可以不回，但要明确�
 | 3 | §3.5「加一列会移动 30/31/32 三个索引」 | ❌ **失效**：`errorFlag` 已删、快照 32 列，加在尾部不动任何索引 | **仍不加**，换理由：32+1 = 33 撞上刚废弃的旧格式，而校验只数个数（§3.9.2） |
 | 4 | §3.1 碰撞矩阵 | `limitFlag` / `errorFlag` 两行作废；`autoFlag` 现在只是标签，"绝对不要写"从"危险"降级为"无意义" | 按三态重画 |
 | 5 | 方案 B「`RuntimeConfig` 加 `pairCommands`」 | ⚠️ **新约束**：`m_cfgQ` 是 `boost::lockfree::spsc_queue<RuntimeConfig, capacity<16>>`（`PairTradingContext.h:31`），元素整份按值拷，现在 `RuntimeConfig` 是可平凡拷贝的 2 个 bool | 必须用**定长 POD**，不能 `std::string` / `std::vector` |
-| 6 | §3.6 恢复路径 | ⚠️ `ApplyCommand` 与三态脱节：`STOP` 仍写 `autoFlag=false`、`RESUME` 写 `autoFlag=true`，都不 `RecalcOrderParams`、不清 `algoModifyTime` | 差集恢复只清 `closeFlag`（+ `closeRemainVolume`），**不碰** `autoFlag` / `stopFlag` |
+| 6 | §3.6 恢复路径 | ⚠️ `ApplyCommand` 与三态脱节：`STOP` 仍写 `autoFlag=false`、`RESUME` 写 `autoFlag=true`，都不 `RecalcOrderParams`、不清 `algoModifyTime` | **二次简化后连恢复都不做了**（见 §3.9.5 开头）：命令只写 `closeFlag` / `profitPct` / `closeRemainVolume`，**不碰** `autoFlag` / `stopFlag`；恢复靠人工改快照 + 重启 |
 
 #### 3.9.1 为什么"顺手清 `stopFlag`"现在更不能做
 
@@ -352,21 +355,107 @@ profitPct = 0.0001         // ← 恢复默认（也可以不回，但要明确�
 
 #### 3.9.4 修订后的落点清单
 
-| 项 | 改动 | 位置 |
-|---|---|---|
-| A | `PairInfo::closeRemainVolume{0.0}`，4 处 `*CLEndVolume / *CSEndVolume` 用它替代 `0.0` | `SignalGenerator.cpp:37/43/49/55` |
-| A' | 强平单把这 4 个归零（原 §3.4，不变；`ProcessRisk:434` 明确不判三态 ⇒ 一定会传播） | `BuildAlgoOrderJson` 的 `RISK_CLOSE` 分支、`BuildNormalModify` 的 `activeAlgoIsRiskClose` 分支 |
-| A'' | ✅ 已做：`ApplyNoOpenGate(const PairInfo&, OrderParams&)` 并入 `pi.closeFlag`，补上**早退出口**；`stopFlag` 不必并 | `SignalGenerator.h:184`、`.cpp:224` + 调用点 `:61` / `:219` |
-| B | `RuntimeConfig` 加**定长 POD** 的 `pairCommands`（`char[64]` 键 + 三态 + `profitPct` + `closeRemainVolume`），差集 = 恢复 | `RuntimeConfig.h`、`ReadRuntimeConfigFile` |
-| B' | 命令落地：写三态 + `RecalcOrderParams` + `algoModifyTime = 0`；`stopFlag` 为真则**拒绝 + LOG_ERROR** | `OnTimer` 0.6（`:1188` 那段） |
-| B'' | `m_appliedCmdPairs` 启动时从 `closeFlag == true` 的对子播种（`closeFlag` 在快照里，下标 `f[28]`） | `Init` |
-| C | 终结判据**不动**（§3.8 结论不变：多一次 `CANCELED` + 一条 Lark） | — |
+| 项 | 改动 | 位置 | 状态 |
+|---|---|---|---|
+| A | `PairInfo::closeRemainVolume{0.0}`，4 处 `*CLEndVolume / *CSEndVolume` 用它替代 `0.0` | `SignalGenerator.cpp` 量阶梯段 | ✅ |
+| A' | 强平单把这 4 个归零（原 §3.4，不变；`ProcessRisk` 明确不判三态 ⇒ 一定会传播） | `BuildAlgoOrderJson` 的 `RISK_CLOSE` 分支、`BuildNormalModify` 的 `activeAlgoIsRiskClose` 分支、`BuildCloseModify` | ✅ |
+| A'' | `ApplyNoOpenGate(const PairInfo&, OrderParams&)` 并入 `pi.closeFlag`，补上**早退出口**；`stopFlag` 不必并 | `SignalGenerator.h`、`.cpp` + 两个调用点 | ✅ |
+| B | `RuntimeConfig` 加**定长 POD** 的 `pairCommands`（`char[INST_KEY_LEN]` 键 + `profitPct` + `closeRemainVolume` + 两个 set 标记）。**单向写字段，不做差集恢复** | `RuntimeConfig.h`、`ReadRuntimeConfigFile` | ✅ |
+| B' | 命令落地：写三态 + `RecalcOrderParams` + `algoModifyTime = 0`；`stopFlag` 为真则**拒绝 + LOG_ERROR** | `OnTimer` 0.6 | ✅ |
+| B'' | ~~`m_appliedCmdPairs` 启动时播种~~ **删除**（2026-10-29 二次简化，见 §3.9.5 开头） | — | 不做 |
+| C | 终结判据**不动**（§3.8 结论不变：多一次 `CANCELED` + 一条 Lark） | — | 不做 |
 
-> ⚠️ **别"顺手清理"`BuildAlgoOrderJson:1039` 的 `*pSwitch = true`**：
+> ⚠️ **别"顺手清理"`BuildAlgoOrderJson` 的 `*pSwitch = true`**：
 > `OrderParams` 的 8 个开关默认**全 false**（`PairInfo.h:173-216`），而 `RecalcOrderParams` 在
 > `!largeStats.IsValid()` 时早退、跳过 `op.*CLSwitch = true` 那两行 ⇒ 预热期建出来的强平单
 > `op.mtCLSwitch` 可能就是 false，这行是它"真的会去平"的唯一保证。
 > 它只把 (algoMode, direction) 对应的**那一个**开关置 true，碰不到 4 个开仓开关（`A11b` 钉住）。
+
+#### 3.9.5 落地记录（2026-10-28，2026-10-29 二次简化，2026-10-30 加 `cmdType`）
+
+> 🔴 **二次简化：把"差集 = 恢复"整套删掉了。**
+> 用户的原话："这个逻辑有点复杂了，还需要记下之前的手动平仓单吗？我只是需要平仓，
+> 如果不能自动的话，可以手动修改重启的。"
+> ⇒ `pairCommands` 变成**单向写字段**：删掉条目 = 什么都不做，字段一直粘着；
+> 恢复靠 `cmdType: 3` 或人工改快照 + 重启。删掉的东西：`m_appliedCmdPairs`、`m_cmdBaselineDone`、
+> `Init` 里的播种、`ApplyPairCommands` 里的 `wanted` 集合与差集循环。
+> 理由不只是"少写代码"：自动恢复要区分"快照带来的 `closeFlag`"和"命令写的 `closeFlag`"，
+> 否则启动 1 秒就会把人工停机悄悄解开 —— 为此得再加一个"基线"状态。为一件很少发生的事
+> 背两套状态，不划算。
+
+> 🟢 **2026-10-30：加 `cmdType`，三态齐全。** 用户原话："增加了 cmdType 字段，用于停止、
+> 只平仓和恢复，其实不用必须下一个 tick 生效，只要 on timer 定时更新报单参数和修改算法单参数，
+> 一两分钟就会同步，这个是可以容忍的。"
+> 枚举从 `PairInfo.h` 移到 `basic/DataStruct.h` 的**全局** `namespace pt`（不是 `stra::pt` ——
+> `RuntimeConfig.h` 要能用它，而它不能依赖 `PairInfo.h`）；`PairCommand` 里的
+> `setProfitPct` / `setRemainVolume` 两个标记被删掉。
+>
+> ⚠️ **同一天又按用户要求退回了一版**：我一度把 `profitPct` / `closeRemainVolume` 的缺省值改成
+> `NaN`（"没写 = 不改"）并加了一整套解析期校验，用户否决："profitPct，closeRemainVolume 就是要
+> 默认 0，都已经配置了啊" ⇒ **两个字段缺省 `0`、解析层只做类型转换**，业务校验全部交回落地端
+> `ApplyPairCommands`（`LOG_ERROR` + 跳过该条）。`ReadRuntimeConfigFile` 里只保留三样：
+> 非数组拒绝、超 32 条拒绝、以及把 `std::stoi`/`std::stod` 的异常 catch 住（见第 8 条）。
+
+**用法**（`etc/config.json` → `op.pairTrading.pairCommands`，保存后下一个 1 Hz tick 生效）：
+
+```json
+"pairCommands": [
+  {
+    "pairKey": "BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT",
+    "cmdType": 2,
+    "profitPct": -0.002,
+    "closeRemainVolume": 0
+  }
+]
+```
+
+`pairKey` / `cmdType` 必填、其余可选；`cmdType`：1=停止交易（`stopFlag`，开平仓都不发）、
+2=只平不开（`closeFlag`）、3=恢复（清两个 flag + `closeRemainVolume`→0 + `profitPct`→默认）、
+4=改参数（未实现，解析期拒绝）。**仓库默认必须是空数组**。
+完整语义与边界写在 `basic/RuntimeConfig.h` 的文件头（那是唯一权威的用法说明）。
+
+**恢复（手动，一次性）**：改快照再重启 —— `stopFlag` 第 **28** 列、`closeFlag` 第 **29** 列改
+`false`、`profitPct` 第 **30** 列改 `0.0001`；`closeRemainVolume` 不进快照，重启后自动回 0。
+运行中改 CSV 无效（`SaveSnapshot` 每 10s 会覆盖回去）。
+
+实现上要记住的 8 件事：
+
+1. **符号**：`pairTotalVolume` **多负空正**（`PairInfo::IsLong()` 是 `vol < 0`）。所以 CL 的末端是
+   `-r`、CS 是 `+r`。写成同一个符号的症状是"CS 永远不触发"—— 判据 `vol > End + 1e-9` 会变成
+   "多头才平空单"。
+2. **夹在 `[0, maxVolume]`**：`r > maxVolume` 会让 End 比 Start 更远离 0，阶梯反向（价差越深平得
+   越多），而且信号闸门要求 `|持仓| > r > maxVolume`、正常永远不成立。夹到 `maxVolume` 之后
+   阶梯退化成平线 = "不新增平仓"，语义正确。负值当 0（平干净）。
+   ⚠️ 只挡负值：唯一写入方是 `pairCommands`，字段也不进快照，不会出现 NaN ⇒ `r < 0.0`
+   够用，别写成 `!(r > 0.0)`。
+3. **`profitPct` 写负数才是让利**：平仓阈值 = 分位数边界 + `profitPct`，越小越容易触发。
+   `profitSwitch = false` 时它完全不参与计算（`SignalGenerator.cpp` 四处 `?:`），所以落地时
+   会 `LOG_ERROR` 喊出来 —— **不替运维打开 `profitSwitch`**（那是另一个开关的语义）。
+4. **缺省 = `0`，命令是"整条覆盖"不是补丁**：`PairCommand::profitPct` / `closeRemainVolume`
+   的缺省值就是 `0.0`（用户定的：命令都按完整一条写）。所以没写的字段会被写成 `0` ——
+   对 `closeRemainVolume` 正好是"平干净"，对 `profitPct` 是"比默认 `0.0001` 略严"，都不危险。
+   ⚠️ 别再改回 `NaN` 哨兵或 `set*` 标记：用户明确要 `0`。
+5. **dust 只挡字段、不挡命令**：`closeRemainVolume` 落在 `(0, activeParam.minVolume)` 时那一段
+   永远平不掉（`CanClose` 直接不报单），所以该字段不生效并 `LOG_ERROR`，但 `closeFlag` 照常置位
+   —— 急停还是要生效的。不静默改成 0：静默修正比拒绝更难排查。
+6. **`stopFlag` 下只拒绝 `cmdType=2`，`3` 必须放行。** 理由见 §3.9.1（那时 `CanClose` 返回 false，
+   置 `closeFlag` 也没用）。但闸门**不能**做成"有 stopFlag 就跳过整条命令"—— `STOP` 自己写的
+   就是 `stopFlag`，那样发完 `1` 之后 `3` 永远进不来，对子只能靠重启救。**这是 L15 钉住的回归点。**
+7. **解析层只做类型转换，业务校验在落地端**：`ReadRuntimeConfigFile` 只拒绝三种情况 ——
+   `pairCommands` 不是数组、超过 32 条、数字写成非数字（异常）。缺 `pairKey` / 缺 `cmdType` /
+   `cmdType` 越界（含 `4`）/ 键重复 / 键超长 都**放行**，由 `ApplyPairCommands` 逐条
+   `LOG_ERROR` 后跳过，其余条目照常生效。运维必须看日志确认自己那条到底落没落地。
+8. 🔴 **`std::stoi` / `std::stod` 必须包 `try/catch`**：它们**会抛异常**，而调用点
+   `RunSignalOnce` 跑在 `T_signal` 线程、`SignalWork` 外层**没有** `try/catch` ——
+   配置里写错一个字符就能把进程带走。`ReadRuntimeConfigFile` 现在把整个 for 循环包在
+   `try { } catch (const std::exception&)` 里，捕获后按"读失败"返回 false（保留上一次的命令）。
+   ⚠️ 这段 catch 是**唯一的**防线，删了就是把进程交给一个笔误。
+   ⚠️ 另外 `kParseNumbersAsStringsFlag` 会把**所有数字变成字符串**，所以 `"cmdType": 2` 与
+   `"cmdType": "2"` 不可区分 —— 这不是 bug，是那条 flag 的必然结果；同理 `"pairKey": 123`
+   会被读成字符串 `"123"`（然后变成未知对子），别指望解析层拦它。
+
+**测试**：`tests/market_to_algo` 的 L 组（L0 解析器 / L1~L5 阶梯与信号闸门 / L6~L11 落地与粘住 /
+L12~L13 传播面 / L14~L16 三态），三套件 **566 / 212 / 0** 全绿。
 
 ---
 

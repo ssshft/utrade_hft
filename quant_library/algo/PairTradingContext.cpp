@@ -646,6 +646,14 @@ stra::AlgoOrderModify PairTradingContext::BuildNormalModify(const PairInfo& pi) 
     m.mtCSStartVolume = op.mtCSStartVolume;
     m.mtCSEndVolume = op.mtCSEndVolume;
 
+    // 强平单必须平干净（与 BuildAlgoOrderJson 的 RISK_CLOSE 分支同一条理由）。
+    if (pi.activeAlgoIsRiskClose) {
+        m.ttCLEndVolume = 0.0;
+        m.mtCLEndVolume = 0.0;
+        m.ttCSEndVolume = 0.0;
+        m.mtCSEndVolume = 0.0;
+    }
+
     return m;
 }
 
@@ -680,6 +688,12 @@ stra::AlgoOrderModify PairTradingContext::BuildCloseModify(const PairInfo& pi, d
     m.mtCLEndSpread = pi.orderParams.mtCLEndSpread - shiftPct;
     m.mtCSStartSpread = pi.orderParams.mtCSStartSpread + shiftPct;
     m.mtCSEndSpread = pi.orderParams.mtCSEndSpread + shiftPct;
+
+    // 流动性告急（liquid_status == 2）时更该平干净
+    m.ttCLEndVolume = 0.0;
+    m.mtCLEndVolume = 0.0;
+    m.ttCSEndVolume = 0.0;
+    m.mtCSEndVolume = 0.0;
 
     return m;
 }
@@ -976,6 +990,12 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
         pAlgoOrder->ttOSSwitch = false;
         pAlgoOrder->mtOLSwitch = false;
         pAlgoOrder->mtOSSwitch = false;
+
+        // 平仓末端也必须归零：上面 32 个参数是整份照搬 pi.orderParams
+        pAlgoOrder->ttCLEndVolume = 0.0;
+        pAlgoOrder->mtCLEndVolume = 0.0;
+        pAlgoOrder->ttCSEndVolume = 0.0;
+        pAlgoOrder->mtCSEndVolume = 0.0;
     }
 
     // 5. 本次触发的模式+方向：套用风控价差修正，并确保开关打开
@@ -1137,6 +1157,107 @@ void PairTradingContext::OnAlgoOrderUpdate(BaseAlgoOrder* order) {
     pim.ClearActiveAlgoOrder(pairKey);
 }
 
+// ---------------------------------------------------------------------------
+// 指定币对命令：把 op.pairTrading.pairCommands 落到 PairInfo 上
+//
+// 三种 cmdType（见 pt::PairCommandType）：
+//   1 STOP      stopFlag = true   -> 开仓和平仓都不发（CanOpen / CanClose 都判 stopFlag），等于冻结该对子；
+//   2 CLOSE     closeFlag = true  -> 只平不开，同时把 profitPct / closeRemainVolume 写成命令里的值；
+//   3 RESUME    清 stopFlag / closeFlag，并把两个数值字段写成命令里的值（缺省 0）。
+//
+// **单向**：删掉条目 = 什么都不做，字段会一直粘着，恢复靠 cmdType=3 或人工改快照 + 重启。
+// 为什么不做差集恢复：账本的种子来自快照的 closeFlag，它分不清"命令写的"与"运维手改的"，
+// 按差集恢复会在启动 1 秒后把人工停机解开 —— 为一整套账本 + 基线不值得（见 RuntimeConfig.h）。
+//
+// **不碰 autoFlag**：它只是"参数由谁算"的标签；写成 false 会让该对子的单免掉超时撤单
+// （CheckAlgoOrderTimeout 直接 return），那不是急停该有的效果。
+// ---------------------------------------------------------------------------
+void PairTradingContext::ApplyPairCommands(const RuntimeConfig& rc) {
+    auto& pim = PairInfoManager::Instance();
+
+    for (int i = 0; i < rc.pairCmdCount; ++i) {
+        const PairCommand& cmd = rc.pairCommands[i];
+        const std::string key(cmd.pairKey);
+
+        PairInfo* pi = pim.GetPairInfo(key);
+        if (pi == nullptr) {
+            // 配置里写错一个字符就会走到这里。**不中断**其它命令：一个笔误不该让
+            // 另外几个对子的急停一起失效。
+            LOG_ERROR("pairCommands: 未知对子 {} -> 跳过（pairKey 必须与 pairInstrumentKey 完全一致）", key);
+            continue;
+        }
+
+        if (cmd.cmdType == PairCmd_STOP) { // 停止交易
+            if (!pi->stopFlag) {
+                pi->stopFlag = true;
+                LOG_WARN("pairCommands: 对子 {} -> 停止交易（stopFlag=true：开仓和平仓都不发，在跑的单等 CheckAlgoOrderTimeout 撤）。恢复用 cmdType=3", key);
+            }
+        }
+        else if (cmd.cmdType == PairCmd_RESUME) { //  恢复 必须排在 CLOSE 的 stopFlag 检查**之前**：STOP 自己写的就是 stopFlag，如果拿"stopFlag 就拒绝"把 RESUME 也拦掉，发完 STOP 之后该对子就只能重启救。
+            const bool wasStopped = pi->stopFlag;
+            const bool wasCloseOnly = pi->closeFlag;
+            const double oldPct = pi->profitPct;
+            const double oldRemain = pi->closeRemainVolume;
+
+            pi->stopFlag = false;
+            pi->closeFlag = false;
+
+            // 两个数值字段照命令写（缺省 0）。`closeRemainVolume = 0` 正是"平干净"，
+            // 也就是 RESUME 想要的效果；`profitPct` 不写会变成 0（比默认 0.0001 略严，
+            // 无害）。上一次为让利平仓写的 -0.002 必须被覆盖掉，否则每轮平仓都愿意亏 20bp。
+            pi->profitPct = cmd.profitPct;
+            pi->closeRemainVolume = cmd.closeRemainVolume;
+
+            LOG_WARN("pairCommands: 对子 {} -> 恢复（stopFlag {}->false, closeFlag {}->false, profitPct {}->{}, closeRemainVolume {}->{}）",
+                     key, wasStopped, wasCloseOnly, oldPct, pi->profitPct, oldRemain, pi->closeRemainVolume);
+        }
+        else if (cmd.cmdType != PairCmd_CLOSE) { // 只平不开 
+            // ---- 2 只平不开 ----
+            // stopFlag 下连平仓单都发不出去（SignalGenerator::CanClose），置 closeFlag 只是自欺欺人。
+            // 明确拒绝，并给出出路 —— 否则运维会以为命令生效了、等在那里干看。
+            if (pi->stopFlag) {
+                LOG_ERROR("pairCommands: 对子 {} 处于 stopFlag（停止交易 / 敞口异常 / 孤儿冻结）-> 拒绝 CLOSE。这时连平仓单都不会发；要先发 cmdType=3(RESUME) 解除，再发 CLOSE", key);
+                return;
+            }
+
+            if (!pi->closeFlag) {
+                pi->closeFlag = true;
+                LOG_WARN("pairCommands: 对子 {} -> 只平不开（closeFlag=true）", key);
+            }
+
+            // 两个字段照命令写（缺省 0）：命令是"整条覆盖"，不是"补丁"
+            if (pi->profitPct != cmd.profitPct) {
+                const double oldPct = pi->profitPct;
+                pi->profitPct = cmd.profitPct;
+                LOG_WARN("pairCommands: 对子 {} profitPct {} -> {}（负数 = 让利平仓；平仓阈值 = 分位数边界 + profitPct）", key, oldPct, cmd.profitPct);
+
+                // profitSwitch 关着时 profitPct 完全不参与计算（SignalGenerator 的 4 个平仓阈值），
+                // 命令会静默失效。不替运维打开它（那是另一个开关的语义），但必须喊出来。
+                if (!pi->profitSwitch) {
+                    LOG_ERROR("pairCommands: 对子 {} 的 profitSwitch=false -> profitPct 不生效！需要人工把 profitSwitch 打开", key);
+                }
+            }
+
+            if (pi->closeRemainVolume != cmd.closeRemainVolume) {
+                // 碎单校验：CanClose 在 |持仓| < activeParam.minVolume 时直接不报单，
+                const double minVolume = pi->activeParam.minVolume;
+                if (cmd.closeRemainVolume > 0.0 && minVolume > 0.0 && cmd.closeRemainVolume < minVolume) {
+                    LOG_ERROR("pairCommands: 对子 {} 的 closeRemainVolume {} 落在 (0, activeParam.minVolume {}) 区间 -> 这一段是碎单、永远平不掉；该字段不生效，按原值 {} 处理（0 = 平干净）",
+                            key, cmd.closeRemainVolume, minVolume, pi->closeRemainVolume);
+                } 
+                else {
+                    const double oldRemain = pi->closeRemainVolume;
+                    pi->closeRemainVolume = cmd.closeRemainVolume;
+                    LOG_WARN("pairCommands: 对子 {} closeRemainVolume {} -> {}（0 = 平干净）", key, oldRemain, cmd.closeRemainVolume);
+                }
+            }
+        }
+        else {
+            LOG_WARN("pairCommands not support cmdtype: {}", int(cmd.cmdType));
+        }
+    }
+}
+
 void PairTradingContext::OnTimer(int64_t nowUs) {
     auto& pim = PairInfoManager::Instance();
     auto& sg = SignalGenerator::Instance();
@@ -1190,14 +1311,24 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
         m_cfg.closeOnly = rc.closeOnly;
         m_cfg.stopAllAlgo = rc.stopAllAlgo;
 
-        // 立刻重算 orderParams 并把 algoModifyTime 归零。
+        // 按对子的命令必须在下面那个 RecalcOrderParams 循环**之前**：
+        // 循环要用到这里刚写进去的 closeFlag（ApplyNoOpenGate 读它）/ closeRemainVolume（阶梯末端）
+        // / profitPct（平仓阈值）。反过来就会慢一个 tick，而慢的那一个 tick 里
+        // 在跑的算法单还带着旧的开仓开关。
+        ApplyPairCommands(rc);
+
+        // 重算 orderParams 并把 algoModifyTime 归零。
+        // 这一步只是"让急停立刻可见"：即使去掉，OnTimer 第 1 步（volumeRecalcIntervalSec）
+        // 和第 2 步（统计刷新）也会在 ~60s 内重算，ProcessModify 再在 ~60s 内推给在跑的单，
+        // 最坏约 2 分钟也会同步 —— 运维能接受。保留它是因为代价只是一次全量重算，
+        // 而急停这种操作值得那 2 分钟。
         for (PairInfo* pi : pim.GetAllPairInfos()) {
             sg.RecalcOrderParams(*pi);
             pi->algoModifyTime = 0;   // 0 = 下一轮 ProcessModify 立即推（见它的计时判断）
         }
 
-        // 一行覆盖两个字段：运维要能从日志确认自己那次保存到底生效成了什么。
-        LOG_WARN("运行时配置: closeOnly={} stopAllAlgo={}", rc.closeOnly, rc.stopAllAlgo);
+        // 一行覆盖三个字段：运维要能从日志确认自己那次保存到底生效成了什么。
+        LOG_WARN("运行时配置: closeOnly={} stopAllAlgo={} pairCommands={} 条", rc.closeOnly, rc.stopAllAlgo, rc.pairCmdCount);
     }
 
     // 0.7 停掉所有算法单：每 tick 撤一遍

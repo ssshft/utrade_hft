@@ -1003,5 +1003,14 @@ inline double GetVolumeByAmountPrice(const md::InstrumentInfo& info, string base
     return volume;
 }
 
+namespace pt {
+    enum PairCommandType {
+        PairCmd_NONE = 0,
+        PairCmd_STOP = 1, // 停止交易
+        PairCmd_CLOSE = 2, // 只平不开
+        PairCmd_RESUME = 3, // 恢复自动开平仓
+        PairCmd_MODIFY = 4 // 修改参数
+    };
+}
 
 extern std::unordered_map<std::string, int> mAccountNameAccountId;

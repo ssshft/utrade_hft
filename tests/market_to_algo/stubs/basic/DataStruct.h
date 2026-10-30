@@ -225,3 +225,16 @@ namespace stra {
         double volume{0.0};
     };
 }
+
+// 与真实 basic/DataStruct.h 一致：`PairCommandType` 放在**全局** namespace pt 里
+// （不是 stra::pt），因为 RuntimeConfig.h / PairInfoManager.h 都在 `namespace pt` 里
+// 直接用不带限定的名字。桩头文件少了它，整个测试套编不过。
+namespace pt {
+    enum PairCommandType {
+        PairCmd_NONE = 0,
+        PairCmd_STOP = 1, // 停止交易
+        PairCmd_CLOSE = 2, // 只平不开
+        PairCmd_RESUME = 3, // 恢复自动开平仓
+        PairCmd_MODIFY = 4 // 修改参数
+    };
+}
