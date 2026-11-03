@@ -1,10 +1,12 @@
 #include <iostream>
 #include <csignal>
+#include <cstdio>
 #include <vector>
 #include "log_engine.h"
 #include "program_util.h"
 #include "config.h"
 #include "crypto_exception.h"
+#include "hft_metrics.h"
 #include "base/base_strategy.h"
 #include "tools/CReflectRegister.h"
 
@@ -64,6 +66,10 @@ int main(int argc, char* argv[]) {
     }
     crypto::write_program_pid(program);
 
+    // 延时统计的线程分片/直方图要在**起工作线程之前**分配掉（heavy_work 由 start() 拉起）。
+    // 编译期关掉时这个函数是空实现。
+    hft::metrics::warmup();
+
     std::string opStr = "";
     if (config->get_op_config("strategyOp", opStr)) {
         auto obj = ClassNameCreateObj(opStr);
@@ -77,8 +83,29 @@ int main(int argc, char* argv[]) {
         }
     }
 
+   // 统计落盘：文件名前缀故意用 "ut_metrics"，避免与同目录下 db 的 metrics_*.log、
+   // tb 的 tb_metrics_*.log 撞名。写失败（目录没权限等）就退到 stderr ——
+   // 统计失败不能把交易进程拖死。
+   //
+   // 周期 10 s：报告是给"事后看曲线"用的，1 s 一版只会把文件撑大；
+   // 而 ut.exec.idle 这类计数器自己会累加，10 s 粒度不影响判断。
+#if HFT_METRICS_ENABLED
+    hft::metrics::TextFileSink metricsSink(logPath, "ut_metrics", 8u << 20);
+    hft::metrics::Poller metricsPoller(
+        10000000000LL, [&metricsSink](const hft::metrics::Snapshot& s) {
+            if (!metricsSink.write(s)) {
+                std::fputs(s.to_text().c_str(), stderr);
+            }
+        });
+#else
+    LOG_WARN("latency metrics disabled at compile time (-DHFT_METRICS=OFF); no ut_metrics file will be written. rebuild with -DHFT_METRICS=ON to enable");
+#endif
+
    while(1) {
         log_maintain(tag, logPath, logLevel);
+#if HFT_METRICS_ENABLED
+        metricsPoller.poll();   // 0 参 = 自己读时钟
+#endif
         usleep(1000);
     }
 

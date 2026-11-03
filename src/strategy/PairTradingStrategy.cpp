@@ -3,6 +3,7 @@
 #include "basic/PairInfoManager.h"
 #include "basic/WriteFileContent.h"
 #include "basic/SpreadManager.h"
+#include "hft_metrics.h"
 #include "log_engine.h"
 #include <chrono>
 #include <cmath>
@@ -577,10 +578,15 @@ void PairTradingStrategy::pre_stop() {
 }
 
 void PairTradingStrategy::SubmitAlgoCommand(BaseAlgoOrder* pAlgoOrder) {
+    // 建单 → 组装 TCommand → 推进 tb 的指令队列。这是"我们这一侧"的发单成本，
+    // 不含任何网络（真正的网络往返在 tb 那边，见 tb 的 tb.rest.rtt.*）。
+    HFT_SCOPE("ut.submit");
     algoContext.SubmitAlgoOrder(pAlgoOrder);
 }
 
 void PairTradingStrategy::SubmitAlgoOrderChange(int64_t algoOrderId, stra::CommandType cmd, const stra::AlgoOrderModify* modify) {
+    // 同一个名字：改单/撤单跟建单走的是同一条出向路径，分开统计意义不大。
+    HFT_SCOPE("ut.submit");
     algoContext.SubmitAlgoOrder(algoOrderId, cmd, modify);
 }
 
@@ -589,8 +595,19 @@ void PairTradingStrategy::on_command(const std::string& json) {
 }
 
 void PairTradingStrategy::on_timer(const int64_t& utcTime) {
-    algoContext.OnTimer(utcTime);
-    ptContext.OnTimer(utcTime);
+    // 两个 OnTimer 分别量，理由和 on_dbpdata 里一样：成本的增长因子不同。
+    {
+        // 执行侧：算法单超时判定 / 改单 / 撤单、子单状态推进、终结单宽限期回收。
+        // 成本随"活跃算法单数"增长。
+        HFT_SCOPE("ut.exec.timer");
+        algoContext.OnTimer(utcTime);
+    }
+    {
+        // 创建侧：对子状态推进、热改（pairCommands）、启动对账、风控、重算报单量。
+        // 成本随"对子数"增长。
+        HFT_SCOPE("ut.create.timer");
+        ptContext.OnTimer(utcTime);
+    }
 
     if (utcTime - m_lastScanUs >= SCAN_INTERVAL_US) {
         ScanFinishedAlgoOrders(utcTime);
@@ -608,8 +625,25 @@ void PairTradingStrategy::on_timer(const int64_t& utcTime) {
 }
 
 void PairTradingStrategy::on_dbpdata(const dbp::DbpTopic* topic, const dbp::DbpData* pdata, uint32_t jumpedNum) {
-    algoContext.OnSpread(topic, pdata);
-    ptContext.OnSpread(topic, pdata);
+    // 一条价差要依次走**两段完全不同的逻辑**，分开量：
+    //
+    //   执行侧 algoContext.OnSpread —— 撤单判断 + 拆单报单。它要把 algOrderManager 里
+    //     **所有活跃算法单**遍历一遍、逐条 strcmp 找本对子那一个 ⇒ 成本随"算法单数"增长。
+    //   创建侧 ptContext.OnSpread —— 更新实时价差 + 喂分位数样本 + 信号生成 + 建算法单
+    //     ⇒ 成本只随"对子数"增长。
+    //
+    // 合成一个指标时，算法单变多会把 p99 推高，看起来像"行情变慢了"，实际是执行侧退化；
+    // 反过来，对子数翻倍也会被误判成执行侧问题。两个增长因子必须分开看。
+    //
+    // 两者都嵌套在 ut.sweep 里面（ut.sweep = 扫一遍全部对子的总成本），窗口重叠是有意的。
+    {
+        HFT_SCOPE("ut.exec.spread");
+        algoContext.OnSpread(topic, pdata);
+    }
+    {
+        HFT_SCOPE("ut.create.spread");
+        ptContext.OnSpread(topic, pdata);
+    }
 }
 
 
@@ -637,6 +671,10 @@ void PairTradingStrategy::on_ordertrade(pubsub::OrderResponse& orderResponse) {
 
 // 兜底扫描：算法单终结的回传已由 AlgoContext 在同线程内直接调用
 void PairTradingStrategy::ScanFinishedAlgoOrders(int64_t nowUs) {
+    // 每 SCAN_INTERVAL_US(200ms) 一次，O(全部对子)。它挂在 1 Hz 的 ut.timer 里面，
+    // 单独拆出来是为了不被 ut.timer 的 p99 吞掉 —— 这条涨了通常是"对子数变多"
+    // 或"hasActiveAlgoOrder 长期为真"，跟行情快慢无关。
+    HFT_SCOPE("ut.scan");
     auto& pim = pt::PairInfoManager::Instance();
 
     for (pt::PairInfo* pi : pim.GetAllPairInfos()) {

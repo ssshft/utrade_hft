@@ -13,6 +13,7 @@
 #include "securitymanager.h"
 #include <unordered_map>
 #include "SpinBackoff.h"
+#include "hft_metrics.h"
 
 using namespace pubsub;
 using namespace md;
@@ -98,7 +99,18 @@ private:
         while (1) {
             bool idle = true;
             try {
+                // ---- 这一轮的三件事，各量各的 ----
+                // 全部在**同一条串行线程**（heavy_work）上，彼此是"相加"关系：
+                //   一轮耗时 ≈ ut.rpt + ut.sweep + ut.timer（空转时还有 spin::backoff 的等待）
+                // 所以不要把它们合成一个指标 —— 合成就只能看到总数，看不出是谁在涨。
                 if (tb2TradeRcmd->tryPop(rcmd)) {
+                    // 一条回报从出队到处理完：convert 判类型 + 按 strategyId 过滤 + 策略侧状态机。
+                    // 速率是**每秒几次**（tb 只推成交/余额/仓位），所以全量计时。
+                    //
+                    // ⚠️ 这一条**不拆**创建/执行：成交回报只进执行侧（algoContext.OnOrder），
+                    //    余额/仓位/总览两侧都进。而它每秒只有几条、单条 µs 级，
+                    //    拆开得到的两个数只会互相淹没。真正贵的是下面两条（价差/定时）。
+                    HFT_SCOPE("ut.rpt");
                     idle = false;
                     if (crypto::convert_rcmd_2_ordertrade(rcmd, orderResponse)) {
                         auto found = _strategyIds.find(orderResponse.strategyId);
@@ -129,6 +141,13 @@ private:
                 }
 
                 if (dbpreader) {
+                    // 一次"全扫"：FetchLast 会把 submap 里**每个订阅的键**都看一遍，
+                    // 有新数据就当场回调 on_dbpdata（→ ut.spread）。所以这里量的是
+                    // "扫一遍全部对子的总成本"，p50 就是**空扫**成本（N 个对子 × 一次
+                    // 共享内存 FetchLast），p99 才是"有行情那一轮"。
+                    // ⚠️ 500 对子时空扫是 µs 级、每轮都做 —— 它要是涨了，说明对子数
+                    //    或 submap 结构出了问题，不是行情变慢。
+                    HFT_SCOPE("ut.sweep");
                     if (dbpreader->FetchLast()) {
                         idle = false;
                     }
@@ -136,6 +155,9 @@ private:
                     
                 auto now = crypto::getCurrentTime();
                 if (now - utcTime >= timerInterval * 1000) {
+                    // 定时任务：AlgoContext 的 OnTimer（重算报单量/阈值、算法单超时）
+                    // + PairTradingContext 的 OnTimer + 终结扫描。1 Hz（timerInterval=1000ms）。
+                    HFT_SCOPE("ut.timer");
                     on_timer(now);
                     utcTime = now;
                 }
@@ -145,6 +167,10 @@ private:
             }
 
             if (idle) {
+                // 空转轮数：除以时间就是**轮询频率**，倒数 = 一条消息从进队到被 pop 的上界。
+                // 这个数明显低于预期（几万/秒）时，说明 backoff 退得太狠，消息在队列里等。
+                // 名字用 loop 而不是 exec：`ut.exec.*` 已经被"算法单执行侧"占用了。
+                HFT_CNT("ut.loop.idle");
                 spin::backoff(step);
             }
             else {
