@@ -16,6 +16,7 @@
         "strategyOp": "PairTradingStrategy",
         "timerInterval": 1000,
         "strategyIds": ["bnt1", "gat1"],
+        "cpuHeavyWork": -1,
 
         "pairTrading": {
             "activeAccountId": "10000",

@@ -89,6 +89,13 @@ public:
 
 private:
     void heavy_work(){
+        // 绑核放在线程体第一行：线程一旦被创建就已经在跑了，从外面钉有窗口期。
+        // 这是 utrade 唯一的自旋线程，钉错了会直接抬高整条价差链路的 p99，
+        // 所以失败必须报 ERROR 而不是静默继续。
+        if (cpuHeavyWork >= 0 && crypto::set_cpu_self(cpuHeavyWork) != 0) {
+            LOG_ERROR("utrade heavy_work: pin to core {} failed, running unpinned", cpuHeavyWork);
+        }
+
         int64_t utcTime = crypto::getCurrentTime();
         pubsub::RCommand rcmd;
         pubsub::Position position;
@@ -194,6 +201,12 @@ protected:
 
         timerInterval = stoi(configValue["op"]["timerInterval"].GetString());
 
+        // 线程绑核：只有 heavy_work 是自旋线程，需要独占一颗核；-1 = 不绑。
+        if (configValue["op"].HasMember("cpuHeavyWork")) {
+            cpuHeavyWork = stoi(configValue["op"]["cpuHeavyWork"].GetString());
+        }
+        LOG_INFO("cpu pin: heavyWork={} (-1 = not pinned)", cpuHeavyWork);
+
         std::vector<std::string> vSid;
         if (configValue["op"].HasMember("strategyIds")) {
             for (rapidjson::SizeType i = 0; i < configValue["op"]["strategyIds"].Size(); i++) {
@@ -235,6 +248,7 @@ protected:
     std::string utrade2TbTCommandSHM{""};
     om::TradeClient* tradeClient{nullptr};
     int timerInterval{1}; //ms
+    int cpuHeavyWork{-1}; // heavy_work 的绑核号（-1 = 不绑），_init 里从 op.cpuheavywork 读
     std::unordered_map<std::string, std::string> _strategyIds;
     string tag{""};
     sm::SecurityManager* smc{nullptr};
