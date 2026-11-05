@@ -104,6 +104,7 @@
 #include "basic/LimitManager.h"
 #include "basic/AlgoOrderManager.h"
 #include "basic/AlgoPairOrder.h"
+#include "basic/AlgoRebalanceOrder.h"
 #include "basic/QuantTrade.h"
 #undef private
 
@@ -1822,6 +1823,363 @@ static void TestI_RoleTermination() {
 }
 
 // ===========================================================================
+// J. 敞口再平衡（风控判敞口异常 -> AlgoType_Rebalance 只平超出阈值的部分）
+//
+// 与 I 的区别：I 测的是"平到 0 算不算结束"，J 测的是"**不平到 0**"这条路 ——
+// 终点是阈值（targetResidualVolume），不是 0。所以：
+//   · 建单：CheckExposureAbnormal 判死 -> ProcessRisk 建单
+//   · 参数：endVolume = 残量、只开一个平仓开关、role = CLOSE_SIGNAL
+//     （能写 CLOSE_SIGNAL 正因为下面的结束判据是残量口径；J5 的第一条断言就是它的安全网）
+//   · 报单：单腿、量 = min(持仓 - 残量, ttTargetVolume)
+//   · 结束：|持仓| - |残量| < 最小报单量 -> FILLED（沿用老判据会永远不结束）
+// ===========================================================================
+
+// 把两腿持仓 / 均价 / 阈值摆成"净敞口异常"的初值。
+// 符号沿用 PairInfo 的口径：多负空正（PairInfo::IsLong 是 vol < -1e-9）。
+static void ArmExposureAbnormal(PairInfo& pi, double activePos, double passivePos, double ttTargetVolume) {
+    pi.pairTotalVolume = activePos;            // 账本（算法单的阶梯读它）
+    pi.pairPassiveTotalVolume = passivePos;
+    pi.activeRealPosition = activePos;         // 实时持仓（CheckExposureAbnormal 读它）
+    pi.passiveRealPosition = passivePos;
+    pi.activeAvgPrice = 100.0;
+    pi.passiveAvgPrice = 100.0;
+    pi.activeParam.multiple = 1.0;
+    pi.passiveParam.multiple = 1.0;
+    pi.activeParam.minVolume = 0.1;
+    pi.passiveParam.minVolume = 0.1;
+    pi.ttTargetVolume = ttTargetVolume;
+    pi.mtTargetVolume = ttTargetVolume;
+    pi.maxVolume = 20.0;
+    pi.minVolume = 0.1;
+    pi.profitSwitch = true;
+    pi.profitPct = 0.0001;
+    pi.rtSpread.valid = true;
+    pi.rtSpread.activePriceTema = 100.0;
+    pi.rtSpread.passivePriceTema = 100.0;
+
+    // 生产配置里八个开关都不是"全开"；这里刻意全关，用来证明再平衡单的开关
+    // 是它自己算出来的，不是从 orderParams 抄的。
+    auto& op = pi.orderParams;
+    op.ttOLSwitch = op.ttOSSwitch = op.ttCLSwitch = op.ttCSSwitch = false;
+    op.mtOLSwitch = op.mtOSSwitch = op.mtCLSwitch = op.mtCSSwitch = false;
+    // 平仓阶梯末端照生产写 0（= 平干净）。再平衡单**必须**不受它影响。
+    op.ttCLEndVolume = 0.0;
+    op.ttCSEndVolume = 0.0;
+    op.mtCLEndVolume = 0.0;
+    op.mtCSEndVolume = 0.0;
+}
+
+static void TestJ_ExposureRebalance() {
+    Section("J. 敞口再平衡（AlgoType_Rebalance：只平超出阈值的部分）");
+
+    // J1 判据与标记：净敞口 > exposureCancelTimes * ttTargetVolume -> stopFlag + reBalance
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        // ttTargetVolume 2.5 -> 阈值 4 * 2.5 = 10；净敞口 |20 + (-5)| = 15 > 10
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        CHECK(pi.stopFlag, "J1 净敞口 15 > 阈值 10 -> stopFlag（对子停手）");
+        CHECK(pi.reBalance, "J1 同时置 reBalance（把'平掉超出部分'交给 ProcessExposureRebalance）");
+        CHECK(fx.created.empty(), "J1 判据本身不建单（建单要等对子空出来，在 ProcessRisk 里）");
+    }();
+
+    // J2 建单：ProcessRisk（无强平需求）-> 一张单腿 Rebalance 算法单
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+
+        BaseAlgoOrder* o = fx.Order0();
+        CHECK(o != nullptr, "J2 ProcessRisk（needForceClose == false）-> 建出再平衡算法单");
+        if (!o) return;
+        AlgoRebalanceOrder* r = (AlgoRebalanceOrder*)o;
+
+        CHECK(o->algoType == stra::AlgoType_Rebalance, "J2 algoType = AlgoType_Rebalance");
+        CHECK(o->role == AlgoRole::CLOSE_SIGNAL,
+              "J2 role = CLOSE_SIGNAL（只平不开，语义就是平仓单；残量判据保证不会一建出来就 FILLED）");
+        CHECK(r->activeTrade == 1, "J2 主动腿敞口更大（20 > 5）-> activeTrade = 1");
+        CHECK(r->isExposureRebalance, "J2 isExposureRebalance = true");
+        CHECK(Near(r->targetResidualVolume, 15.0), "J2 目标残量 = 20 - (15 - 10) = 15（只平超出阈值的 5）");
+        CHECK(Near(o->ttCSEndVolume, 15.0), "J2 ttCSEndVolume = 残量 15（阶梯终点，不是 orderParams 的 0）");
+        CHECK(o->ttCSSwitch, "J2 持仓是空 -> 只开 CLOSE_SHORT");
+        CHECK(!o->ttCLSwitch, "J2 CLOSE_LONG 关着（符号算错时不会反手把敞口做大）");
+        CHECK(!o->ttOLSwitch && !o->ttOSSwitch && !o->mtOLSwitch && !o->mtOSSwitch,
+              "J2 四个开仓开关全关（单腿单不许开仓）");
+        CHECK(o->tradingTypeOrder == stra::TAKER_TAKER, "J2 TAKER_TAKER（敞口要确定地平掉，不是便宜地平掉）");
+        CHECK(o->ttRebalanceFlag && o->ttRebalanceSwitch,
+              "J2 rebalance 开关打开（关着的话 OnSpread 一条子单都不报）");
+        CHECK(Near(o->pairTotalVolume, 20.0), "J2 账本种子 = pi.pairTotalVolume");
+        CHECK(pi.hasActiveAlgoOrder && pi.currentAlgoOrderId == o->algoOrderId, "J2 对子被这张单占住");
+        CHECK(!pi.activeAlgoIsRiskClose, "J2 不是风控强平单（activeAlgoIsRiskClose = false）");
+    }();
+
+    // J3 报单：单腿、量 = min(持仓 - 残量, ttTargetVolume)，吃对手价
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        if (!o) { CHECK(false, "J3 前置失败：没建出再平衡单"); return; }
+
+        dbp::DbpTopic topic = MakeTopic(kPairKey);
+        dbp::DbpData pdata = FreshData();
+        fx.algoCtx.OnSpread(&topic, &pdata);
+
+        CHECK(fx.NNew() == 1, "J3 OnSpread -> 报出 1 条子单");
+        CHECK(fx.PairOrders(o).size() == 1, "J3 只有 1 个 pairOrder（单腿执行器，不是配对单）");
+        if (fx.NNew() != 1) return;
+        const pubsub::NewOrder* n = fx.News()[0];
+        CHECK(Near(n->volumeTotal, 2.5), "J3 子单量 = min(20-15, ttTargetVolume 2.5) = 2.5");
+        CHECK(n->direction == DT_SHORT, "J3 方向 SHORT（平空）");
+        CHECK(Near(n->limitPrice, pdata.activeBidPrice[0]), "J3 打 bid（taker），不是挂在 ask 上等");
+    }();
+
+    // J4 MODIFY 被忽略：阶梯终点是风控算的残量，不能被 orderParams 整份覆盖
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        if (!o) { CHECK(false, "J4 前置失败：没建出再平衡单"); return; }
+
+        stra::AlgoOrderModify m;
+        m.ttCSEndVolume = 0.0;      // 配置里"平干净"的口径
+        m.ttCSSwitch = true;
+        m.ttOLSwitch = true;        // 顺手把开仓开关打开，看会不会被抄进来
+        fx.algoCtx.SubmitAlgoOrder(o->algoOrderId, stra::CommandType_MODIFY, &m);
+
+        CHECK(Near(o->ttCSEndVolume, 15.0),
+              "J4 MODIFY 被忽略：终点仍是残量 15（被覆盖成 0 就从'只平超出部分'变成'平干净'）");
+        CHECK(!o->ttOLSwitch, "J4 MODIFY 被忽略：开仓开关没被打开（单腿单不许开仓）");
+    }();
+
+    // J5 结束判据：剩余量到残量就 FILLED，不等平到 0
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        if (!o) { CHECK(false, "J5 前置失败：没建出再平衡单"); return; }
+
+        // 还没平：剩余 20 距残量 15 差 5 > 最小报单量 0.1 -> 不结束
+        // 这一条同时是 role=CLOSE_SIGNAL 的安全网：角色进得了终结判据，
+        // 但判据是**残量口径**，所以刚建出来不会被误判成 FILLED。
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_NEW,
+              "J5 剩余 20 距残量 15 还差 5 -> 不终结（CLOSE_SIGNAL 也不会当场 FILLED）");
+
+        // 平到残量：15 - 15 = 0 <= 最小报单量
+        o->pairTotalVolume = 15.0;
+        fx.algoCtx.OnTimer(crypto::getCurrentTime());
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_FILLED,
+              "J5 剩余量 == 残量 15 -> FILLED（沿用老的'剩余量 < 最小报单量'会永远不结束）");
+        CHECK(o->commandType == stra::CommandType_FINISHED, "J5 commandType = FINISHED");
+        CHECK(!pi.hasActiveAlgoOrder, "J5 终结回传 -> 对子被释放");
+    }();
+
+    // J6 被动腿更重：挑被动腿下手，符号/开关/方向全部反过来
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        // 主动腿 5（空 5），被动腿 -20（多 20）-> 净敞口 |5 - 20| = 15 > 10
+        ArmExposureAbnormal(pi, 5.0, -20.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        CHECK(o != nullptr, "J6 前置：建出再平衡单");
+        if (!o) return;
+        AlgoRebalanceOrder* r = (AlgoRebalanceOrder*)o;
+
+        CHECK(r->activeTrade == 0, "J6 被动腿敞口更大（20 > 5）-> activeTrade = 0");
+        CHECK(Near(r->targetResidualVolume, -15.0),
+              "J6 目标残量 = -(20 - 5) = -15（被动腿自己的单位、带符号）");
+        CHECK(Near(o->ttCLEndVolume, -15.0) && Near(o->ttCSEndVolume, -15.0),
+              "J6 两个平仓末端都是 -15（只有开关打开的那一支可达）");
+        CHECK(o->ttCSSwitch && !o->ttCLSwitch,
+              "J6 被动腿是多 -> 走 CLOSE_SHORT（被动腿的平多/平空与主动腿相反）");
+
+        dbp::DbpTopic topic = MakeTopic(kPairKey);
+        dbp::DbpData pdata = FreshData();
+        fx.algoCtx.OnSpread(&topic, &pdata);
+
+        CHECK(fx.NNew() == 1, "J6 被动腿这一支也能报出子单（CLOSE_SHORT 少了 fabs 时这里是 0）");
+        if (fx.NNew() != 1) return;
+        const pubsub::NewOrder* n = fx.News()[0];
+        CHECK(Near(n->volumeTotal, 2.5), "J6 子单量 = min(20-15, 2.5) = 2.5");
+        CHECK(n->direction == DT_LONG, "J6 买回（平被动腿的多头）");
+    }();
+
+    // J7 敞口已经回到阈值内：标记被清掉，不再建单
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        CHECK(pi.reBalance, "J7 前置：标记已置");
+
+        // 别人（风控强平 / 人工）把敞口压回去了：|12 - 5| = 7 <= 10
+        pi.pairTotalVolume = 12.0;
+        pi.activeRealPosition = 12.0;
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+
+        CHECK(!pi.reBalance, "J7 敞口回到阈值内 -> 清除 reBalance（不会凭空再建一张单）");
+        CHECK(fx.created.empty(), "J7 没有建出任何算法单");
+    }();
+
+    // J8 对子还被占着：不抢着建第二张，且**不给在跑的单续命**
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        if (!o) { CHECK(false, "J8 前置失败：没建出再平衡单"); return; }
+        const size_t created = fx.created.size();
+
+        // stopFlag 让机会永不成立，satisfyTime 已经陈旧。这里**刻意不续命**：
+        // 续命 = CheckAlgoOrderTimeout 永不撤单 = 单子永久占住对子。
+        pi.satisfyTime = 1;
+        const int64_t nowUs = crypto::getCurrentTime();
+        fx.ptCtx.ProcessRisk(pi, nowUs);
+
+        CHECK(fx.created.size() == created, "J8 对子被占着 -> 不再建第二张");
+        CHECK(pi.satisfyTime == 1, "J8 不刷新 satisfyTime（续命会让定时撤单永不发生）");
+        CHECK(o->algoOrderStatus == stra::ALGO_OS_NEW, "J8 在跑的单没被动过");
+    }();
+
+    // J9 定时撤单：`now - satisfyTime` 就是这张单的年龄
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        if (!o) { CHECK(false, "J9 前置失败：没建出再平衡单"); return; }
+
+        // 前提：reBalance ⇒ stopFlag ⇒ CanOpen/CanClose 都 false ⇒ UpdateSatisfyTime
+        // 一次都刷不到 ⇒ satisfyTime 只剩建单那一次写入，差值就是挂单时长。
+        // 这一条是"不另设时间戳"的全部依据，必须钉住。
+        std::string reason;
+        CHECK(!SignalGenerator::Instance().CanOpen(pi, reason), "J9 前提：stopFlag 下 CanOpen = false");
+        CHECK(!SignalGenerator::Instance().CanClose(pi, reason), "J9 前提：stopFlag 下 CanClose = false");
+
+        const int64_t start = pi.satisfyTime;
+        CHECK(start > 0, "J9 建单时 satisfyTime = 建单时刻（之后冻住，等于单子年龄）");
+
+        // ① 年龄没到 -> 不撤
+        size_t before = fx.modifyCalls.size();
+        fx.ptCtx.CheckAlgoOrderTimeout(pi, start + 10 * 1000000LL);
+        CHECK(fx.modifyCalls.size() == before, "J9 挂 10s < algoOrderTimeoutMs(150s) -> 不撤");
+
+        // ② 年龄到了 -> 撤
+        fx.ptCtx.CheckAlgoOrderTimeout(pi, start + 151 * 1000000LL);
+        CHECK(fx.modifyCalls.size() == before + 1, "J9 挂 151s > 150s -> 撤单（定时撤单，不是续命）");
+        if (fx.modifyCalls.size() == before + 1) {
+            CHECK(fx.modifyCalls.back().second == stra::CommandType_CANCEL, "J9 发的是 CANCEL");
+            CHECK(fx.modifyCalls.back().first == o->algoOrderId, "J9 撤的就是这张再平衡单");
+        }
+    }();
+
+    // J9b 手动对子（autoFlag == false）的再平衡单同样要撤：否则对子直接卡死
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        if (!fx.Order0()) { CHECK(false, "J9b 前置失败：没建出再平衡单"); return; }
+
+        // 手动单"不撤"的门槛（!autoFlag 早退）不能套到风控单上
+        pi.autoFlag = false;
+        const size_t before = fx.modifyCalls.size();
+        fx.ptCtx.CheckAlgoOrderTimeout(pi, pi.satisfyTime + 151 * 1000000LL);
+        CHECK(fx.modifyCalls.size() == before + 1,
+              "J9b autoFlag=false 也撤（普通单的门槛不套用到风控单上）");
+    }();
+
+    // J10 平多少用**实盘持仓**算，但阶梯终点落在**账本坐标系**里
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        // 账本比实盘多 2 张（漏了一笔平仓）：实盘 18，账本 20
+        pi.activeRealPosition = 18.0;
+        pi.pairTotalVolume = 20.0;
+
+        fx.ptCtx.CheckExposureAbnormal(pi);      // 净敞口 |18 - 5| = 13 > 10
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        if (!o) { CHECK(false, "J10 前置失败：没建出再平衡单"); return; }
+
+        // 要平 = 13 - 10 = 3（实盘口径）；终点 = 账本 20 - 3 = 17
+        CHECK(Near(o->ttCSEndVolume, 17.0),
+              "J10 终点 = 账本 20 - 实盘算出的 3 = 17（写成实盘 18-3=15 会少平 2 张）");
+        CHECK(Near(o->pairTotalVolume, 20.0), "J10 账本种子仍是 pi.pairTotalVolume（阶梯按它算差值）");
+    }();
+
+    // J11 操作被动腿时，平的量要按 multiple 换算成被动腿自己的张数
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 5.0, -40.0, 2.5);
+        pi.activeParam.multiple = 2.0;    // 主动腿 1 张 = 2 个 active 单位
+        pi.passiveParam.multiple = 1.0;
+
+        // 净敞口 = |5*2 + (-40)*1| / 2 = 15 > 阈值 10；被动腿等价敞口 40 > 主动腿 10 -> 平被动腿
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+        BaseAlgoOrder* o = fx.Order0();
+        if (!o) { CHECK(false, "J11 前置失败：没建出再平衡单"); return; }
+        AlgoRebalanceOrder* r = (AlgoRebalanceOrder*)o;
+
+        CHECK(r->activeTrade == 0, "J11 被动腿等价敞口 40 > 10 -> activeTrade = 0");
+        // excess = 5（主动腿单位）-> 被动腿张数 = 5 * am/pm = 10；终点 = -40 + 10 = -30
+        CHECK(Near(o->ttCLEndVolume, -30.0),
+              "J11 平 10 张被动腿（漏了 × am/pm 会平 5 张，敞口压不回去）");
+    }();
+
+    // J12 账本与实盘不同号：账本已经不可信，不猜方向，交人工对账
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        pi.pairTotalVolume = -20.0;      // 账本说"多 20"，实盘说"空 20"
+
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+
+        CHECK(fx.created.empty(), "J12 不同号 -> 不建单（按开关硬报也只会得到空单，白空转）");
+        CHECK(!pi.reBalance, "J12 同时清掉标记，等人工对账");
+    }();
+
+    // J13 待平量不够一手：自动路径到此为止（否则每 150s 一轮"建单->不报->撤->再建"）
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);   // 待平 5
+        pi.minVolume = 10.0;                        // 最小报单量 10 > 5
+
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        fx.ptCtx.ProcessRisk(pi, crypto::getCurrentTime());
+
+        CHECK(fx.created.empty(), "J13 待平 5 < 最小报单量 10 -> 不建单");
+        CHECK(!pi.reBalance, "J13 清掉标记，不死循环");
+    }();
+}
+
+// ===========================================================================
 // 主
 // ===========================================================================
 int main() {
@@ -1837,6 +2195,7 @@ int main() {
     TestG_FillLoop();
     TestH_CancelLoop();
     TestI_RoleTermination();
+    TestJ_ExposureRebalance();
 
     std::printf("\n=================================================\n");
     std::printf("PASS: %d   FAIL: %d\n", g_pass, g_fail);

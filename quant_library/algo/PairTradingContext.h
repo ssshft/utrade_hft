@@ -307,11 +307,38 @@ private:
 
     // 撤单触发①：机会超时，手动单不撤
     // nowUs - satisfyTime > algoOrderTimeoutMs 时请求撤单。
+    // 敞口再平衡单走**同一套年龄判据**，只是豁免 autoFlag 门槛（手动对子的再平衡单也必须能撤）：
+    // 它没有"机会"，而 stopFlag 让 CanOpen/CanClose 全 false ⇒ satisfyTime 冻在建单时刻，
+    // 差值就是挂单时长。撤掉之后由 ProcessExposureRebalance 按最新实盘持仓重算再建。
     void CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs) const;
 
     // 双腿都有实盘持仓、且净敞口超过 exposureCancelTimes * ttTargetVolume 时，置 pi.stopFlag 停止该对子的一切报单，并撤掉在跑的算法单。
     // one-shot：pi.stopFlag 已为 true 时直接返回，不重复告警/重复撤单（见 .cpp 里的实现注释）。
+    // 同时置 pi.reBalance = true，把"把超出阈值的部分平掉"交给 ProcessExposureRebalance。
     void CheckExposureAbnormal(PairInfo& pi) const;
+
+    // 净敞口是否已经超阈值。返回 true 时 netExposure / threshold 有效。
+    // 两个调用方共用（CheckExposureAbnormal 判死、ProcessExposureRebalance 判断收工），
+    // 刻意抽出来而不是各写一遍：这段有 6 个"缺数据就跳过"的前置条件，写两遍必漏。
+    bool CalcExposureExcess(const PairInfo& pi, double& netExposure, double& threshold) const;
+
+    // 敞口再平衡：pi.reBalance 为真时，用一张 AlgoType_Rebalance 算法单
+    // **只平掉超出阈值的那部分**（残量 = 阈值，不是 0）。
+    //
+    // 调用点是 ProcessRisk 里"风控不要求强平"的那一支 —— 强平是把两条腿都平干净，
+    // 覆盖面更大，两者同时成立时以强平为准，所以不能在别处独立调用。
+    void ProcessExposureRebalance(PairInfo& pi);
+
+    // 建一张敞口再平衡算法单。activeTrade: 1 = 操作主动腿，0 = 操作被动腿；
+    // endVolume: 阶梯终点 = 被操作那条腿的**目标剩余量**，带符号，且必须落在
+    // **账本坐标系**里（与 GetExpectActiveVolume / GetExpectPassiveVolume 同口径）。
+    // 🔴 不是"实盘持仓的绝对残量"：平多少用实盘算，但终点要写回账本口径，
+    //    否则 |expectVolume - endVolume| ≠ 实际要平的量（见 .cpp 函数头）。
+    // 创建失败返回 nullptr。
+    BaseAlgoOrder* BuildExposureRebalanceOrder(const PairInfo& pi, int activeTrade, double endVolume) const;
+
+    // 把已经建好的算法单交给执行端并占住对子。PairTrading / Rebalance 两条建单路径共用。
+    bool SubmitBuiltAlgoOrder(PairInfo& pi, BaseAlgoOrder* pAlgoOrder) const;
 
     // 改参触发（祖先 :1059-1078）：每 modifyTimespanSec 秒把最新参数推给在跑的算法单。
     // 流动性危险（liquid_status == 2）时用 BuildCloseModify（更激进的平仓），否则用 BuildNormalModify。

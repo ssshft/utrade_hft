@@ -10,11 +10,17 @@
  * OnTimer:
  * 1. 周期性 RecalcVolumeParams
  * 2. 消费 T_signal 算好的价差统计 --》UpdateLargeStats --》立即 RecalcOrderParams
- * 3. 周期性 CheckRisk --> 有风险 --》SubmitAlgoOrder (强制平仓)
+ * 3. 周期性 CheckRisk --> 有风险 --> SubmitAlgoOrder (强制平仓)
  *    强平单在途期间 ProcessRisk 不撤它（pi.riskCloseOrderInFlight），否则会被自己的撤单逻辑撤掉
+ *    **没有强平需求时**走 ProcessExposureRebalance：敞口异常（上一轮 CheckExposureAbnormal
+ *    判死）的对子在这里建一张 AlgoType_Rebalance 单，只平掉超出阈值的部分。
+ *    顺序即优先级 —— 强平要平两条腿、覆盖面更大，两者同时成立时让强平先走。
  * 4. 周期性 撤单触发检查 --》CheckAlgoOrderTimeout / CheckExposureAbnormal --》RequestCancelAlgoOrder
  *    CheckAlgoOrderTimeout 对强平单同样生效：长时间不成交就撤掉它、下一轮按新档位重报。
  *    撤单 -> 终结 -> OnAlgoFinished -> tierNTimes++ 正是档位升级的唯一驱动
+ *    再平衡单走同一套"年龄"判据（`nowUs - satisfyTime`，stopFlag 下它冻在建单时刻），
+ *    只是不受 autoFlag 门槛限制：
+ *    它没有"机会"概念，撤掉之后由 ProcessExposureRebalance 按最新实盘持仓重算再建。
  * 5. 周期性 改参检查 --》ProcessModify --》SubmitAlgoOrder(CommandType_MODIFY)
  * 6. 周期性 SaveSnapshot（原子写，默认 10s）
  * 
@@ -33,6 +39,7 @@
 #include "basic/DataStruct.h"
 #include "basic/Utility.h"
 #include "basic/AlgoPairOrder.h"
+#include "basic/AlgoRebalanceOrder.h"
 #include <atomic>
 #include <algorithm>
 #include <chrono>
@@ -419,20 +426,24 @@ void PairTradingContext::ProcessPairSignal(PairInfo& pi) {
 
 void PairTradingContext::ProcessRisk(PairInfo& pi, int64_t nowUs) {
     // 这里刻意不判 HasPosition：风控要对每个对子每 tick 都跑一遍，因为
-    // CheckADLRisk / CheckSpreadNoRegression 内部依赖这个时机清理自己的计时起点
-    // （无持仓时把 positionExceedThresholdStartTime / spreadNoRegressionStartTime 归零）。
+    // CheckADLRisk / CheckSpreadNoRegression 内部依赖这个时机清理自己的计时起点（无持仓时把 positionExceedThresholdStartTime / spreadNoRegressionStartTime 归零）。
     auto& rm = RiskManager::Instance();
     RiskCheckResult risk = rm.CheckRisk(pi, nowUs);
 
-    if (!risk.needForceClose) {
-        return;
-    }
 
     // 停掉所有算法单：连风控强平也不发 —— 强平单也是算法单，与"不再创建新的"冲突。
     // 注意上面那行 CheckRisk 必须照常调：它内部在"无持仓"时要把几个计时起点归零，
     // 跳过它等于把陈旧时间戳带进恢复之后（下一轮恢复就会立刻按旧档位强平）。
     // stopFlag不挡风控强平单
     if (m_cfg.stopAllAlgo) {
+        return;
+    }
+
+    if (!risk.needForceClose) {
+        // 没有强平需求时才考虑"敞口再平衡"。放在这里而不是 OnTimer 的其它步骤，
+        // 是因为顺序就是优先级：强平是把两条腿都平干净，覆盖面比"只平超出阈值的部分"
+        // 更大，两者同时成立时必须让强平先走。
+        ProcessExposureRebalance(pi);
         return;
     }
 
@@ -512,6 +523,27 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
         return;
     }
 
+    // ---- 敞口再平衡单：同一套"年龄"判据，只是不受 autoFlag 门槛限制 ----
+    // 撤掉之后 OnAlgoFinished 释放对子，ProcessExposureRebalance 用最新的实盘持仓
+    // 重算目标量再建一张。这个"撤-建"循环是刻意的：目标量必须跟着成交往前走，
+    // 而一张单的终点是建单那一刻算死的。
+    //
+    // 为什么 `nowUs - satisfyTime` 对再平衡单就等于"单子年龄"（不用另记一个时间戳）：
+    //   reBalance 为真 ⇒ stopFlag 必为真（CheckExposureAbnormal 同时置两个，
+    //   清 stopFlag 的只有 RESUME，它也一起清 reBalance）⇒
+    //     · SignalGenerator::CanOpen / CanClose 都返回 false（两者都判 stopFlag）
+    //       ⇒ openSatisfied / closeSatisfied 都不成立；
+    //     · manualReady 要求 `!stopFlag` ⇒ 也不成立。
+    //   于是 UpdateSatisfyTime 一次都刷不到，satisfyTime 只剩一个写入点：
+    //   SubmitBuiltAlgoOrder 建单时写的那一次。它冻在那里不动，差值就是挂单时长。
+    //   撤完重建时会再写一次 ⇒ 下一个周期从新单的建单时刻起算。
+    //
+    // 需要区别对待的只有 autoFlag 门槛（普通单"手动不撤"）：手动对子（autoFlag=false）
+    // 同样会被 CheckExposureAbnormal 判死、同样建再平衡单，套上门槛就永远撤不掉、对子卡死。
+    if (!pi.reBalance && !pi.autoFlag) {
+        return;
+    }
+
     // 风控强平单不豁免
     // 两头都站不住：
     //   ① 算法单自身的 active*CancelOrderTime = 5s 只撤**子单**（BaseAlgoOrder::
@@ -522,11 +554,6 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
     //      tier1Times 恒为 0，档位永远停在 tier1 用最温和的让利追价，升不上去。
     // 所以强平单和普通单走同一套规则：长时间不成交就撤掉、下一轮按新档位重报。
 
-    // 手动单不撤
-    if (!pi.autoFlag) {
-        return;
-    }
-
     // satisfyTime 默认 0，语义与祖先把 satisfy_time 初始化成 1 天前等价（都是"很久以前"）。
     // 正常路径下它每次机会成立都会被刷新，而算法单只可能在机会成立之后才报出，
     // 所以这里不会误撤；真走到 0 说明 satisfyTime 没被写过，撤单是安全侧的选择。
@@ -535,8 +562,41 @@ void PairTradingContext::CheckAlgoOrderTimeout(const PairInfo& pi, int64_t nowUs
         return;
     }
 
-    LOG_INFO("CheckAlgoOrderTimeout: pairKey:{} algoOrderId:{} idleSec:{} > {}s -> cancel", pi.pairInstrumentKey, pi.currentAlgoOrderId, static_cast<double>(idleUs) / 1000000.0, static_cast<double>(m_cfg.algoOrderTimeoutMs) / 1000.0);
+    if (pi.reBalance) {
+        LOG_INFO("CheckAlgoOrderTimeout: pairKey:{} algoOrderId:{} 再平衡单已挂 {}s > {}s -> cancel（撤完按最新实盘持仓重算）",
+                 pi.pairInstrumentKey, pi.currentAlgoOrderId,
+                 static_cast<double>(idleUs) / 1000000.0, static_cast<double>(m_cfg.algoOrderTimeoutMs) / 1000.0);
+    }
+    else {
+        LOG_INFO("CheckAlgoOrderTimeout: pairKey:{} algoOrderId:{} idleSec:{} > {}s -> cancel", pi.pairInstrumentKey, pi.currentAlgoOrderId, static_cast<double>(idleUs) / 1000000.0, static_cast<double>(m_cfg.algoOrderTimeoutMs) / 1000.0);
+    }
     RequestCancelAlgoOrder(pi);
+}
+
+bool PairTradingContext::CalcExposureExcess(const PairInfo& pi, double& netExposure, double& threshold) const {
+    netExposure = 0.0;
+    threshold = 0.0;
+
+    // 两条腿都必须有实盘持仓，且都有实盘均价 —— 只有单边有仓属于正常的开仓中间态
+    if (std::abs(pi.activeRealPosition) <= 1e-9 || std::abs(pi.passiveRealPosition) <= 1e-9) {
+        return false;
+    }
+    if (pi.activeAvgPrice <= 0 || pi.passiveAvgPrice <= 0) {
+        return false;
+    }
+
+    const double activeMultiple = pi.activeParam.multiple;
+    if (activeMultiple <= 0) {
+        return false;
+    }
+    // 阈值本身要有效，否则 exposureCancelTimes * 0 = 0 会让任何一点敞口都判成异常
+    if (std::isnan(pi.ttTargetVolume) || pi.ttTargetVolume <= 0) {
+        return false;
+    }
+
+    netExposure = std::abs(pi.activeRealPosition * activeMultiple + pi.passiveRealPosition * pi.passiveParam.multiple) / activeMultiple;
+    threshold = m_cfg.exposureCancelTimes * pi.ttTargetVolume;
+    return netExposure > threshold;
 }
 
 void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
@@ -549,38 +609,140 @@ void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
         return;
     }
 
-    // 两条腿都必须有实盘持仓，且都有实盘均价 —— 只有单边有仓属于正常的开仓中间态
-    if (std::abs(pi.activeRealPosition) <= 1e-9 || std::abs(pi.passiveRealPosition) <= 1e-9) {
-        return;
-    }
-    if (pi.activeAvgPrice <= 0 || pi.passiveAvgPrice <= 0) {
-        return;
-    }
-
-    const double activeMultiple = pi.activeParam.multiple;
-    if (activeMultiple <= 0) {
-        return;
-    }
-    // 阈值本身要有效，否则 exposureCancelTimes * 0 = 0 会让任何一点敞口都判成异常
-    if (std::isnan(pi.ttTargetVolume) || pi.ttTargetVolume <= 0) {
+    double netExposure = 0.0;
+    double threshold = 0.0;
+    if (!CalcExposureExcess(pi, netExposure, threshold)) {
         return;
     }
 
-    // 祖先 :1081：(activeRealPosition*active_multiple + passiveRealPosition*passive_multiple).abs()
-    //              / active_multiple > 4 * ttTargetVolume
-    const double netExposure = std::abs(pi.activeRealPosition * activeMultiple + pi.passiveRealPosition * pi.passiveParam.multiple) / activeMultiple;
-    const double threshold = m_cfg.exposureCancelTimes * pi.ttTargetVolume;
-    if (netExposure <= threshold) {
-        return;
-    }
-
-    // 只保留风控强平单，普通单不发
+    // 停掉这个对子的正常报单（开仓和平仓都不发），并把"把超出阈值的部分平掉"
+    // 交给 ProcessExposureRebalance —— 它下一轮用一张 AlgoType_Rebalance 单去做。
+    // 对子仍然保持"判死、等人工 RESUME"的语义：再平衡单只负责把敞口压回阈值，
+    // 压完不会自动解开 stopFlag（自动解开会与 pairCommands 的单向语义打架）。
     pi.stopFlag = true;
-    LOG_ERROR("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (ttTargetVolume:{} activePos:{} passivePos:{}) -> stopFlag + cancel", pi.pairInstrumentKey, netExposure, threshold, pi.ttTargetVolume, pi.activeRealPosition, pi.passiveRealPosition);
+    pi.reBalance = true;
+    LOG_ERROR("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (ttTargetVolume:{} activePos:{} passivePos:{}) -> stopFlag + 敞口再平衡单 + cancel", pi.pairInstrumentKey, netExposure, threshold, pi.ttTargetVolume, pi.activeRealPosition, pi.passiveRealPosition);
 
     if (pi.hasActiveAlgoOrder) {
         RequestCancelAlgoOrder(pi);
     }
+}
+
+// ---------------------------------------------------------------------------
+// 敞口再平衡：只平掉"超出阈值的那部分"
+//
+// 目标残量 = 阈值本身，不是 0。所以只用一条腿做（AlgoRebalanceOrder 是单腿执行器），
+// 另一条腿一行都不碰；平完之后净敞口 == 阈值，仍有敞口，只是回到了允许的上限。
+//
+// 🔴 两个坐标系必须分清，这是本函数唯一容易写错的地方：
+//   · **平多少**（closeAmount）只能用**实盘持仓**算。敞口是交易所上的事实，
+//     账本（pairTotalVolume）只是我们自己的记账 —— 重启未对账、漏成交、推送延迟
+//     都会让它偏离实盘，而"该平多少"必须按事实算。
+//   · **阶梯终点**（endVolume）必须落在**账本坐标系**里。AlgoRebalanceOrder 的
+//     GetTargetPairOrder 读的是 GetExpectActiveVolume() = pairTotalVolume + 在途 + 冻结，
+//     报出的量是 min(|expectVolume - endVolume|, targetVolume)。只有把终点写成
+//     "账本当前量 ∓ closeAmount"，这个差值才恰好等于 closeAmount。
+//   把 endVolume 直接写成实盘残量（activeRealPosition ∓ closeAmount）就是混用两个
+//   坐标系：账本与实盘差 δ 时，实际会平掉 closeAmount ± δ（多平或少平）。
+//
+// 挑哪条腿：按 active 等价敞口（|实盘持仓| × multiple）挑大的那条。理由不是
+// "它更危险"，而是**只有它单独就够把净敞口压回阈值** —— 挑小的那条会平不干净
+// （那条腿全平了敞口还超）。一条腿全平了还不够（两腿同向、根本不是对冲）就把
+// 那条腿平干净并 LOG_ERROR，告诉运维"一张单解决不了"，剩下的等人工。
+//
+// 🔴 这里**刻意不刷新 satisfyTime**（"续命"）：再平衡单没有"机会"概念，靠**单子年龄**
+// 由 CheckAlgoOrderTimeout 定时撤掉（那里解释了为什么 satisfyTime 恰好就是年龄）。
+// 撤掉之后 OnAlgoFinished 释放对子，本函数下一轮用**最新的实盘持仓**重算目标量再建一张
+// —— 这个"撤-建"循环正是目标量能跟着成交推进的机制。在这里续命 = 撤单永不发生 = 单子永久占住对子。
+// ---------------------------------------------------------------------------
+void PairTradingContext::ProcessExposureRebalance(PairInfo& pi) {
+    if (!pi.reBalance) {
+        return;
+    }
+
+    // 没注册回调时既不建单也不占对子（与 SubmitAlgoOrder 的第一条判断同源）：
+    // 建了没人接管就是内存泄漏，占了对子就再也发不出单。
+    if (!m_algoCommandCb) {
+        return;
+    }
+
+    // 敞口已经回到阈值内（被别人平掉了 / 行情推的实时持仓变了）：这条补救路径收工。
+    double netExposure = 0.0;
+    double threshold = 0.0;
+    if (!CalcExposureExcess(pi, netExposure, threshold)) {
+        pi.reBalance = false;
+        LOG_INFO("ProcessExposureRebalance: pairKey:{} 敞口已回到阈值内 -> 清除再平衡标记", pi.pairInstrumentKey);
+        return;
+    }
+
+    // 对子还被占着（上一张单在途 / 撤单流程中）：等它释放。
+    // 同样**不续 satisfyTime**，撤单交给 CheckAlgoOrderTimeout 按单子年龄做。
+    if (pi.hasActiveAlgoOrder) {
+        return;
+    }
+
+    const double am = pi.activeParam.multiple;
+    const double pm = pi.passiveParam.multiple;
+    if (am <= 0.0 || pm <= 0.0) {
+        pi.reBalance = false;
+        LOG_ERROR("ProcessExposureRebalance: pairKey:{} multiple 非法 (active:{}, passive:{}) -> 放弃自动再平衡，等人工", pi.pairInstrumentKey, am, pm);
+        return;
+    }
+
+    // ---- 挑腿：实盘等价敞口大的那条 ----
+    const double activeEq = std::fabs(pi.activeRealPosition) * am;
+    const double passiveEq = std::fabs(pi.passiveRealPosition) * pm;
+    const int activeTrade = (activeEq >= passiveEq) ? 1 : 0;
+
+    const double legReal = (activeTrade == 1) ? pi.activeRealPosition : pi.passiveRealPosition;
+    const double legLedger = (activeTrade == 1) ? pi.pairTotalVolume : pi.pairPassiveTotalVolume;
+
+    // 账本和实盘必须同号。方向由**账本符号**决定（CreatePairOrder 按 GetExpectActiveVolume()
+    // 的符号选平多/平空），平的量由**实盘**算 —— 两者不同号说明账本已经不可信
+    // （漏成交 / 重启未对账）。硬按开关报单会一张都报不出去（安全侧），但会一直空转，
+    // 所以直接交人工对账，不要在这里猜。
+    if (legLedger * legReal <= 0.0) {
+        pi.reBalance = false;
+        LOG_ERROR("ProcessExposureRebalance: pairKey:{} activeTrade:{} 账本 {} 与实盘 {} 不同号 -> 放弃自动再平衡，等人工对账", pi.pairInstrumentKey, activeTrade, legLedger, legReal);
+        return;
+    }
+
+    // ---- 平多少：实盘口径 ----
+    // netExposure / threshold 都是"主动腿张数"口径，所以这里先用主动腿单位判门槛，
+    // 再换算成被操作那条腿自己的单位（被动腿要 × am/pm）。
+    const double excess = netExposure - threshold;
+    if (pi.minVolume > 0.0 && excess < pi.minVolume) {
+        // 不够一手：自动路径到此为止。不退出的话会陷入
+        // "建单 -> 报不出去 -> 年龄超时撤掉 -> 再建" 的循环，每 150s 刷一次日志。
+        pi.reBalance = false;
+        LOG_ERROR("ProcessExposureRebalance: pairKey:{} 待平量 {} < 最小报单量 {} -> 放弃自动再平衡，等人工", pi.pairInstrumentKey, excess, pi.minVolume);
+        return;
+    }
+
+    double closeAmount = (activeTrade == 1) ? excess : excess * am / pm;
+
+    // 这条腿全平了也不够（两腿同向 = 根本没对冲）：平干净，剩下的交人工
+    const double legAbs = std::fabs(legReal);
+    if (closeAmount > legAbs) {
+        LOG_ERROR("ProcessExposureRebalance: pairKey:{} activeTrade:{} 待平 {} 超过该腿实盘持仓 {} -> 全平该腿，剩余敞口等人工", pi.pairInstrumentKey, activeTrade, closeAmount, legAbs);
+        closeAmount = legAbs;
+    }
+
+    // 阶梯终点落在**账本坐标系**里：账本正（空）就减，负（多）就加。
+    // 这样 |expectVolume - endVolume| 恰好等于 closeAmount（见函数头 🔴 第二段）。
+    const double endVolume = legLedger + (legLedger > 0.0 ? -closeAmount : closeAmount);
+
+    LOG_INFO("ProcessExposureRebalance: pairKey:{} netExposure:{} threshold:{} -> activeTrade:{} 实盘:{}/账本:{} 平 {} -> 终点 {}",
+             pi.pairInstrumentKey, netExposure, threshold, activeTrade, legReal, legLedger, closeAmount, endVolume);
+
+    BaseAlgoOrder* pAlgoOrder = BuildExposureRebalanceOrder(pi, activeTrade, endVolume);
+    if (pAlgoOrder == nullptr) {
+        // 建不出来（多半是合约信息没到）。**不清标记**，下一轮再试。
+        LOG_ERROR("ProcessExposureRebalance: pairKey:{} 再平衡算法单创建失败 -> 下一轮重试", pi.pairInstrumentKey);
+        return;
+    }
+
+    SubmitBuiltAlgoOrder(pi, pAlgoOrder);
 }
 
 // ---- 改参（祖先 cc_pricespread_gb_ltp.py:1059-1078）----
@@ -768,14 +930,25 @@ void PairTradingContext::SubmitAlgoOrder(PairInfo& pi, const std::string& algoMo
         LOG_ERROR("SubmitAlgoOrder: 算法单 role 与传入不一致 algoOrderId:{} expect:{} actual:{}", pAlgoOrder->algoOrderId, static_cast<int>(role), static_cast<int>(pAlgoOrder->role));
     }
 
-    pi.activeAlgoIsRiskClose = (role == AlgoRole::RISK_CLOSE);
-    auto& pim = PairInfoManager::Instance();
-    pim.SetActiveAlgoOrder(pi.pairInstrumentKey, pAlgoOrder->algoOrderId);
+    LOG_INFO("SubmitAlgoOrder: pairKey:{} algoOrderId:{} algoMode:{} direction:{} role:{}", pi.pairInstrumentKey, pAlgoOrder->algoOrderId, algoMode, direction, static_cast<int>(role));
+    SubmitBuiltAlgoOrder(pi, pAlgoOrder);
+}
+
+// 两条建单路径（PairTrading / Rebalance）共用的收尾。
+// 漏掉 SetActiveAlgoOrder 会怎样：对子不被占住 -> 下一 tick 又建一张；
+// 而 OnAlgoOrderUpdate 会因为 algoOrderId != currentAlgoOrderId 把回传全部丢掉
+// （PairTradingContext.cpp 里那条 ID 校验），账本再也不更新。
+bool PairTradingContext::SubmitBuiltAlgoOrder(PairInfo& pi, BaseAlgoOrder* pAlgoOrder) const {
+    if (pAlgoOrder == nullptr || !m_algoCommandCb) {
+        return false;
+    }
+
+    pi.activeAlgoIsRiskClose = (pAlgoOrder->role == AlgoRole::RISK_CLOSE);
+    PairInfoManager::Instance().SetActiveAlgoOrder(pi.pairInstrumentKey, pAlgoOrder->algoOrderId);
     pi.satisfyTime = crypto::getCurrentTime();
     pi.algoModifyTime = pi.satisfyTime;
-
-    LOG_INFO("SubmitAlgoOrder: pairKey:{} algoOrderId:{} algoMode:{} direction:{} role:{}", pi.pairInstrumentKey, pAlgoOrder->algoOrderId, algoMode, direction, static_cast<int>(role));
     m_algoCommandCb(pAlgoOrder);
+    return true;
 }
 
 BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const std::string& algoMode, const std::string& direction, double forgoProfit, AlgoRole role) const {
@@ -1062,6 +1235,205 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     return pAlgoOrder;
 }
 
+// ---------------------------------------------------------------------------
+// 敞口再平衡算法单（AlgoType_Rebalance）
+//
+// 与 BuildAlgoOrderJson 的差别，以及每一处差别的原因：
+//   ① 单腿执行：AlgoRebalanceOrder 一次只报一条腿的单子（OnSpread 里由 activeTrade
+//      决定报主动腿还是被动腿），另一条腿一行都不碰 —— 这正是"只修敞口、不动对冲结构"
+//      需要的形状。AlgoPairOrder 做不到：它每条 pairOrder 都会把两条腿一起报出去。
+//   ② 终点不是 0 而是 residual：*CLEndVolume / *CSEndVolume 就是阶梯的终点，
+//      GetTargetPairOrder 报的量是 min(|expectVolume - endVolume|, targetVolume)，
+//      所以把 endVolume 写成残量 = "只平掉超出阈值的部分"。
+//   ③ 只开一个平仓开关：另一个方向的开关关着。万一账本符号与这里算的不一致，
+//      CreatePairOrder 会走另一个分支、并因为开关关着直接返回空单 —— 不会反手
+//      把敞口做大（这是本功能最坏的失败模式）。四个开仓开关全关，理由同风控强平单。
+//   ④ role = CLOSE_SIGNAL：这张单本来就"只平不开"，语义上就是平仓角色。
+//      ⚠️ 早期版本这里是 OPEN_SIGNAL，理由是 OnTimer 的判据为 `|持仓| < minSize`，
+//      而再平衡单停在残量上（不平到 0）⇒ 会被判成"永远没结束"；反过来若写
+//      CLOSE_SIGNAL，又怕它在建单那一刻就被判 FILLED。现在判据已经换成
+//      `|持仓| - |targetResidualVolume| < minSize`（见 AlgoContext.cpp），
+//      残量口径下"刚建单"和"到位"分得开，所以按真实语义写 CLOSE_SIGNAL。
+//      它比 OPEN_SIGNAL 更稳的一点：万一哪天有人误开了某个开仓开关，
+//      `noOpenPermission` 会变成 false，但 `role != OPEN_SIGNAL` 仍然进得了终结判据；
+//      留 OPEN_SIGNAL 的话那张单就永远终结不了，只能等 150s 空闲超时。
+// ---------------------------------------------------------------------------
+BaseAlgoOrder* PairTradingContext::BuildExposureRebalanceOrder(const PairInfo& pi, int activeTrade, double endVolume) const {
+    if (activeTrade != 0 && activeTrade != 1) {
+        LOG_ERROR("BuildExposureRebalanceOrder: activeTrade 非法 {} pairKey:{}", activeTrade, pi.pairInstrumentKey);
+        return nullptr;
+    }
+
+    const auto& op = pi.orderParams;
+    const auto& aoc = m_cfg;
+
+    AlgoRebalanceOrder* pAlgoOrder = new AlgoRebalanceOrder();
+    pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
+    pAlgoOrder->commandType = stra::CommandType_NEW;
+    pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
+    pAlgoOrder->insertTime = crypto::getCurrentTime();
+    pAlgoOrder->updateTime = pAlgoOrder->insertTime;
+    // 平仓角色：见上面 ④。判据是残量口径，不会一建出来就被判 FILLED。
+    pAlgoOrder->role = AlgoRole::CLOSE_SIGNAL;
+    pAlgoOrder->activeTrade = activeTrade;
+    
+    // 阶梯终点，同时给 OnTimer 的终结判据用（|持仓| - |残量| <= minSize 才算到位）
+    pAlgoOrder->targetResidualVolume = endVolume;
+
+    strncpy(pAlgoOrder->algoStrategyName, "exposure_rebalance", sizeof(pAlgoOrder->algoStrategyName) - 1);
+    strncpy(pAlgoOrder->pairInstrumentKey, pi.pairInstrumentKey, sizeof(pAlgoOrder->pairInstrumentKey) - 1);
+    strncpy(pAlgoOrder->activeInstrumentKey, pi.activeInstrumentKey, sizeof(pAlgoOrder->activeInstrumentKey) - 1);
+    strncpy(pAlgoOrder->passiveInstrumentKey, pi.passiveInstrumentKey, sizeof(pAlgoOrder->passiveInstrumentKey) - 1);
+    strncpy(pAlgoOrder->baseAsset, baseAsset.c_str(), sizeof(pAlgoOrder->baseAsset) - 1);
+
+    // ---- 账户 / 腿属性 ----
+    pAlgoOrder->activeAccountId = pi.activeAccountId;
+    pAlgoOrder->passiveAccountId = pi.passiveAccountId;
+    pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
+    pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
+
+    // ---- 交易模式：TAKER_TAKER（主动腿吃对手价）----
+    // 为什么是 taker 而不是与风控强平单一致的 MAKER_TAKER：强平单要同时平两条腿，
+    // 主动腿挂 maker 是为了压价差成本；这里只动一条腿，而对冲已经破了，
+    // 需要的是"确定地平掉"而不是"便宜地平掉"。要改成 maker 只需把下面三行的
+    // TAKER_TAKER 换成 MAKER_TAKER、并打开 mtRebalanceSwitch / mtXXSwitch。
+    pAlgoOrder->tradingTypeOrder = stra::TAKER_TAKER;
+    pAlgoOrder->activeOrderType = aoc.ttActiveOrderType;
+    pAlgoOrder->passiveOrderType = aoc.passiveOrderType;
+
+    pAlgoOrder->activePriceTakerPct = aoc.activePriceTakerPct;
+    pAlgoOrder->activePriceMakerPct = aoc.activePriceMakerPct;
+    pAlgoOrder->passivePriceTakerPct = aoc.passivePriceTakerPct;
+    pAlgoOrder->passivePriceMakerPct = aoc.passivePriceMakerPct;
+    pAlgoOrder->passiveVolumePct = aoc.passiveVolumePct;
+
+    // ---- 撤单参数（配置里是毫秒，BaseAlgoOrder 里是微秒，只在这一处换算）----
+    pAlgoOrder->activeMakerCancelOrderTime = aoc.activeMakerCancelOrderTimeMs * 1000LL;
+    pAlgoOrder->activeTakerCancelOrderTime = aoc.activeTakerCancelOrderTimeMs * 1000LL;
+    pAlgoOrder->passiveMakerCancelOrderTime = aoc.passiveMakerCancelOrderTimeMs * 1000LL;
+    pAlgoOrder->passiveTakerCancelOrderTime = aoc.passiveTakerCancelOrderTimeMs * 1000LL;
+    pAlgoOrder->activePassiveCancelOrderPct = aoc.activePassiveCancelOrderPct;
+    pAlgoOrder->activeMakerCancelOrderPct = aoc.activeMakerCancelOrderPct;
+    pAlgoOrder->activeTakerCancelOrderPct = aoc.activeTakerCancelOrderPct;
+    pAlgoOrder->passiveMakerCancelOrderPct = aoc.passiveMakerCancelOrderPct;
+    pAlgoOrder->passiveTakerCancelOrderPct = aoc.passiveTakerCancelOrderPct;
+
+    // ---- 费率 / 滑点：与 PairTrading 同源，保证 CalculatePassiveSlippage 口径一致 ----
+    const auto& fs = SignalGenerator::Instance().GetConfig();
+    pAlgoOrder->activeMakerFeeRate = fs.activeMakerFeeRate;
+    pAlgoOrder->activeTakerFeeRate = fs.activeTakerFeeRate;
+    pAlgoOrder->passiveMakerFeeRate = fs.passiveMakerFeeRate;
+    pAlgoOrder->passiveTakerFeeRate = fs.passiveTakerFeeRate;
+    pAlgoOrder->activeMakerSlippage = fs.basicSlippage;
+    pAlgoOrder->activeTakerSlippage = fs.basicSlippage;
+    pAlgoOrder->passiveMakerSlippage = 0.0;
+    pAlgoOrder->passiveTakerSlippage = 0.0;
+    const auto& sg = SignalGenerator::Instance();
+    pAlgoOrder->takerTakerFs = sg.CalcExecCost(true);
+    pAlgoOrder->makerTakerFs = sg.CalcExecCost(false);
+
+    // ---- 持仓 / 报单量 ----
+    // 账本种子必须与 pi 一致：OnAlgoOrderUpdate 会把算法单上的量整份写回 PairInfo，
+    // 这里随便换个源（比如用 activeRealPosition）会让两边从此对不上。
+    pAlgoOrder->pairTotalVolume = pi.pairTotalVolume;
+    pAlgoOrder->pairActiveTotalPrice = pi.pairActiveTotalPrice;
+    pAlgoOrder->pairPassiveTotalPrice = pi.pairPassiveTotalPrice;
+    pAlgoOrder->pairPassiveTotalVolume = pi.pairPassiveTotalVolume;
+    pAlgoOrder->ttTargetVolume = pi.ttTargetVolume;
+    pAlgoOrder->mtTargetVolume = pi.mtTargetVolume;
+    pAlgoOrder->minVolume = pi.minVolume;
+    pAlgoOrder->maxMTOrderSize = aoc.maxMTOrderSize;
+    pAlgoOrder->maxTTOrderSize = aoc.maxTTOrderSize;
+
+    pAlgoOrder->targetSpreadType = aoc.targetSpreadType;
+    pAlgoOrder->activeVolumeCalcualteType = aoc.activeVolumeCalcualteType;
+    pAlgoOrder->profitSwitch = pi.profitSwitch;
+    pAlgoOrder->profitPct = pi.profitPct;
+    pAlgoOrder->activePriceTickFlag = aoc.activePriceTickFlag;
+    pAlgoOrder->activePriceTickNum = aoc.activePriceTickNum;
+    pAlgoOrder->passivePriceTickFlag = aoc.passivePriceTickFlag;
+    pAlgoOrder->passivePriceTickNum = aoc.passivePriceTickNum;
+    pAlgoOrder->isManual = !pi.autoFlag;
+
+    // ---- 八个开关：全关，再按"被操作的那条腿 + 它的方向"打开唯一的一个 ----
+    // 方向由**账本符号**决定，不由 endVolume 的符号决定：CreatePairOrder 是按
+    // GetExpectActiveVolume()/GetExpectPassiveVolume() 的符号选平多/平空的，
+    // endVolume 只是阶梯终点。对照 AlgoRebalanceOrder::CreatePairOrder：
+    //   activeTrade == 1（主动腿）：expectActive > 0 走 CLOSE_SHORT(ttCS)；< 0 走 CLOSE_LONG(ttCL)
+    //   activeTrade == 0（被动腿）：符号是**反的** —— expectPassive > 0 走 CLOSE_LONG(ttCL)；
+    //                               < 0 走 CLOSE_SHORT(ttCS)
+    // 账本与实盘同号这一点由 ProcessExposureRebalance 的守卫保证。
+    const double legLedger = (activeTrade == 1) ? pi.pairTotalVolume : pi.pairPassiveTotalVolume;
+    const bool legShort = (legLedger > 0.0);
+    const bool useCloseShort = (activeTrade == 1) ? legShort : !legShort;
+
+    pAlgoOrder->ttOLSwitch = false;
+    pAlgoOrder->ttOSSwitch = false;
+    pAlgoOrder->mtOLSwitch = false;
+    pAlgoOrder->mtOSSwitch = false;
+    pAlgoOrder->mtCLSwitch = false;
+    pAlgoOrder->mtCSSwitch = false;
+    pAlgoOrder->ttCLSwitch = !useCloseShort;
+    pAlgoOrder->ttCSSwitch = useCloseShort;
+
+    // ---- 阶梯终点 = 目标残量 ----
+    // 两个字段都写同一个值：只有开关打开的那一侧会被读到，另一侧不可达；
+    // 写成同一个值是为了让"另一侧万一被走到"时至少不会变成平到 0。
+    // 注意必须是**带符号**的：GetTargetPairOrder 里 CLOSE_LONG 要求
+    // endVolume > expectVolume、CLOSE_SHORT 要求 endVolume < expectVolume，
+    // 写绝对值会让"平多"这一支永远不成立（一笔都报不出去）。
+    pAlgoOrder->ttCLEndVolume = endVolume;
+    pAlgoOrder->ttCSEndVolume = endVolume;
+
+    // 32 个起止价差 / 起止量里，rebalance 的阶梯只读 endVolume 与 switch
+    // （见 AlgoRebalanceOrder::GetTargetPairOrder），其余照抄 pi.orderParams 即可。
+    pAlgoOrder->ttOLStartSpread = op.ttOLStartSpread;
+    pAlgoOrder->ttOLEndSpread = op.ttOLEndSpread;
+    pAlgoOrder->ttOLStartVolume = op.ttOLStartVolume;
+    pAlgoOrder->ttOLEndVolume = op.ttOLEndVolume;
+    pAlgoOrder->ttCLStartSpread = op.ttCLStartSpread;
+    pAlgoOrder->ttCLEndSpread = op.ttCLEndSpread;
+    pAlgoOrder->ttCLStartVolume = op.ttCLStartVolume;
+    pAlgoOrder->ttOSStartSpread = op.ttOSStartSpread;
+    pAlgoOrder->ttOSEndSpread = op.ttOSEndSpread;
+    pAlgoOrder->ttOSStartVolume = op.ttOSStartVolume;
+    pAlgoOrder->ttOSEndVolume = op.ttOSEndVolume;
+    pAlgoOrder->ttCSStartSpread = op.ttCSStartSpread;
+    pAlgoOrder->ttCSEndSpread = op.ttCSEndSpread;
+    pAlgoOrder->ttCSStartVolume = op.ttCSStartVolume;
+    pAlgoOrder->mtOLStartSpread = op.mtOLStartSpread;
+    pAlgoOrder->mtOLEndSpread = op.mtOLEndSpread;
+    pAlgoOrder->mtOLStartVolume = op.mtOLStartVolume;
+    pAlgoOrder->mtOLEndVolume = op.mtOLEndVolume;
+    pAlgoOrder->mtCLStartSpread = op.mtCLStartSpread;
+    pAlgoOrder->mtCLEndSpread = op.mtCLEndSpread;
+    pAlgoOrder->mtCLStartVolume = op.mtCLStartVolume;
+    pAlgoOrder->mtCLEndVolume = op.mtCLEndVolume;
+    pAlgoOrder->mtOSStartSpread = op.mtOSStartSpread;
+    pAlgoOrder->mtOSEndSpread = op.mtOSEndSpread;
+    pAlgoOrder->mtOSStartVolume = op.mtOSStartVolume;
+    pAlgoOrder->mtOSEndVolume = op.mtOSEndVolume;
+    pAlgoOrder->mtCSStartSpread = op.mtCSStartSpread;
+    pAlgoOrder->mtCSEndSpread = op.mtCSEndSpread;
+    pAlgoOrder->mtCSStartVolume = op.mtCSStartVolume;
+    pAlgoOrder->mtCSEndVolume = op.mtCSEndVolume;
+
+    // ---- rebalance 开关 ----
+    // OnSpread 里 Rebalance 的报单分支要求 tradingTypeOrder 对应的
+    // *RebalanceFlag 为 true，否则一条子单都不报（AlgoContext.cpp 里那两支）。
+    // Switch 是"允许 OnTimer 每 5 秒把 Flag 重新置 true"的许可，这里也一起打开，
+    // 免得某个分支把 Flag 清掉之后这张风控单就哑了。
+    pAlgoOrder->ttRebalanceSwitch = true;
+    pAlgoOrder->ttRebalanceFlag = true;
+    pAlgoOrder->mtRebalanceSwitch = false;
+    pAlgoOrder->mtRebalanceFlag = false;
+
+    LOG_WARN("create exposure rebalance algo order pairKey:{} activeTrade:{} legLedger:{} endVolume:{} mode:{} closeShort:{}",
+             pi.pairInstrumentKey, activeTrade, legLedger, endVolume, "TT", useCloseShort);
+
+    return pAlgoOrder;
+}
+
 void PairTradingContext::OnPosition(const pubsub::Position& position) {
     // 记下"该账户的持仓批次已完整到达"（isLast = 批次尾）。
     // 启动对账靠它区分"该腿确实没持仓"和"该腿推送还没到"——
@@ -1201,6 +1573,9 @@ void PairTradingContext::ApplyPairCommands(const RuntimeConfig& rc) {
 
             pi->stopFlag = false;
             pi->closeFlag = false;
+            // 人工恢复 = 撤掉"敞口异常自动再平衡"这条补救路径。不清的话，
+            // 下一次 ProcessRisk 会立刻按旧敞口再建一张再平衡单，把恢复操作顶回去。
+            pi->reBalance = false;
 
             // 两个数值字段照命令写（缺省 0）。`closeRemainVolume = 0` 正是"平干净"，
             // 也就是 RESUME 想要的效果；`profitPct` 不写会变成 0（比默认 0.0001 略严，
@@ -1386,7 +1761,9 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
     // 4. 撤单触发检查 (每次定时器触发)
     //    祖先 on_timer 的五条撤单触发里已落地的两条：
     //      ① 机会超时（:1021-1026）—— satisfyTime 连续 algoOrderTimeoutMs 不成立
-    //      ⑤ 敞口异常（:1081-1092）—— 净敞口超阈值，置 stopFlag 并撤单
+    //      ⑤ 敞口异常（:1081-1092）—— 净敞口超阈值，置 stopFlag 并撤单；
+    //         同时置 pi.reBalance，下一轮 ProcessRisk 会建一张 AlgoType_Rebalance 单
+    //         把超出阈值的部分平掉（见 ProcessExposureRebalance）
     //    敞口检查不判 autoFlag（祖先 :1081 那一段没有 auto_flag 门槛）；
     //    超时检查自带 autoFlag 门槛（祖先 :1018-1020）。
     for (PairInfo* pi : pim.GetAllPairInfos()) {

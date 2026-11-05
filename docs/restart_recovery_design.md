@@ -335,7 +335,8 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 | `activeMarginStatus`、`passiveMarginStatus` | 0 写入；只在 `SignalGenerator.cpp:139` 被读 → 恒 0 |
 | `manualFlag` | 0 写入；只在 `PairTradingContext.cpp:744` 被读 → `isManual` 恒 false |
 | `limitFlag` | 0 写入（死字段） |
-| `reBalance`、`stopMarginTrade` | 0 写入 |
+| `reBalance` | **2026-11-01 起有写入**（`CheckExposureAbnormal` 置、`ProcessExposureRebalance` 清），但它**刻意不进快照**：重启后账本要先过启动对账才可信，而 `hasActiveAlgoOrder` 的孤儿冻结会把 `stopFlag` 置上、`CheckExposureAbnormal` 因为 `stopFlag` 早退 ⇒ 不会在可疑账本上自动建再平衡单。要自动收敛请人工发 `PairCmd_RESUME` 之后由下一轮敞口检查重新触发 |
+| `stopMarginTrade` | 0 写入 |
 | `profitSwitch` | 0 写入 → 恒 `true`（读于 `SignalGenerator.cpp:54/74/93/113`） |
 | `AbnormalCloseState::lastPositionValue` | 0 写入 |
 | k 线统计 8 个（`activeDailyAmount` / `activeOI` / `activeMeanClose` / …） | `UpdateKlineStats` 全仓库无调用者 |

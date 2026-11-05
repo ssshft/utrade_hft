@@ -176,6 +176,17 @@ void AlgoContext::SubmitAlgoOrder(int64_t algoOrderId, stra::CommandType cmd, co
             return;
         }
 
+        // Rebalance 单**不接受** pair_info 的参数覆盖。
+        // 它的 *CLEndVolume / *CSEndVolume 是风控算出来的"目标残量"（只平超出阈值的
+        // 那部分），而 BuildNormalModify 整份照搬 pi.orderParams —— 覆盖之后终点会变成
+        // 配置里的值（通常是 0），一张"只平超出部分"的单会悄悄变成"平干净"，
+        // 方向还带着单腿敞口。开关同理：四个开仓开关被打开的话，单腿单就能反手加仓。
+        if (pAlgoOrder->algoType == stra::AlgoType_Rebalance) {
+            LOG_INFO("SubmitAlgoOrder(MODIFY): skip, rebalance 单不接受参数覆盖, algoOrderId:{} pairInstrumentKey:{}",
+                     algoOrderId, pAlgoOrder->pairInstrumentKey);
+            return;
+        }
+
         // 整份快照覆盖（祖先 create_modify_dict / create_close_modify_dict 的语义）
         pAlgoOrder->profitSwitch = modify->profitSwitch;
         pAlgoOrder->profitPct = modify->profitPct;
@@ -1386,10 +1397,14 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             // 为什么必须显式用角色：普通平仓单允许在开仓带回补，它的 4 个开仓开关是**开**的，
             // 靠"四开关全 false"这个代理永远等不到 ⇒ 平完也终结不了，只能等 150s 空闲超时。
             //
-            // ⚠️ 本判据被所有 algoType 共用（Rebalance/Fishing 也走），它们必须保持默认
-            //    AlgoRole::OPEN_SIGNAL，否则会被提前判成 FILLED。见 BaseAlgoOrder.h 的 AlgoRole。
-            const bool noOpenPermission = it->second->ttOLSwitch == false && it->second->ttOSSwitch == false &&
-                                          it->second->mtOLSwitch == false && it->second->mtOSSwitch == false;
+            // ⚠️ 本判据被所有 algoType 共用，但 **Rebalance 的残量口径让它可以写 CLOSE_SIGNAL**：
+            //    它的终点不是 0（`targetResidualVolume`），判据换成
+            //    `|持仓| - |终点| < minSize`，所以"刚建单"与"到位"分得开。
+            //    敞口再平衡单正是这么建的（PairTradingContext::BuildExposureRebalanceOrder）。
+            //    反过来，**终点是 0 的算法单**（Fishing 目前还没有创建路径；将来接的时候）
+            //    必须保持默认 OPEN_SIGNAL —— 它们建单那一刻仓位就是 0，写 CLOSE_SIGNAL 会当场自杀。
+            //    见 BaseAlgoOrder.h 的 AlgoRole。
+            const bool noOpenPermission = it->second->ttOLSwitch == false && it->second->ttOSSwitch == false && it->second->mtOLSwitch == false && it->second->mtOSSwitch == false;
             if (noOpenPermission || it->second->role != AlgoRole::OPEN_SIGNAL) {
                 if (it->second->algoType == stra::AlgoType_Rebalance) {
                     AlgoRebalanceOrder* pRebalanceOrder = (AlgoRebalanceOrder*)(it->second);
@@ -1401,10 +1416,13 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                     }
 
                     double minSize = pRebalanceOrder->activeTrade == 1 ? it->second->activeInfo.minSize : it->second->passiveInfo.minSize;
-
-
-                    if (orderAmount < minSize && allPairOrders.size() == 0) {
-                        //
+                    // 残量口径：距离"阶梯终点"不足一手才算到位。
+                    //   · 风控敞口再平衡单：终点 = targetResidualVolume（非 0）⇒ 停在那里就结束；
+                    //   · 人工建的 Rebalance 单：终点默认 0 ⇒ 退化成原来的 `|持仓| < minSize`。
+                    // 少减这一项会怎样：停在残量上 `|持仓| < minSize` 永不成立 ⇒ 单子永久占住对子。
+                    // 差值允许为负（打过头也算到位），所以是减法比较而不是绝对值相等。
+                    // orderAmount 取的是**账本**量，与 targetResidualVolume 同一坐标系（见 BuildExposureRebalanceOrder）。
+                    if ((orderAmount - fabs(pRebalanceOrder->targetResidualVolume)) < minSize && allPairOrders.size() == 0) {
                         //LOG_INFO("activeInstrumentKey:%s orderAmount:%f  activeInfo.minSize:%f  multiple:%f", it->second->activeInstrumentKey, orderAmount, it->second->activeInfo.minSize, it->second->activeInfo.multiple);
                         it->second->algoOrderStatus = stra::ALGO_OS_FILLED;
                         it->second->commandType = stra::CommandType_FINISHED;
@@ -1416,8 +1434,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                         WriteAlgoOrder(it->second);
                         deleteAlgoOrderFlag = true;
                         pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
-                        LOG_INFO("算法单终结(剩余量不足不再报单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_FILLED，剩余量 {} < 最小报单量 {} 且无在途 pairOrder",
-                                 it->second->algoOrderId, it->second->pairInstrumentKey, orderAmount, minSize);
+                        LOG_INFO("算法单终结(剩余量不足不再报单): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_FILLED，剩余量 {} < 最小报单量 {} 且无在途 pairOrder", it->second->algoOrderId, it->second->pairInstrumentKey, orderAmount, minSize);
                     }
 
                 }

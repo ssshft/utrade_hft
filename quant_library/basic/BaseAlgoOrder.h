@@ -12,7 +12,7 @@
 #include "LarkRebot.h"
 
 // 算法单的角色：**建单时定，之后只读，永不随行为改变**。
-// 唯一用途是 AlgoContext.cpp:1376 的结束判据 —— 这一单"平到 0"算不算结束：
+// 唯一用途是 `AlgoContext::OnTimer` 的结束判据 —— 这一单"平到 0"算不算结束：
 //   OPEN_SIGNAL  —— **不算**。开仓单建出来那一刻仓位就是 0（还没成交），
 //                   空仓是它的常态之一，结束了就再也开不了了。
 //   CLOSE_SIGNAL —— 算。它是平仓信号建的，而 CL/CS 信号要求 IsLong/IsShort
@@ -22,8 +22,11 @@
 // 它**不决定**这一单能不能开仓。能不能开仓只看 4 个开仓开关（orderParams + 各道闸门）；
 // 平仓单在运行期能不能回补，也只看那 4 个开关，跟本字段无关。
 //
-// ⚠️ 1376 是所有 algoType 共用的判据（Rebalance/Fishing 也走），所以**只有 PairTrading 的
-//    建单路径写这个字段**，其它算法单必须保持默认 OPEN_SIGNAL，否则会被提前判成 FILLED。
+// ⚠️ 判据是所有 algoType 共用的，但"该写哪个角色"要看**这一单的终点是不是 0**：
+//   · 终点是 0 的（PairTrading 的 OL/OS/CL/CS、Fishing）—— 只能写 OPEN_SIGNAL，
+//     它们建单那一刻仓位就是 0，写 CLOSE_SIGNAL 会当场被判 FILLED。
+//   · 终点不是 0 的（AlgoType_Rebalance 的敞口再平衡单，终点是 targetResidualVolume）
+//     —— 判据是残量口径（`|持仓| - |终点| < minSize`），写 CLOSE_SIGNAL 才对得上语义。
 enum class AlgoRole {
     OPEN_SIGNAL  = 0,   // 开仓信号（OL/OS）建的
     CLOSE_SIGNAL = 1,   // 平仓信号（CL/CS）建的

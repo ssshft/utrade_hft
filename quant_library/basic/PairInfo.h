@@ -313,7 +313,26 @@ namespace pt {
         // 不进快照 ⇒ 重启自动回 0。
         double closeRemainVolume{0.0};
 
-        bool reBalance{false}; // 是否需要再平衡
+        // 敞口异常之后的"待执行 / 正在执行"再平衡标记。
+        // true = CheckExposureAbnormal 已判死（此时 stopFlag 必然也是 true），
+        // 接下来由 ProcessExposureRebalance 用一张 AlgoType_Rebalance 算法单
+        // 把净敞口压回 exposureCancelTimes * ttTargetVolume 以内。
+        //
+        // 为什么必须单独一个标记，而不是"看到 stopFlag 就重算"：stopFlag 有三个来源
+        // （pairCommands STOP / 启动孤儿冻结 / 敞口异常），只有第三个该自动建再平衡单，
+        // 前两个是人或启动流程明确要求停手的。
+        //
+        // 生命周期：CheckExposureAbnormal 置 true（该函数 one-shot，只置一次）；
+        // ProcessExposureRebalance 在敞口回到阈值内 / 算不出可报的量时置回 false；
+        // pairCommands 的 RESUME 也置回 false（人工恢复 = 撤掉这条自动补救路径）。
+        // 运行态字段，**不进快照** ⇒ 重启后由孤儿单冻结兜底，不会在不可信的账本上
+        // 自动动手（账本是否可信要先靠启动对账 ReconcilePair 确认）。
+        //
+        // 顺带一个性质（CheckAlgoOrderTimeout 靠它做定时撤单，不另设时间戳）：
+        // reBalance 为真 ⇒ stopFlag 为真 ⇒ CanOpen/CanClose 都返回 false ⇒
+        // UpdateSatisfyTime 一次都刷不到 ⇒ satisfyTime 冻在建单时刻，
+        // `now - satisfyTime` 就是这张再平衡单挂着的时长。
+        bool reBalance{false};
         bool stopMarginTrade{false};
 
         OrderParams orderParams;

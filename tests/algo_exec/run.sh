@@ -140,6 +140,11 @@ ln -sf "$QL/basic/BaseAlgoOrder.h"        "$TREE/basic/BaseAlgoOrder.h"
 ln -sf "$QL/basic/BaseAlgoOrder.cpp"      "$TREE/basic/BaseAlgoOrder.cpp"
 ln -sf "$QL/basic/AlgoPairOrder.h"        "$TREE/basic/AlgoPairOrder.h"
 ln -sf "$QL/basic/AlgoPairOrder.cpp"      "$TREE/basic/AlgoPairOrder.cpp"
+# 敞口再平衡（AlgoType_Rebalance）：.h 早就在软链里（AlgoContext 的 static_cast 要用），
+# 但 .cpp 从 2026-11-01 起也必须编 —— 策略侧 ProcessExposureRebalance 会
+# `new AlgoRebalanceOrder()`，不链这个 TU 就是链接期 undefined reference。
+ln -sf "$QL/basic/AlgoRebalanceOrder.h"   "$TREE/basic/AlgoRebalanceOrder.h"
+ln -sf "$QL/basic/AlgoRebalanceOrder.cpp" "$TREE/basic/AlgoRebalanceOrder.cpp"
 ln -sf "$QL/basic/PositionManager.h"      "$TREE/basic/PositionManager.h"
 ln -sf "$QL/basic/PositionManager.cpp"    "$TREE/basic/PositionManager.cpp"
 ln -sf "$QL/basic/OrderManager.h"         "$TREE/basic/OrderManager.h"
@@ -192,6 +197,7 @@ cd "$TREE"
     algo/PairTradingContext.cpp \
     basic/BaseAlgoOrder.cpp \
     basic/AlgoPairOrder.cpp \
+    basic/AlgoRebalanceOrder.cpp \
     basic/PositionManager.cpp \
     basic/OrderManager.cpp \
     basic/PairManager.cpp \

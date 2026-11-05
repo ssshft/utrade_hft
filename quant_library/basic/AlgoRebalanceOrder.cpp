@@ -138,13 +138,13 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
             passiveDirection = DT_LONG;
 
             if (tradingTypeOrder == stra::TAKER_TAKER) {
-                targetVolume = min(expectActiveVolume - targetActiveVolume, ttTargetVolume);
+                targetVolume = min(fabs(expectActiveVolume - targetActiveVolume), ttTargetVolume);
                 activeTargetPrice = pdata->activeBidPrice[0];
                 passiveTargetPrice = pdata->passiveAskPrice[0];
                 acOrderType = activeOrderType;
                 paOrderType = passiveOrderType; 
             } else if (tradingTypeOrder == stra::MAKER_TAKER) {
-                targetVolume = min(expectActiveVolume - targetActiveVolume, mtTargetVolume);
+                targetVolume = min(fabs(expectActiveVolume - targetActiveVolume), mtTargetVolume);
                 activeTargetPrice = pdata->activeAskPrice[0];
                 passiveTargetPrice = pdata->passiveAskPrice[0];
                 acOrderType = OT_POST_ONLY;
@@ -227,7 +227,12 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
                 }
             }
         }
-        targetVolume = round(targetVolume / activeInfo.lotSize) * activeInfo.lotSize;
+    }
+
+    // 报单量必须是**被操作那条腿** lotSize 的整数倍，否则交易所直接拒单。
+    const md::InstrumentInfo& legInfo = (activeTrade == 1) ? activeInfo : passiveInfo;
+    if (legInfo.lotSize > stra::MIN_FLOAT) {
+        targetVolume = round(targetVolume / legInfo.lotSize) * legInfo.lotSize;
     }
 
     if (targetVolume < stra::MIN_FLOAT) {
@@ -562,34 +567,7 @@ void AlgoRebalanceOrder::PairOrderTrade(PairOrder& pairOrder) {
         dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
         WritePairOrder(pairOrder, pdata);
         
-        if (pairOrder.rebalanceFlag && pairOrder.passiveTotalVolumeOnOrder > 0) { // 可以去掉
-            // 被动腿有成交且pairOrder完结,更改rebalance状态
-            if (pairOrder.tradingTypeOrder == stra::MAKER_TAKER){
-                // 被动腿有成交且pairOrder完结,更改rebalance状态
-                // mtRebalanceFlag = false;
-                // 被动腿有成交且pairOrder完结,更新滑点
-                mtSlipage = 0.8 * mtSlipage + 0.2 * pairOrder.CalculatePassiveSlippage();
-                if (mtSlipage > 2 * passiveTakerSlippage + profitPct){
-                    mtSlipageFlag = true;
-                    // 异常报警
-                    char msg[stra::MSG_LEN];
-                    sprintf(msg, "strategyName:%s algoOrderId:%ld mtSlipageFlag:%d  mtSlipage:%f", algoStrategyName, algoOrderId, mtSlipageFlag, mtSlipage);
-                    LarkRebot::GetInstance().SendMsg(msg);
-                }
-            } else {
-                // 被动腿有成交且pairOrder完结,更改rebalance状态
-                // ttRebalanceFlag = false;
-                // 被动腿有成交且pairOrder完结,更新滑点
-                ttSlipage = 0.8 * ttSlipage + 0.2 * pairOrder.CalculatePassiveSlippage();
-                if (ttSlipage > 2 * passiveTakerSlippage + profitPct){
-                    ttSlipageFlag = true;
-                    // 异常报警
-                    char msg[stra::MSG_LEN];
-                    sprintf(msg, "strategyName:%s algoOrderId:%ld ttSlipageFlag:%d  ttSlipage:%f", algoStrategyName, algoOrderId, ttSlipageFlag, ttSlipage);
-                    LarkRebot::GetInstance().SendMsg(msg);
-                }
-            }            
-        }
+        // 敞口再平衡单不做滑点熔断：它的唯一目标是把敞口压回阈值，滑点大也得继续压。
         pairOrderMgr.DeletePairOrderByPairOrder(pairOrder);
     }
     else {
