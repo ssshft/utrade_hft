@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include "dbp/include.h"
+#include <memory>
 
 using namespace std;
 
