@@ -1,6 +1,12 @@
 #include "SpreadManager.h"
 #include "Utility.h"
 
+// DeleteSpread 用了 std::remove_if，必须显式包含 <algorithm>。
+// 漏了在本机（macOS/libc++）也能编过 —— <vector>/<memory> 会间接带进来；
+// 但部署机（Linux/libstdc++）直接报 "remove_if is not a member of std"。
+// 本机能编 ≠ 部署机能编，这类间接包含不要依赖。
+#include <algorithm>
+
 
 SpreadManager& SpreadManager::Instance() {
     // 单例模式
