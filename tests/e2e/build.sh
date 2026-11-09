@@ -97,7 +97,9 @@ if [[ ! -f "$TREE/obj/libreal.a" || "$FORCE" == "-f" ]]; then
         signal/SignalGenerator.cpp signal/SpreadStatsBuilder.cpp \
         risk/RiskManager.cpp ; do
         o="obj/$(basename "$src" .cpp).o"
-        "$CXX" -std=c++17 -O0 -g -pthread -I . -I ext ${RJ_INC[@]+"${RJ_INC[@]}"} -c "$src" -o "$o"
+        # E2E_CXXFLAGS 是给覆盖率之类的一次性需求留的注入口，默认空 = 行为不变
+        # 例：E2E_CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping"
+        "$CXX" -std=c++17 -O0 -g -pthread ${E2E_CXXFLAGS:-} -I . -I ext ${RJ_INC[@]+"${RJ_INC[@]}"} -c "$src" -o "$o"
         OBJS+=("$o")
     done
     ar rcs "$TREE/obj/libreal.a" "${OBJS[@]}"

@@ -80,7 +80,7 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 
 ---
 
-## 五个坑（每个都真实踩过）
+## 六个坑（每个都真实踩过）
 
 1. **价差槽位要自己补**。生产在 `PairTradingStrategy::pre_start` 里做
    `SpreadManager::AddSpreadPara` + `dbpReader.Subscribe`，测试没有 `pre_start`，
@@ -101,6 +101,13 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 5. **子单的 `offsetFlag` 恒为 `OF_OPEN`**（`PairManager.cpp` 里是硬编码的赋值）。
    开/平的意图只体现在 `pairOrder.tradingTypeOffset`（`CLOSE_LONG` 等）和方向上，
    不要断言 `offsetFlag == OF_CLOSE`。
+
+6. **写完 `config.json` 必须作废指纹，不能指望 mtime 变**。`RunSignalOnce` 只在
+   `(ino, mtimeNs, size)` 变了才重读文件。**Linux 的文件时间戳取自粗粒度时钟**
+   （1 jiffy ≈ 1~4 ms），同一 tick 内连写两次**等长**内容（如 `cmdType:1` → `cmdType:3`，
+   都是 122 字节）⇒ mtime 完全相同 ⇒ 第二次配置被**静默跳过**。macOS 的 APFS 是 ns 级，
+   本机永远复现不出来 —— 症状是部署机上 `11` 从 10/0 变成 **4/5**。
+   `ApplyRuntimeConfig` 里已经 `m_cfgStamp.valid = false`，新用例照抄它就行。
 
 ---
 
@@ -137,3 +144,42 @@ quant_library/algo/PairTradingContext.cpp:1589
 
 改成 `==` 之后 10 号 19/19 全绿，其它用例不受影响，断言一条没改。
 留这段记录是因为它说明了本目录的断言口径：**按文档语义写，不迁就实现**。
+
+---
+
+## 覆盖率怎么测（想知道"到底测到哪儿了"）
+
+`build.sh` / `run.sh` 都认一个 `E2E_CXXFLAGS` 环境变量，默认空 = 行为不变。
+用它注入 clang 的源码级覆盖率，跑完合并 13 个进程的 profile：
+
+```bash
+rm -rf /tmp/e2e_cov /tmp/e2e_prof && mkdir -p /tmp/e2e_prof
+E2E_BUILD=/tmp/e2e_cov \
+E2E_CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping" \
+LLVM_PROFILE_FILE='/tmp/e2e_prof/%p.profraw' ./run.sh
+
+llvm-profdata merge -sparse /tmp/e2e_prof/*.profraw -o /tmp/e2e.profdata
+llvm-cov report /tmp/e2e_cov/obj/case_13_global_switch -instr-profile=/tmp/e2e.profdata
+# 单文件 / 按函数：
+llvm-cov report /tmp/e2e_cov/obj/case_13_global_switch /tmp/e2e_cov/algo/AlgoContext.cpp \
+  -instr-profile=/tmp/e2e.profdata -show-functions
+```
+
+`%p` 是 pid，13 个用例各写各的 `.profraw`，不会互相覆盖。
+`llvm-profdata` / `llvm-cov` 在 `/Library/Developer/CommandLineTools/usr/bin/`。
+
+**2026-11-09 实测（13 个用例全跑）：**
+
+| 文件 | 行覆盖 | 分支覆盖 |
+|---|---|---|
+| `algo/AlgoContext.cpp` | 35.85% | 29.93% |
+| └ `OnSpread`（拆单+报单主入口） | **20.91%** | **18.63%** |
+| └ `OnOrder`（回报更新） | 55.67% | 58.33% |
+| └ `OnTimer` | 37.19% | 41.33% |
+| `basic/AlgoPairOrder.cpp`（拆单算法） | 33.64% | 19.37% |
+| `basic/BaseAlgoOrder.cpp` | 41.94% | 18.16% |
+| `basic/PairManager.cpp` | 22.43% | 6.80% |
+| `signal/SignalGenerator.cpp` | 68.67% | 42.71% |
+| `algo/PairTradingContext.cpp`（策略侧） | 68.19% | 56.33% |
+
+读法：**策略侧（信号/闸门/落库）测得多，执行侧（拆单/报单/回报）只测了一条最窄的正向路径。**

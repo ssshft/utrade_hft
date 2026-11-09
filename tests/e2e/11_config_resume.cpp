@@ -32,6 +32,7 @@ static void Case() {
     // ---- 摆一个"需要恢复"的现场 ----
     // 这几个字段在真实系统里会由别的路径留下：closeFlag 来自快照或 CLOSE 命令，
     // reBalance 来自 CheckExposureAbnormal，两个数值来自上一次命令。
+    // （reBalance 在这里只是"现场"，它的断言放在文件末尾单独做 —— 见那里的说明。）
     pi.closeFlag = true;
     pi.reBalance = true;
     pi.profitPct = -0.002;
@@ -42,7 +43,6 @@ static void Case() {
 
     CHECK(!pi.stopFlag, "RESUME -> stopFlag 清掉（这条是解 STOP 的唯一出路）");
     CHECK(!pi.closeFlag, "RESUME -> closeFlag 也清掉（不是只解 stopFlag）");
-    CHECK(!pi.reBalance, "RESUME -> reBalance 清掉（否则下一轮 ProcessRisk 会再建再平衡单顶回来）");
     CHECK(Near(pi.profitPct, 0.0), "profitPct 整条覆盖成缺省 0（上一次的 -0.002 必须被冲掉）");
     CHECK(Near(pi.closeRemainVolume, 0.0), "closeRemainVolume 覆盖成 0 = 平干净");
     CHECK(pi.autoFlag == autoBefore, "不碰 autoFlag（它是'参数由谁算'的标签，不是急停状态）");
@@ -58,6 +58,19 @@ static void Case() {
     if (fx.created.size() == 1) {
         CHECK(fx.created[0]->role == AlgoRole::OPEN_SIGNAL, "role = OPEN_SIGNAL");
     }
+
+    // ---- reBalance 只能单独测，走上面那条链路测不出来 ----
+    // OnTimer 第 3 步 ProcessRisk -> ProcessExposureRebalance 在敞口正常时会**自己**
+    // 把 reBalance 清掉（PairTradingContext.cpp:673）。所以即使 RESUME 一条都没执行，
+    // 上面的链路里 "reBalance == false" 也会成立 —— 那是假阳性（2026-11-09 实测发现）。
+    // 这里直接调 ApplyPairCommands，把这条语义单独钉住。
+    pi.reBalance = true;
+    pt::RuntimeConfig rc;                    // 默认 = 全 false / 0，正好是 RESUME 的形态
+    rc.pairCmdCount = 1;
+    rc.pairCommands[0].cmdType = PairCmd_RESUME;
+    std::strncpy(rc.pairCommands[0].pairKey, kPairKey, stra::INST_KEY_LEN - 1);
+    fx.ptCtx.ApplyPairCommands(rc);
+    CHECK(!pi.reBalance, "RESUME 清 reBalance（绕开 OnTimer 的副作用才测得到）");
 }
 
 int main() { return RunCase("11 配置恢复", Case); }

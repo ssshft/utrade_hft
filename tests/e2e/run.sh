@@ -79,7 +79,8 @@ for c in "${SEL[@]}"; do
     bin="$TREE/obj/case_$c"
     if [[ ! -x "$bin" || "$HERE/$c.cpp" -nt "$bin" || "$HERE/harness.h" -nt "$bin" ]]; then
         # -Wno-* 只是压掉真实源码里的历史告警（sprintf 之类），跟用例本身无关
-        if ! "$CXXBIN" -std=c++17 -O0 -g -pthread \
+        # E2E_CXXFLAGS 同 build.sh：给覆盖率之类的一次性需求留的口子，默认空
+        if ! "$CXXBIN" -std=c++17 -O0 -g -pthread ${E2E_CXXFLAGS:-} \
                 -Wno-deprecated-declarations -Wno-format -Wno-unused-variable \
                 -I "$TREE" -I "$TREE/ext" -I "$HERE" \
                 ${RJ_INC[@]+"${RJ_INC[@]}"} \

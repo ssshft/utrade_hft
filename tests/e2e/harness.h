@@ -548,8 +548,17 @@ static std::string MakeRef(BaseAlgoOrder* o, int64_t pairId) {
 //    （实测 maxAmount=50、腿价 100 时 10 / 10 -> 5 / 0.5）。所以 OnTimer 之后要重新
 //    MakeHoldable，否则后面依赖报单量和阶梯末端的断言测的就不是你以为的那组数。
 // ===========================================================================
+// ⚠️ 写文件之后必须让指纹失效，不能指望 mtime 变化。
+//    RunSignalOnce 只在 (ino, mtimeNs, size) 变了才重读文件，而本函数会连着写两次
+//    **等长**的内容（cmdType 1 -> 3，都是 122 字节）。Linux 的文件时间戳取自粗粒度时钟
+//    （1 jiffy ≈ 1~4 ms），同一个 tick 内两次写的 mtime 完全相同 ⇒ 指纹不变 ⇒
+//    第二次配置被**静默跳过**。macOS 的 APFS 是 ns 级，所以本机看不出来 ——
+//    症状是部署机上 11 号用例从 10/0 变成 4/5（2026-11-09 实测复现）。
+//    测试要的是"这条配置现在生效"，不是"验证指纹检测"，所以这里直接作废指纹。
+//    产品侧不受影响：1 Hz 轮询下"读完 1~4 ms 内又改一次"的概率可以忽略。
 static void ApplyRuntimeConfig(Fx& fx, const std::string& json) {
     WriteTextFile(TempPath("config.json"), json);
+    fx.ptCtx.m_cfgStamp.valid = false;
     int64_t lastStats = crypto::getCurrentTime();   // 别顺手触发统计重算
     fx.ptCtx.RunSignalOnce(crypto::getCurrentTime(), lastStats);
     fx.ptCtx.OnTimer(crypto::getCurrentTime());
