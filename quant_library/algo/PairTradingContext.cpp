@@ -1586,13 +1586,13 @@ void PairTradingContext::ApplyPairCommands(const RuntimeConfig& rc) {
             LOG_WARN("pairCommands: 对子 {} -> 恢复（stopFlag {}->false, closeFlag {}->false, profitPct {}->{}, closeRemainVolume {}->{}）",
                      key, wasStopped, wasCloseOnly, oldPct, pi->profitPct, oldRemain, pi->closeRemainVolume);
         }
-        else if (cmd.cmdType != PairCmd_CLOSE) { // 只平不开 
+        else if (cmd.cmdType == PairCmd_CLOSE) { // 只平不开 
             // ---- 2 只平不开 ----
             // stopFlag 下连平仓单都发不出去（SignalGenerator::CanClose），置 closeFlag 只是自欺欺人。
             // 明确拒绝，并给出出路 —— 否则运维会以为命令生效了、等在那里干看。
             if (pi->stopFlag) {
                 LOG_ERROR("pairCommands: 对子 {} 处于 stopFlag（停止交易 / 敞口异常 / 孤儿冻结）-> 拒绝 CLOSE。这时连平仓单都不会发；要先发 cmdType=3(RESUME) 解除，再发 CLOSE", key);
-                return;
+                continue;
             }
 
             if (!pi->closeFlag) {
