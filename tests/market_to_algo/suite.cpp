@@ -591,13 +591,23 @@ static void TestA_Create() {
         CHECK(o && o->role == AlgoRole::CLOSE_SIGNAL, "A9 普通平仓单：role = CLOSE_SIGNAL");
         CHECK(o && o->ttCLSwitch, "A9 平仓单：本次触发的平仓开关被强制打开");
         CHECK(o && o->mtCLSwitch && o->mtCSSwitch, "A9 平仓单：不动其它平仓开关");
+        CHECK(o && o->profitSwitch == pi.profitSwitch,
+              "A9 普通平仓单：profitSwitch 跟随 pair_info（盈利保护照常）");
         delete o;
 
         BaseAlgoOrder* r = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.00002, AlgoRole::RISK_CLOSE);
         CHECK(r && !r->ttOLSwitch && !r->ttOSSwitch && !r->mtOLSwitch && !r->mtOSSwitch,
               "A9 风控强平单：四个开仓开关全部清零（永不开仓）");
         CHECK(r && r->role == AlgoRole::RISK_CLOSE, "A9 风控强平单：role = RISK_CLOSE");
+        CHECK(r && !r->profitSwitch && Near(r->profitPct, 0.0),
+              "A9b 风控强平单：关掉盈利保护（亏损也必须平得出去）");
         delete r;
+
+        // A9c forgoProfit 本身不等于强平：普通平仓单带让利时保护不能跟着关
+        BaseAlgoOrder* f = fx.ctx.BuildAlgoOrderJson(pi, "TT", "CL", 0.00002, AlgoRole::CLOSE_SIGNAL);
+        CHECK(f && f->profitSwitch == pi.profitSwitch,
+              "A9c 普通平仓单 + 让利：profitSwitch 仍跟随 pair_info");
+        delete f;
     }
 
     // A10 风控让利把触发价差往更容易成交的方向挪
@@ -3393,6 +3403,8 @@ static void TestK_RuntimeConfig() {
                   "K15 强平单：4 个开仓开关全压掉（永不开仓）");
             CHECK(m.ttCLSwitch && m.ttCSSwitch && m.mtCLSwitch && m.mtCSSwitch,
                   "K15 强平单：平仓开关一个都没动");
+            CHECK(!m.profitSwitch && Near(m.profitPct, 0.0),
+                  "K15b 强平单：改参也必须压住盈利保护（否则第一次 MODIFY 就复活）");
         }
     }
 

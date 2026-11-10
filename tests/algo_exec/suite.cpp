@@ -1815,6 +1815,11 @@ static void TestI_RoleTermination() {
               "I3 强平单建单即清掉四个开仓开关");
         // ProcessModify 那一侧拿不到算法单指针，只能靠 PairInfo 上的派生镜像
         CHECK(pi.activeAlgoIsRiskClose, "I3 PairInfo.activeAlgoIsRiskClose = true（MODIFY 侧靠它压开关）");
+        // 强平是"不惜代价出清"，盈利保护必须关掉：AlgoPairOrder 里
+        // `lockedSpread - tempSpread < profitPct` 会把目标量夹回满仓 ⇒ 报空单，
+        // 亏损状态下让利 tier1/2/3 全部空转。
+        CHECK(!o->profitSwitch && Near(o->profitPct, 0.0),
+              "I3b 强平单建单即关掉盈利保护（亏损也要平得出去）");
 
         o->pairTotalVolume = 0.0;
         fx.algoCtx.OnTimer(crypto::getCurrentTime());
@@ -1902,7 +1907,10 @@ static void TestJ_ExposureRebalance() {
         CHECK(o->role == AlgoRole::CLOSE_SIGNAL,
               "J2 role = CLOSE_SIGNAL（只平不开，语义就是平仓单；残量判据保证不会一建出来就 FILLED）");
         CHECK(r->activeTrade == 1, "J2 主动腿敞口更大（20 > 5）-> activeTrade = 1");
-        CHECK(r->isExposureRebalance, "J2 isExposureRebalance = true");
+        // ⚠️ 这里曾经断言 `r->isExposureRebalance`。那个字段**正式头里从来没有**
+        //    （`git log -S` 在 quant_library 下无任何记录，只有 market_to_algo 的桩里多声明过），
+        //    于是整个 algo_exec 套件编译不过。真正的"这是风控自动建的"标记在 PairInfo 上：
+        CHECK(pi.reBalance, "J2 pi.reBalance = true（风控自动单的标记在 PairInfo，不在算法单上）");
         CHECK(Near(r->targetResidualVolume, 15.0), "J2 目标残量 = 20 - (15 - 10) = 15（只平超出阈值的 5）");
         CHECK(Near(o->ttCSEndVolume, 15.0), "J2 ttCSEndVolume = 残量 15（阶梯终点，不是 orderParams 的 0）");
         CHECK(o->ttCSSwitch, "J2 持仓是空 -> 只开 CLOSE_SHORT");

@@ -11,9 +11,11 @@
 // （AlgoContext / BaseAlgoOrder::PairOrderTrade）被调用，本套件不链接执行侧。
 // 这里只保留**策略侧会写到的字段**，名字和类型必须与真实头一致：
 //   activeTrade          —— 操作哪条腿
-//   isExposureRebalance  —— 这张单是不是"只平超出阈值的部分"
 //   targetResidualVolume —— 目标残量（该腿自己的单位、带符号）
-// 少写一个的后果是编译期就报错（好事），多写一个的后果是用例断言了不存在的东西。
+// 少写一个的后果是编译期就报错（好事），多写一个的后果是用例断言了不存在的东西
+// —— `isExposureRebalance` 就是活例子：这里曾经多声明了它，于是
+// tests/algo_exec/suite.cpp 的 J2 断言了一个真实头里根本没有的字段，
+// 整个套件编译不过。该字段从未在正式代码里实现（`git log -S` 无记录），已删除。
 //
 // 构造函数的定义在 stubs.cpp（与 AlgoPairOrder 同一处），行为对齐真实 ctor：
 // algoType 写成 AlgoType_Rebalance、activeTrade 初始化为 -1。
@@ -22,7 +24,6 @@
 
 struct AlgoRebalanceOrder : public BaseAlgoOrder {
     int activeTrade;
-    bool isExposureRebalance{false};
     double targetResidualVolume{0.0};
 
     AlgoRebalanceOrder();

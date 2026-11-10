@@ -1,0 +1,194 @@
+{
+    "_note_file": "【冒烟/联调专用】目标是让 DOGE 这个对子能自己转起来：开仓 -> 撤单 -> 平仓 -> 再开仓，一直跑。**不是给实盘赚钱用的**，见各字段的 _note。用法：./utrade_hft etc/config.smoke.json（配置文件是 argv[1]）。跟 etc/config.json 的差异全部标了 _note_smoke。",
+    "_note_band": "全篇按'价差带 21~53bp'标数：你报的 0.0002/0.0005 是**绝对价差**，除以 DOGE 腿价 ≈0.0937 得 21bp / 53bp 的**相对价差**（本系统的价差定义是 (GATEIO-BINANCE)/BINANCE，正 = GATEIO 更贵）。如果实际跑起来日志里 largeStats 的分位数不是这个量级，改法见 _note_pairCommands_profitPct 里的公式，不用重算别的东西。",
+    "_note_cost": "这套参数下每轮往返的真实成本是 14bp（MT 口径：开 7 + 平 7），而开平线之间只留 5.6bp ⇒ 每轮净亏约 8.4bp。跑一天大概烧掉 (轮数 x 8.4bp x 200 USDT) 的手续费，先算好再挂。",
+    "tag": "utrade_hft",
+    "log": {
+        "level": "info",
+        "log_path": "/logs"
+    },
+    "redis": {
+        "host": "localhost",
+        "port": 9379,
+        "password":"refZa2KcTj$QjyXk"
+    },
+    "dbp": {
+        "topics": []
+    },
+    "op": {
+        "strategyOp": "PairTradingStrategy",
+        "timerInterval": 1000,
+        "strategyIds": ["bnt1", "gat1"],
+        "cpuHeavyWork": -1,
+
+        "pairTrading": {
+            "activeAccountId": "10000",
+            "passiveAccountId": "10001",
+            "pairKeys": ["BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT"],
+
+            "_note_smoke_maxPositionValue": "【冒烟】500000 -> 1000。这是跨对子的总持仓闸门（超了只平不开），不是单对子上限。下面 maxAmount=100 时两条腿合计约 200 USDT，1000 留 5 倍余量。填 0 = 关掉这道闸。",
+            "maxPositionValue": "1000",
+
+            "_note_smoke_amount": "【冒烟】maxAmount 1000 -> 100、targetAmount 10 -> 100。为什么两个都要改：① maxAmount 决定开仓目标量 maxVolume ≈ maxAmount/腿价，1000 会开到 1000 USDT/腿，测试没必要；② targetAmount 是单张配对单的量，**必须 >= 25**（PairInfoManager.h:146 MIN_ORDER_USDT），填 10 时算出来的 ttTargetVolume ≈ 107 张而最小下单量 ≈ 267 张，单子根本报不出去（日志里是 'invalid targetVolume' 或交易所拒单）。两者都填 100 时 maxVolume ≈ ttTargetVolume ≈ 1067 张，**一张配对单就能开到目标仓**，循环最快。",
+            "maxAmount": "100",
+            "targetAmount": "100",
+            "csvStatePath": "./data/pair_info.csv",
+
+            "_note_closeOnly": "只平不开（运维急停）。**可以热改**：保存后约 1 秒生效。true = 压掉全部开仓、平仓照常。⚠️ 必须写裸 true/false（加引号会被读成 false 且不报错）。",
+            "closeOnly": false,
+
+            "_note_stopAllAlgo": "停掉所有算法单（比 closeOnly 更狠）。**可以热改**。⚠️ 同样必须裸 true/false。⚠️ '打开'不等于'场上立刻干净'：撤单只撤主动腿，被动腿要等成交，一直不成交时算法单会长期停在撤单中（没有撤单超时升级）。",
+            "stopAllAlgo": false,
+
+            "_note_pairCommands": "【冒烟】这里是本文件唯一一处'运维命令'，作用是把 profitPct 从默认 +1bp 改成 -2bp（让利平仓）。为什么非要用它：profitPct 不是普通配置项，它挂在 PairInfo 上（PairInfo.h:309 默认 0.0001），配置文件的唯一写入口就是 pairCommands 的 cmdType=3。cmdType=3 = 恢复：清 stopFlag/closeFlag 并把两个数值字段写进去。",
+            "_note_pairCommands_risk": "⚠️ 三条必须知道的：① **单向**——删掉这条不会把 profitPct 变回去，它会一直粘着（快照第 30 列），要改只能再发一条命令；② 它只在**配置文件变化时**落地一次（PairTradingContext.cpp:1684 的 m_cfgQ），所以运行中如果被 CheckExposureAbnormal 置了 stopFlag，不会自己解开，要么发 cmdType=3，要么 touch 一下本文件让配置重新下发；③ 启动时如果快照里 hasActiveAlgoOrder=true 会先被孤儿冻结（stopFlag），RESUME 能不能解开取决于两者谁先到——真冻住了就删 ./data/pair_info.csv 再重启。",
+            "_note_pairCommands_profitPct": "profitPct 是**加在平仓阈值上的让利**，负数才是让利。平仓触发价 = 分位数边界 x spreadAdjPct - profitPct。为什么必须让利：spreadAdjPct=0.8 会把平仓线往 0 拉，默认 +1bp 又往外推，两者叠加后平仓线会落到价差带**外面**（算下来是 15.8bp，而带的下沿是 21bp）⇒ 开得出去、平不回来，最后靠 24h 风控强平。⚠️ 让利平仓必须同时把 minProfitTarget 设 0，否则开仓的净利闸永远过不去（它拿平仓线反算净利）。",
+            "_note_pairCommands_formula": "本文件填 -0.002（让利 20bp），算出来的数：开空线 42.4bp、平空线 36.8bp、两者间隔 5.6bp。间隔的公式是 **间隔 = spreadAdjPct x (UQ - DQ) + profitPct**（这里是 0.8 x 32 + (-20) = 5.6）。间隔越小循环越密、每轮越亏；间隔越大越难等到。想改成'打平'就填 -0.001（间隔 15.6bp，每轮毛赚 15.6bp 扣 14bp 成本 ≈ +1.6bp）；填 0 则平仓线回到 16.8bp，又掉到带外，变成只开不平。",
+            "pairCommands": [
+                {
+                    "pairKey": "BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT",
+                    "cmdType": 3,
+                    "profitPct": -0.002,
+                    "closeRemainVolume": 0
+                }
+            ],
+
+            "_note": "策略参数。时间字段以秒为单位（结构体里是微秒，解析时换算）。",
+            "_note_quantile": "quantileUp/Dn 决定价差带的两个边界。⚠️ 方向和直觉相反：Up 越大、Dn 越小，边界越靠外，**越难**碰到（触发要求价差严格越过边界）。想更容易开仓要把 Up 往 0.5 调、Dn 往 0.5 调。",
+            "_note_minSamples": "spreadStatsMinSamples 是预热门槛：默认 5，攒够这么多样本才开始算阈值。",
+
+            "quantileUp": "0.92",
+            "quantileDn": "0.08",
+
+            "_note_smoke_window": "【冒烟】spreadStatsWindowSec 86400 -> 3600。1 小时窗口：分位数跟得上当前行情，重启后也更快恢复（24h 窗口在重启后只有 60s 的历史，分位数会退化成接近 min/max，阈值变得几乎碰不到）。⚠️ 这一项和「保证盈利」是**反向**的：窗口越短，持仓期间平仓线越容易跟着行情跑（1h 窗口下，一段 10 分钟的行情占了窗口的 1/6，分位数会被它明显拖动；24h 窗口下只占 0.7%）。所以这个文件不能同时当'保盈利'配置用，要保盈利就把本值改回 86400。",
+            "spreadStatsWindowSec": "3600",
+            "spreadStatsUpdateIntervalSec": "60",
+            "spreadStatsMinSamples": "5",
+            "spreadSampleIntervalSec": "5",
+            "spreadStatsMaxStaleSec": "3600",
+            "spreadStatsStatePath": "./data/spread_stats.csv",
+
+            "_note_smoke_algoOrderTimeoutMs": "【冒烟】150000 -> 30000。这是**循环的节拍器**，也是'撤单'的主要来源。原理：开仓单一旦把仓位建到 maxVolume，开仓信号就消失，satisfyTime 停止刷新，于是这个算法单只能等超时才被撤（PairTradingContext.cpp:521）。所以一个完整循环的最短周期 ≈ 本值 + 建仓/平仓成交时间。调小 = 撤单更频繁、循环更快，但更容易在没建满仓时就被撤掉；调大 = 更耐心，但循环变慢。想让撤单刷屏填 10000，想稳一点填 60000。",
+            "algoOrderTimeoutMs": "30000",
+            "modifyTimespanSec": "60",
+            "modifyShiftPct": "0.0002",
+
+            "exposureMaxLimit": "10",
+            "exposureMaxLimitCoff": "1.0",
+
+            "_note_exposureCancelTimes": "敞口异常闸门：|净敞口| > 本值 x ttTargetVolume 就置 stopFlag（**永久，不会自愈**）。4.0 表示净敞口到 4 倍目标量才停。冒烟时建议别调小——一旦触发，循环就停在那里等人发 RESUME。",
+            "exposureCancelTimes": "4.0",
+
+            "volumeRecalcIntervalSec": "60",
+            "csvSaveIntervalSec": "10",
+
+            "reconcileTolRatio": "0.000001",
+            "reconcileWarnIntervalSec": "30",
+            "_note_freezeOnOrphan": "重启时如果快照里 hasActiveAlgoOrder=true（上一轮有算法单没终结），是否把该对子冻结。冒烟想'重启即续跑'可以填 false，但那样可能在残留子单上再开一笔；保持 true 更安全，代价是每次异常重启要手工清 ./data/pair_info.csv。",
+            "freezeOnOrphanAlgoOrder": "true",
+
+            "_note_algo": "算法单参数（原来硬编码在 PairTradingContext::BuildAlgoOrderJson 里）。",
+            "_note_algo_type": "报单类型写字符串：OT_LIMIT / OT_MARKET / OT_POST_ONLY / OT_FOK / OT_IOC。子单类型直接取自这三个值，而 BaseAlgoOrder 用它决定走 Maker 还是 Taker 撤单分支（OT_POST_ONLY = Maker）。",
+            "_note_algo_cancel": "撤单时间以**毫秒**为单位（结构体写进 BaseAlgoOrder 时 x1000 变微秒）。撤单比例是小数：0.001 = 10bp。",
+
+            "ttActiveOrderType": "OT_LIMIT",
+            "_note_mtActiveOrderType": "主动腿 POST_ONLY = 只挂不吃。它决定了'撤单'能不能看到：挂不上的时候会被交易所拒，挂上了不成交就等下面的 activeMakerCancelOrderTimeMs 撤。想让开仓更容易成交就改成 OT_LIMIT。",
+            "mtActiveOrderType": "OT_POST_ONLY",
+            "passiveOrderType": "OT_LIMIT",
+
+            "activeDepthMakerCheck": false,
+            "activeDepthTakerCheck": false,
+            "passiveDepthMakerCheck": false,
+            "passiveDepthTakerCheck": false,
+
+            "activePriceTakerPct": "0",
+            "activePriceMakerPct": "0",
+            "passivePriceTakerPct": "0",
+            "passivePriceMakerPct": "0",
+            "passiveVolumePct": "0.5",
+
+            "_note_smoke_cancelTime": "【冒烟】四个撤单时间 5000 -> 3000。被动腿是 OT_LIMIT（走 Taker 分支），它的撤单**只看时间**，不成交就 3 秒撤一次；这是循环里最常见的'撤单'。调小 = 撤得更勤、成交概率更低。",
+            "activeMakerCancelOrderTimeMs": "3000",
+            "activeTakerCancelOrderTimeMs": "3000",
+            "passiveMakerCancelOrderTimeMs": "3000",
+            "passiveTakerCancelOrderTimeMs": "3000",
+            "_note_cancelPct": "价格偏离撤单比例。0.001 = 10bp，在 32bp 宽的带上偶尔会触发，但**不是主因**——循环里的撤单绝大多数来自上面的时间撤单和下面的 algoOrderTimeoutMs。想让价格撤单更勤就填 0.0005（5bp）。",
+            "activePassiveCancelOrderPct": "0.001",
+            "activeMakerCancelOrderPct": "0.001",
+            "activeTakerCancelOrderPct": "0.001",
+            "passiveMakerCancelOrderPct": "0.001",
+            "passiveTakerCancelOrderPct": "0.001",
+
+            "_note_maxOrderSize": "这两个是**在途配对单的数量上限**，不是每单量（每单量由 targetAmount 决定）。1.0 = 同时最多 1 张配对单。",
+            "maxMTOrderSize": "1.0",
+            "maxTTOrderSize": "1.0",
+
+            "targetSpreadType": "TargetSpredPrice_NOW",
+            "activeVolumeCalcualteType": "ActiveVolumeCalcualteType_PassiveVolumePct",
+
+            "mtRebalanceSwitch": true,
+            "ttRebalanceSwitch": false,
+            "mtRebalanceFlag": true,
+            "ttRebalanceFlag": false,
+
+            "mtPriceTrendProtectFlag": false,
+            "ttPriceTrendProtectFlag": false,
+
+            "activePriceTickFlag": false,
+            "activePriceTickNum": "0",
+            "passivePriceTickFlag": false,
+            "passivePriceTickNum": "0"
+        },
+        "feeSlippage": {
+            "_note_fees": "这四个费率**只影响阈值推导，不影响真实盈亏**——交易所照收真费率，配置里写 0 也不会退手续费。它们在 CheckSignal 的 8 个判据里会被精确抵消，唯一残留的三处是：minSpreadTarget 的地板余量、minProfitTarget 的往返净利闸（含 2F）、TT 相对 MT 的 ttAddPercent 偏移。所以'改费率让开仓更容易'只在净利闸开着时有用。",
+            "activeMakerFeeRate": "0.0002",
+            "activeTakerFeeRate": "0.0005",
+            "passiveMakerFeeRate": "0.0002",
+            "passiveTakerFeeRate": "0.0005",
+            "basicSlippage": "0",
+            "slippagePctMinMove": "0.5",
+
+            "_note_ttAddPercent": "TT 比 MT 多要求的边际，单位是价差本身（3bp）。它**不会**和 F 抵消：TT 的触发价 = 分位数 x spreadAdjPct **+** ttAddPercent。所以 TT 开空要 45.4bp、MT 开空只要 42.4bp。于是两种路径都会跑到：价差刚到 42.4~45.4bp 时走 MT（主动腿 POST_ONLY，挂不上就撤，撤单主要来自这条路径），冲到 45.4bp 以上时 TT 抢先（两腿都吃单，必成交）。想只保留 MT（撤单更多）就把本值调大，想只保留 TT（必成交）就调成 0 并把 mtActiveOrderType 一起改。",
+            "ttAddPercent": "0.0003",
+
+            "_note_spreadAdjPct": "分位数放大系数，同时缩放**开仓线和平仓线**（0.8 = 两条线都朝 0 拉 20%）。拉得越狠，开仓越容易碰到，但平仓线也被拉进带内更深的地方 ⇒ 循环变快、单笔变小。⚠️ 它只改变'在哪成交'，不产生任何 edge。",
+            "spreadAdjPct": "0.8",
+            "minSpreadSpan": "0",
+
+            "_note_smoke_minSpreadTarget": "【冒烟】0.0012 -> -0.001。这是本文件最关键的一处。它有两个作用：① >0 时把 4 个开仓阈值**夹**到至少 ±minSpreadTarget，等价于'每笔必须做到 12bp 深'；② 无论正负，canOpen 都用它当门槛（canOpenShort 要求 mtOSStartSpread > minSpreadTarget）。填 0.0012 时两条开仓线被钉在 +19.05bp / -5.05bp：前者在这条 21~53bp 的带里几乎一直满足（所以会不停地开），但平仓线被留在 15.8bp（带外）⇒ **开得出去、平不回来**。填 -0.001 时夹逼关闭，两条开仓线回到分位数决定（42.4bp / 16.8bp），门槛也退化成'允许在 +10bp 的浅价差上开多'，等于把开关交给分位数。为什么不是 0：canOpen 是**严格不等号**，0 在窄带上很容易把两个方向一起卡死；填个足够负的值最稳。",
+            "minSpreadTarget": "-0.001",
+
+            "_note_smoke_minProfitTarget": "【冒烟】0.0005 -> 0。开仓的'预期往返净利'门槛，判据是 净利 = 对向平仓线 - 本向开仓线（F 已抵消），>= 本值才允许开仓。⚠️ 这条不是'顺手关掉'，是**必须**关：本文件的 profitPct=-0.002 会把平仓线推到 36.8bp，而开仓线在 42.4bp，于是阈值处预期净利 = 15.4 - 23.8 = **-8.4bp**，永远小于默认的 5bp ⇒ 一单都发不出去。只要 profitPct 写负数（让利平仓），这道闸就必须设 0。",
+            "minProfitTarget": "0",
+
+            "_note_openProfitPct": "⚠️ 未接线：只解析 + 打日志，RecalcOrderParams 不读它。设成什么都一样。",
+            "openProfitPct": "0.0001",
+            "openMaxFundingRate": "0.002"
+        },
+        "risk": {
+            "_note_smoke_risk": "【冒烟】这一段整体从'实盘保守'改成'测试快速兜底'：任何一笔仓位卡住，最多 5 分钟就会被渐进式强平掉，循环不会停在这里等人。实盘必须调回去（minHoldDurationSec 3600 / spreadNoRegressionSec 86400 / tier 1800-3600-7200）。",
+            "adlPositionThresholdUsdt": "2000",
+            "adlHighRankThreshold": "4",
+            "positionExceedDurationSec": "345600",
+
+            "_note_minHold": "最短持有期，不足则风控一律不触发（也是重启后的宽限期）。3600 -> 60。",
+            "minHoldDurationSec": "60",
+
+            "_note_noRegression": "持仓满 minHold 之后，连续这么久都没能满足'按价差平仓'的条件，就开始渐进式强平。86400 -> 300（5 分钟）。这是'平仓线够不到'时的兜底：没有它，仓位会一直挂着等 24 小时。",
+            "spreadNoRegressionSec": "300",
+
+            "fundingAbnormalUsdt": "30",
+            "tinyCloseThresholdUsdt": "5",
+            "tinyCloseScanIntervalSec": "60",
+
+            "_note_tier": "强平的三档让利阶梯，时间是从触发那一刻起**累加**算的：tier1 让 2bp -> 等 60s -> tier2 让 5bp -> 再等 120s -> tier3 让 10bp 并一直重试。原值 1800/3600/7200 在测试里等于永远走不到 tier2。",
+            "tier1WaitSec": "60",
+            "tier2WaitSec": "120",
+            "tier3WaitSec": "180",
+
+            "tier1ForgoProfit": "0.0002",
+            "tier2ForgoProfit": "0.0005",
+            "tier3ForgoProfit": "0.001"
+        }
+    }
+}

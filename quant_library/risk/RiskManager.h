@@ -9,6 +9,11 @@
  * t2: 让利 tier2ForgoProfit，再次尝试，等 tier1WaitUs + tier2WaitUs
  * t3: 让利 tier3ForgoProfit，之后**持续以 tier3 重试**直到平掉
  *     （不再升级，也不再停手 —— 否则 tier3 一次没成交就永久卡住）
+ *
+ * ⚠️ 让利只是把 CL/CS 阶梯往容易成交的方向平移，**它不解除算法单上的盈利保护**。
+ *    真正让"亏着也能平出去"成立的是 `PairTradingContext` 建强平单时把
+ *    `profitSwitch=false` / `profitPct=0`（`BuildAlgoOrderJson` 与 `BuildNormalModify`
+ *    两处成对改）。少了那一步，本文件的三档让利在亏损状态下全部空转。
  * 
  * ****/
 

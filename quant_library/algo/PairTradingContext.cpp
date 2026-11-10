@@ -772,6 +772,10 @@ stra::AlgoOrderModify PairTradingContext::BuildNormalModify(const PairInfo& pi) 
         m.ttOSSwitch = false;
         m.mtOLSwitch = false;
         m.mtOSSwitch = false;
+
+        // 强平单同样不许带盈利保护 —— 这是**必须的第二处**。
+        m.profitSwitch = false;
+        m.profitPct = 0.0;
     }
 
     // 32 个起止价差 / 起止量：整份照搬 pi.orderParams
@@ -1169,6 +1173,10 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
         pAlgoOrder->mtCLEndVolume = 0.0;
         pAlgoOrder->ttCSEndVolume = 0.0;
         pAlgoOrder->mtCSEndVolume = 0.0;
+
+        // 盈利保护同样要关：强平是"不惜代价出清"，不许再要求盈利。
+        pAlgoOrder->profitSwitch = false;
+        pAlgoOrder->profitPct = 0.0;
     }
 
     // 5. 本次触发的模式+方向：套用风控价差修正，并确保开关打开

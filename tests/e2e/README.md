@@ -135,7 +135,7 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 | `02_fill.cpp` | 成交回报：主动腿成交 -> 报被动腿 -> 两条腿齐 -> 删 pairOrder | `OnOrder` |
 | `03_close.cpp` | 正常平仓：CLOSE_LONG -> 平到 0 -> 算法单终结、对子释放 | `ProcessPairSignal` / `OnOrder` / `OnTimer` |
 | `04_cancel.cpp` | 定时撤单：机会连续不成立 -> CANCEL -> 被动腿撤掉 -> 终结 | `OnTimer` / `OnOrder` |
-| `05_risk_close.cpp` | 风控强平：碎单命中 -> RISK_CLOSE -> 平干净 | `ProcessRisk` |
+| `05_risk_close.cpp` | 风控强平：碎单命中 -> RISK_CLOSE -> 平干净（含关掉盈利保护） | `ProcessRisk` |
 | `06_rebalance.cpp` | 敞口再平衡：净敞口超阈值 -> stopFlag + 只平超出部分 | `CheckExposureAbnormal` / `ProcessRisk` |
 | `07_snapshot.cpp` | `pair_info.csv` 落库 / 重启读回（32 列，账户真值故意不存） | `SaveSnapshot` / `Init` |
 | `08_spread_stats.cpp` | `spread_stats.csv` 落库 / 重启免预热（12 列，含陈旧度判断） | `WriteSpreadStatsFile` / `Init` |
@@ -148,6 +148,7 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 | `15_mt_close.cpp` | **MAKER_TAKER 平仓**：MT/CL 平多 + MT/CS 平空，挂单价与方向镜像，平到 0 终结 | `ProcessPairSignal` / `OnSpread` / `OnTimer` |
 | `16_mt_maker_cancel.cpp` | **MAKER_TAKER 撤单与多单上限**：maker 主动腿价格跑掉才撤；关掉 rebalance 后在途子单不重复报 | `OnSpread` / `OnOrder` |
 | `17_report_stream.cpp` | **回报推送流**：分批成交（0.4 -> 0.7 -> 1.0，每条对冲腿只补差额）、报单被拒、乱序/重复/无主回报 | `OnOrder` |
+| `18_risk_close_no_profit.cpp` | **强平不要求盈利**：同一个亏损局面，普通平仓单被 `profitSwitch` 夹回满仓、强平单照样报出子单（对照组自证阶梯本来就该触发） | `SubmitAlgoOrder` / `GetTargetPairOrder` |
 
 `14~16` 是 MT 半边，`01~13` 走的是 TT 半边。两边**拆单逻辑是两套独立代码**
 （`AlgoPairOrder.cpp` 里 MAKER_TAKER / TAKER_TAKER 各一份），TT 绿不代表 MT 绿：

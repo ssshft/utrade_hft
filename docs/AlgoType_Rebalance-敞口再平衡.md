@@ -163,7 +163,7 @@ expectVolume = GetExpectActiveVolume() = pairTotalVolume + 在途已成交 + 冻
 | 四个开仓开关 | 全 `false` | 单腿单不许开仓，理由同风控强平单 |
 | `role` | `CLOSE_SIGNAL` | 这张单确实"只平不开"，语义就是平仓单。**能这么写的前提是 §5 那条残量判据**：老判据 `\|持仓\| < minSize` 下它停在残量上永远不结束，所以早期版本只能退而求其次写 `OPEN_SIGNAL`。现在判据是 `\|持仓\| - \|终点\| < minSize`，"刚建单"（20-15=5 > 0.1）和"到位"分得开 ⇒ 按真实语义写 `CLOSE_SIGNAL`。它比 `OPEN_SIGNAL` 更稳的一点：万一有人误开了某个开仓开关，`noOpenPermission` 变 false，但 `role != OPEN_SIGNAL` 仍然进得了终结判据。不用 `RISK_CLOSE`：那会把 `pi.activeAlgoIsRiskClose` 置真（"这是强平单"的派生镜像），而本单只是削超额，不是强平 |
 | `ttRebalanceSwitch` / `ttRebalanceFlag` | `true` | `OnSpread` 的 Rebalance 分支要求 `*RebalanceFlag` 为真，否则一条子单都不报 |
-| `isExposureRebalance` | `true` | 区分"风控自动单"与"人工建的 Rebalance 单"：滑点熔断豁免 + 终结日志措辞 |
+| ~~`isExposureRebalance`~~ | **未实现** | 原计划用它区分"风控自动单"与"人工建的 Rebalance 单"（滑点熔断豁免 + 终结日志措辞）。`quant_library/basic/AlgoRebalanceOrder.h` 里**没有这个字段**，`git log -S` 在 quant_library 下也无任何记录 ⇒ 现在靠 `PairInfo::reBalance` 识别来源；滑点熔断**没有**豁免，见 §6.3 |
 | `targetResidualVolume` | 阶梯终点 | 结束判据用它（`\|持仓\| - \|终点\| <= minSize`） |
 | `pairTotalVolume` 等账本 | 照抄 `pi` | `OnAlgoOrderUpdate` 会把算法单上的量整份写回 `PairInfo`；换个源（比如用实盘持仓当种子）会让两边从此对不上，还会把在途成交"退回去" |
 
@@ -199,7 +199,8 @@ if ((|持仓| - |targetResidualVolume|) < minSize && allPairOrders.size() == 0)
   行为一个字节没变。
 - 允许差值为负（打过头了也算到位），所以是减法比较而不是绝对值相等。
 
-⚠️ 这里**不能用 `isExposureRebalance` 当判据**：那个字段只管"滑点熔断豁免 + 日志措辞"。
+⚠️ 这里**不能用 `isExposureRebalance` 当判据**：那个字段只管"滑点熔断豁免 + 日志措辞"
+（而且它本身也未实现，见 §4）。
 判据要覆盖所有 Rebalance 单，否则人工单会一直活到 150s 空闲超时。
 
 **这条判据与 `role = CLOSE_SIGNAL` 是一对，必须同时存在**：
@@ -238,10 +239,35 @@ targetVolume = min(fabs(expectActiveVolume - targetActiveVolume), ttTargetVolume
 
 ### 6.3 滑点熔断会把风控单挂死
 
-`AlgoRebalanceOrder::PairOrderTrade` 里有一段：被动腿有成交且滑点过大 ⇒ 置
-`ttSlipageFlag = true`。而 `OnSpread` 见到这个 flag 就**停止为该单报子单**。
-对一张"必须把敞口压回去"的风控单，这等于挂死 —— 它还会占着对子，
-直到 `OnTimer` 每 5 分钟把 flag 清掉。现在用 `!isExposureRebalance` 跳过这段。
+置位点在 **`BaseAlgoOrder::PairOrderTrade`**，不在 `AlgoRebalanceOrder` 里
+（`BaseAlgoOrder.cpp:784` 置 `mtSlipageFlag`、`:797` 置 `ttSlipageFlag`），
+而且**整段被 `if (pairOrder.rebalanceFlag && pairOrder.passiveTotalVolumeOnOrder > 0)`
+包着**（`:776`）——也就是说这个 flag **只可能由"再平衡中的对子单"抬高**，
+判据是 `ttSlipage > 2 * passiveTakerSlippage + profitPct`（`:796`）。
+
+抬高之后，`OnSpread` 见到它就**停止为该单报子单**，三个分支各有一道同款闸门：
+`AlgoContext.cpp:571`（`AlgoType_PairTrading`）/ `:790`（`AlgoType_FishingTrading`）/
+`:966`（`AlgoType_Rebalance`），条件都是
+`!ttSlipageFlag && !ttSpreadFlag && tradingTypeOrder == TAKER_TAKER`。
+清除只发生在 `OnTimer`（`AlgoContext.cpp:1477-1480`，`slippageCount >= 60*5` 个 1 Hz 计数）
+⇒ **最长挂 5 分钟**。
+
+> 🔴 **原计划用 `!isExposureRebalance` 跳过这段，但那个字段从未实现**（见 §4）
+> ⇒ **现状是没有豁免**。
+>
+> ⚠️ 两点容易搞反：
+> 1. 这个 flag 对 `AlgoType_Rebalance` 是**自伤**——只有再平衡对子单会抬高它，
+>    抬高后挡住的又正是自己。对 `AlgoType_PairTrading` 的再平衡阶段则是正常保护
+>    （滑点打穿 `2*passiveTakerSlippage + profitPct` 就该停手，别继续追）。
+> 2. 因此"豁免"不是显然正确的：**要不要让风控单也停手 5 分钟**是策略取舍，
+>    不是 bug。想豁免的话最省的办法是在上面三处判据里按
+>    `algoType == AlgoType_Rebalance` 放行，不需要新增字段；但那样就把这条
+>    保护对风控单彻底关掉了。
+>
+> ✅ **决定：保持现状，不改代码**（2026-11-10）。理由是判据本身已经足够保守
+> —— 要打穿 `2*passiveTakerSlippage + profitPct` 才停手，对一张正在追价的单
+> 停 5 分钟是安全阀而非故障；豁免等于把这条保护对风控单永久关掉。
+> 本节只作为"已知行为"记录，**不要再当缺口重提**。
 
 ---
 
@@ -256,7 +282,7 @@ targetVolume = min(fabs(expectActiveVolume - targetActiveVolume), ttTargetVolume
 | `pairCommands` `RESUME` | 清 `pi.reBalance` | 人工恢复 = 撤掉这条自动补救路径，否则下一轮又按旧敞口建一张，把恢复操作顶回去 |
 | `stopFlag` 的来源 | 只有"敞口异常"会触发再平衡 | `pairCommands STOP` / 启动孤儿冻结也置 `stopFlag`，但那是人或启动流程明确要求停手，不能自动动手 |
 | 启动 / 重启 | **不自动再平衡** | `reBalance` 不进快照；重启后 `hasActiveAlgoOrder` 的孤儿冻结会置 `stopFlag`，`CheckExposureAbnormal` 因 `stopFlag` 早退 ⇒ 不会在未对账的账本上自动动手。要自动收敛请先人工 `PairCmd_RESUME` |
-| 快照 / DB schema | **不动** | `isExposureRebalance` / `targetResidualVolume` 是运行态字段；`WriteAlgoOrder` 的 57 列超集里只有 `activeTrade` 能区分这类单，终点看创建时的 `LOG_WARN` |
+| 快照 / DB schema | **不动** | `targetResidualVolume` 是运行态字段（`isExposureRebalance` 未实现，见 §4）；`WriteAlgoOrder` 的 57 列超集里只有 `activeTrade` 能区分这类单，终点看创建时的 `LOG_WARN` |
 
 ### 7.1 定时撤单：为什么**不需要**单独记一个时间戳
 
