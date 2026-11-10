@@ -54,6 +54,8 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 | `SeedFunds(fx)` | 给执行侧注入资金（走真实 `OnBalance`） |
 | `MakeHoldable(pi, vol)` | 把报单量参数摆到"能报单"的状态（`targetVolume` / `maxVolume` / 腿价 / 开关） |
 | `ArmOpen(pi, which, vol)` / `ArmClose(...)` | 摆一个"信号一定成立"的局面，`which` 取 `ttOL/ttOS/ttCL/ttCS/mtOL/...` |
+| `ArmMtOpen(pi, which, vol)` / `ArmMtClose(...)` | 同上，但按 **MT 的价差轴**摆（`spreadAskAsk` / `spreadBidBid`），14~16 用 |
+| `MtData(bidBid, askAsk)` | 喂给 MT 拆单的行情 —— 拆单读的是 `DbpData` 上的价差，不是 `pi.rtSpread`（见坑 7） |
 | `OnlySwitch(pi, which)` | 八个开关里只留一个 |
 | `MakeRtn(...)` / `MakeRef(o, pairId)` | 造交易所回报 |
 | `ApplyRuntimeConfig(fx, json)` | 写 `config.json` 并走完"T_signal 解析 -> m_cfgQ -> OnTimer 落地" |
@@ -63,10 +65,10 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 
 ## 怎么加一个用例
 
-1. `cp 03_close.cpp 14_xxx.cpp`
-2. 改 `int main()` 里的名字：`RunCase("14 xxx", Case)`
+1. `cp 03_close.cpp 18_xxx.cpp`
+2. 改 `int main()` 里的名字：`RunCase("18 xxx", Case)`
 3. 从上往下改 `Case()` 里的场景和断言 —— 链路照抄，只改"摆什么局面 / 期望什么"
-4. `./run.sh 14`
+4. `./run.sh 18`
 
 不用注册、不用改 `run.sh`：它按文件名 `[0-9][0-9]_*.cpp` 自动发现，文件名前缀就是执行顺序。
 
@@ -80,7 +82,7 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 
 ---
 
-## 六个坑（每个都真实踩过）
+## 八个坑（每个都真实踩过）
 
 1. **价差槽位要自己补**。生产在 `PairTradingStrategy::pre_start` 里做
    `SpreadManager::AddSpreadPara` + `dbpReader.Subscribe`，测试没有 `pre_start`，
@@ -109,6 +111,20 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
    本机永远复现不出来 —— 症状是部署机上 `11` 从 10/0 变成 **4/5**。
    `ApplyRuntimeConfig` 里已经 `m_cfgStamp.valid = false`，新用例照抄它就行。
 
+7. **信号看 `pi.rtSpread`，拆单看 `DbpData`，是两份数据**。`CheckSignalForSatisfy` 读
+   `pi.rtSpread`，而 `GetTargetPairOrder` 读 `pdata->spreadBidBid / spreadAskAsk`。
+   喂 `FreshData()`（四个口径全 `-1`）时"开多"能凑巧成立（-1 落进负阶梯），但**平多会
+   直接掉进空单分支**：`tempSpread = -1 < startSpread = 0` ⇒ 量取 `startVolume = 0`
+   ⇒ `targetActiveVolume <= expectActiveVolume` ⇒ 静默返回空单，**一条子单都没有**，
+   而且日志被桩吞掉，什么都看不到。MT 用 `MtData(bidBid, askAsk)` 显式喂轴。
+
+8. **部分成交之后子单簿里不止一条，别按下标取**。`ChildOrders(o)[0]` 在 14 号那种
+   "主动腿一成交就补被动腿"的场景里会摸到另一条腿：0.4 部分成交之后簿子里是
+   **主动腿 + 对冲腿两条**，`size()==1` 和 `[0]` 同时失效，症状是三条断言一起红、
+   而且看起来像"状态没更新"。要按 `clientOrderId` 取（`17` 里的 `ChildOf`）。
+   同一个文件里还有一条**量纲**坑：`volumeTraded` 是**累计量**，
+   "成交 0.4 再成交 0.3"必须推 0.4 然后 0.7，推 0.4 再推 1.0 会直接进终结支。
+
 ---
 
 ## 用例清单
@@ -128,6 +144,26 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 | `11_config_resume.cpp` | 配置恢复（`cmdType=3`）：清 stopFlag / closeFlag / reBalance | `ApplyPairCommands` |
 | `12_restart_orphan.cpp` | 重启时场上有未终结的算法单 -> 孤儿冻结 | `Init` / `HandleOrphanAlgoOrders` |
 | `13_global_switch.cpp` | 全局 `closeOnly` / `stopAllAlgo`（两者语义不同） | `OnTimer` / `ProcessPairSignal` / `ProcessRisk` |
+| `14_mt_open.cpp` | **MAKER_TAKER 开仓**：MT/OL 全流程（建单 -> 挂 POST_ONLY -> 成交 -> 补被动腿）+ MT/OS 建单拆单 | `ProcessPairSignal` / `OnSpread` / `OnOrder` |
+| `15_mt_close.cpp` | **MAKER_TAKER 平仓**：MT/CL 平多 + MT/CS 平空，挂单价与方向镜像，平到 0 终结 | `ProcessPairSignal` / `OnSpread` / `OnTimer` |
+| `16_mt_maker_cancel.cpp` | **MAKER_TAKER 撤单与多单上限**：maker 主动腿价格跑掉才撤；关掉 rebalance 后在途子单不重复报 | `OnSpread` / `OnOrder` |
+| `17_report_stream.cpp` | **回报推送流**：分批成交（0.4 -> 0.7 -> 1.0，每条对冲腿只补差额）、报单被拒、乱序/重复/无主回报 | `OnOrder` |
+
+`14~16` 是 MT 半边，`01~13` 走的是 TT 半边。两边**拆单逻辑是两套独立代码**
+（`AlgoPairOrder.cpp` 里 MAKER_TAKER / TAKER_TAKER 各一份），TT 绿不代表 MT 绿：
+MT 的报单类型（`OT_POST_ONLY`）、目标价（对手价）、撤单分支（maker 分支）、
+rebalance 限流（一个类型只挂一个 pairOrder）全都不同。
+
+`17` 是唯一**不摆新场景、只推回报**的用例：它复用的就是 14 号那条链路，区别在于
+把"一步成交"拆成交易所真实会推的序列。**回报推送是可以模拟的** ——
+`AlgoContext::OnOrder` 是回报的唯一入口，交易所回调最后也是把 `pubsub::OrderResponse`
+喂给它，所以在夹具里推和真实推送走同一段代码。推不了的是**传输层**
+（`dbp::DbpReader` / `QuantTrade` 是桩），所以这套用例能证明"策略与执行逻辑对不对"，
+证明不了"订阅和 socket 通不通"。
+写这类用例只有一条硬规矩：`volumeTraded` 是**累计量**，不是增量
+（`DataStruct.h:789` 的 `tradeVolume = volumeTraded - totalVolumeOnOrder`），
+"先成交 0.4 再成交 0.3"要推 0.4 然后 0.7；推 0.4 再推 1.0 是"一步到位"，
+会直接掉进终结支，部分成交那条路永远测不到。
 
 ### 曾经的红：10（已修复，2026-11-09）
 
@@ -150,7 +186,7 @@ quant_library/algo/PairTradingContext.cpp:1589
 ## 覆盖率怎么测（想知道"到底测到哪儿了"）
 
 `build.sh` / `run.sh` 都认一个 `E2E_CXXFLAGS` 环境变量，默认空 = 行为不变。
-用它注入 clang 的源码级覆盖率，跑完合并 13 个进程的 profile：
+用它注入 clang 的源码级覆盖率，跑完合并 17 个进程的 profile：
 
 ```bash
 rm -rf /tmp/e2e_cov /tmp/e2e_prof && mkdir -p /tmp/e2e_prof
@@ -159,27 +195,36 @@ E2E_CXXFLAGS="-fprofile-instr-generate -fcoverage-mapping" \
 LLVM_PROFILE_FILE='/tmp/e2e_prof/%p.profraw' ./run.sh
 
 llvm-profdata merge -sparse /tmp/e2e_prof/*.profraw -o /tmp/e2e.profdata
-llvm-cov report /tmp/e2e_cov/obj/case_13_global_switch -instr-profile=/tmp/e2e.profdata
+llvm-cov report /tmp/e2e_cov/obj/case_17_report_stream -instr-profile=/tmp/e2e.profdata
 # 单文件 / 按函数：
-llvm-cov report /tmp/e2e_cov/obj/case_13_global_switch /tmp/e2e_cov/algo/AlgoContext.cpp \
+llvm-cov report /tmp/e2e_cov/obj/case_17_report_stream /tmp/e2e_cov/algo/AlgoContext.cpp \
   -instr-profile=/tmp/e2e.profdata -show-functions
 ```
 
-`%p` 是 pid，13 个用例各写各的 `.profraw`，不会互相覆盖。
+`%p` 是 pid，17 个用例各写各的 `.profraw`，不会互相覆盖。
 `llvm-profdata` / `llvm-cov` 在 `/Library/Developer/CommandLineTools/usr/bin/`。
 
-**2026-11-09 实测（13 个用例全跑）：**
+**2026-11-09 实测（17 个用例全跑）：**
 
 | 文件 | 行覆盖 | 分支覆盖 |
 |---|---|---|
-| `algo/AlgoContext.cpp` | 35.85% | 29.93% |
-| └ `OnSpread`（拆单+报单主入口） | **20.91%** | **18.63%** |
-| └ `OnOrder`（回报更新） | 55.67% | 58.33% |
-| └ `OnTimer` | 37.19% | 41.33% |
-| `basic/AlgoPairOrder.cpp`（拆单算法） | 33.64% | 19.37% |
-| `basic/BaseAlgoOrder.cpp` | 41.94% | 18.16% |
-| `basic/PairManager.cpp` | 22.43% | 6.80% |
-| `signal/SignalGenerator.cpp` | 68.67% | 42.71% |
-| `algo/PairTradingContext.cpp`（策略侧） | 68.19% | 56.33% |
+| `algo/AlgoContext.cpp` | 43.68% | 36.99% |
+| └ `OnSpread`（拆单+报单主入口） | **33.45%** | **27.45%** |
+| └ `OnOrder`（回报更新） | **75.26%** | **79.17%** |
+| └ `OnTimer` | 37.19% | 42.00% |
+| `basic/AlgoPairOrder.cpp`（拆单算法） | **60.12%** | **42.93%** |
+| `basic/BaseAlgoOrder.cpp` | 48.99% | 27.12% |
+| `basic/PairManager.cpp` | 33.57% | 11.29% |
+| `signal/SignalGenerator.cpp` | 73.49% | 52.60% |
+| `algo/PairTradingContext.cpp`（策略侧） | 70.79% | 59.39% |
+| 全部（TOTAL） | 34.89% | 30.64% |
 
-读法：**策略侧（信号/闸门/落库）测得多，执行侧（拆单/报单/回报）只测了一条最窄的正向路径。**
+`14~16` 补进来之后 `AlgoPairOrder.cpp` 从 33.64% 涨到 60.12% —— 那是 MT 拆单那一整块
+（`GetTargetPairOrder` 的 MAKER_TAKER 分支 + `OT_POST_ONLY` 目标价 + 四个方向的阶梯）。
+`17` 补进来之后 `OnOrder` 从 55.67% 涨到 75.26%，此前 0 命中的三行现在都跑到了：
+`:1194-1195`（部分成交先补被动腿，3 次）、`:1172`（报单被拒，1 次）、
+`:1205`（回报找不到算法单，1 次），外加 `:1157` 查询回报那一支。
+
+读法：**策略侧（信号/闸门/落库）、MT 拆单、回报处理三块都已经测到了，
+剩下的空缺集中在 TT 的 OS/CS 两个方向、卡单升级（`OnTimer` 里的异常检查）、
+以及 `PreStart` / `QueryAccount` / `OnCommand` / `OnPosition` 这些启动与账户链路。**

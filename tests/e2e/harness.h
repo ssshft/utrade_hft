@@ -262,6 +262,20 @@ static dbp::DbpData FreshStrategyData() {
                     -1.0, -0.001, -0.001, -0.001, crypto::getCurrentTime());
 }
 
+// 喂给 **MAKER_TAKER 拆单**的行情（14~16 用）。
+//
+// ⚠️ 拆单读的是 **DbpData 上的价差**，不是 pi.rtSpread —— 信号侧用 pi.rtSpread、
+//    拆单侧用 pdata，是两份数据。所以这里必须把 MT 的轴显式喂进去：
+//    开空/平多 = spreadBidBid，开多/平空 = spreadAskAsk。
+//    用 FreshData()（四个口径全 -1）"凑巧"能让开多成立（-1 落进负阶梯），
+//    但**平多会直接掉进空单分支**（tempSpread=-1 < startSpread=0 -> 量取 startVolume=0
+//    -> `targetActiveVolume <= expectActiveVolume` -> 静默返回空单，一条子单都没有）。
+static dbp::DbpData MtData(double spreadBidBid, double spreadAskAsk) {
+    return MakeData(100.00, 100.01, 100.00, 100.01,
+                    -1.0, spreadBidBid, -1.0, spreadAskAsk,
+                    crypto::getCurrentTime());
+}
+
 // ===========================================================================
 // 夹具
 // ===========================================================================
@@ -469,6 +483,76 @@ static void ArmClose(PairInfo& pi, const char* which, double vol) {
     if (w == "ttCS") { pi.rtSpread.spreadBidAsk = -1.0; pi.orderParams.ttCSStartSpread = 0.0; pi.orderParams.ttCSEndVolume = 0.0; }
     if (w == "mtCL") { pi.rtSpread.spreadBidBid = 1.0;  pi.orderParams.mtCLStartSpread = 0.0; pi.orderParams.mtCLEndVolume = 0.0; }
     if (w == "mtCS") { pi.rtSpread.spreadAskAsk = -1.0; pi.orderParams.mtCSStartSpread = 0.0; pi.orderParams.mtCSEndVolume = 0.0; }
+}
+
+// ===========================================================================
+// MAKER_TAKER（MT）专用编排 —— 14~16 用
+//
+// MT 与 TT 在**拆单侧**（AlgoPairOrder::GetTargetPairOrder）有三处不同，任何一处配错，
+// 症状都一样：信号成立、ProcessPairSignal 也派发了算法单，但**一条子单都报不出来**，
+// 日志里只有一句 `targetActiveVolume <= expectActiveVolume or targetActiveVolume <= 0`。
+//   ① 价差轴不同：MT 开多/平空用 spreadAskAsk，开空/平多用 spreadBidBid；
+//      TT 是 bidAsk / askBid。轴用错时 tempSpread 落在阶梯外面。
+//   ② 执行成本不同：MT 扣 F_mt（maker 费率），TT 扣 F_tt（taker 费率）。
+//   ③ 报单类型不同：MT 主动腿恒 OT_POST_ONLY，目标价取**对手价**（买挂 bid、卖挂 ask），
+//      再由 CreateActiveOrder 夹一档（买 <= ask-tick、卖 >= bid+tick）。
+//      所以 MT 子单价永远贴着盘口内一档，而 TT 是穿价。
+// 开关判据的方向也和 TT 相反，跟 pairTotalVolume 的多负空正一致：
+//   开多 vol > mtOLEndVolume（负值）  开空 vol < mtOSEndVolume（正值）
+//   平多 vol < mtCLEndVolume          平空 vol > mtCSEndVolume
+//
+// 阈值刻意写死成一串常数（不依赖 OrderParams 的默认值）：阶梯的 Start/End 必须与
+// 价差轴同号，靠默认值 0 凑巧成立的话，改一次默认值整个用例就变成假绿。
+// ===========================================================================
+static void ArmMtOpen(PairInfo& pi, const char* which, double vol) {
+    OnlySwitch(pi, which);
+    pi.rtSpread.valid = true;
+    pi.pairTotalVolume = vol;
+    auto& op = pi.orderParams;
+    const std::string w(which);
+
+    if (w == "mtOL") {
+        // 信号: spreadAskAsk + F_mt < mtOLStartSpread 且 vol > mtOLEndVolume
+        // 阶梯: tempSpread < mtOLEndSpread -> 量取 mtOLEndVolume（开多终点是负）
+        // 净利: mtCLStartSpread - spreadAskAsk - F_mt >= minProfitTarget
+        pi.rtSpread.spreadAskAsk = -0.02;
+        op.mtOLStartSpread =  0.0;
+        op.mtOLEndSpread   = -0.001;
+        op.mtOLStartVolume =  0.0;
+        op.mtOLEndVolume   = -1.0;
+        op.mtCLStartSpread =  0.0;   // 只服务净利闸，别删
+    }
+    else if (w == "mtOS") {
+        pi.rtSpread.spreadBidBid = 0.02;
+        op.mtOSStartSpread = 0.0;
+        op.mtOSEndSpread   = 0.001;
+        op.mtOSStartVolume = 0.0;
+        op.mtOSEndVolume   = 1.0;
+        op.mtCSStartSpread = 0.0;    // 只服务净利闸
+    }
+}
+
+static void ArmMtClose(PairInfo& pi, const char* which, double vol) {
+    OnlySwitch(pi, which);
+    pi.rtSpread.valid = true;
+    pi.pairTotalVolume = vol;
+    auto& op = pi.orderParams;
+    const std::string w(which);
+
+    if (w == "mtCL") {              // 平多：vol 是负
+        pi.rtSpread.spreadBidBid = 0.02;
+        op.mtCLStartSpread = 0.0;
+        op.mtCLEndSpread   = 0.001;
+        op.mtCLStartVolume = 0.0;
+        op.mtCLEndVolume   = 0.0;   // 平到 0 才算完
+    }
+    else if (w == "mtCS") {         // 平空：vol 是正
+        pi.rtSpread.spreadAskAsk = -0.02;
+        op.mtCSStartSpread = 0.0;
+        op.mtCSEndSpread   = -0.001;
+        op.mtCSStartVolume = 0.0;
+        op.mtCSEndVolume   = 0.0;
+    }
 }
 
 // 报单量参数就绪（否则 BuildAlgoOrderJson 会因为 targetVolume <= 0 直接返回 nullptr）
