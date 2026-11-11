@@ -226,7 +226,8 @@ struct Fx {
 // statsPath 是分位数快照路径（重启免预热）。默认**留空 = 关掉**：
 // 绝大多数用例不关心它，开着会让每个用例都往相对路径 data/spread_stats.csv
 // 写盘、还可能把上一轮留下的统计带进来污染断言。需要它的用例（G17-G19）显式传。
-static void Boot(Fx& fx, const std::string& csv = "", const std::string& statsPath = "") {
+static void Boot(Fx& fx, const std::string& csv = "", const std::string& statsPath = "",
+                 bool setGlobalPct = false, double pct = 0.0001) {
     ResetWorld();
     fx.smc.Clear();
     fx.smc.Set(kActive, MakeInstrumentInfo());
@@ -240,6 +241,9 @@ static void Boot(Fx& fx, const std::string& csv = "", const std::string& statsPa
     cfg.spreadStatsStatePath = statsPath;
     cfg.spreadStatsMinSamples = 3;      // 让少量样本就能建立统计
     cfg.spreadSampleIntervalSec = 0;     // 不降频
+    // 全局 profitPct：setGlobalPct=false 表示"配置里没写这个键"（老行为，快照说了算）
+    cfg.profitPct = pct;
+    cfg.profitPctSet = setGlobalPct;
     fx.csvPath = csv;
 
     fx.Wire();
@@ -3789,6 +3793,32 @@ static void TestL_PairCommands() {
         CHECK(Near(pi.profitPct, 0.0),
               "L16 没写 profitPct -> 被写成缺省 0（整条覆盖；要保留原值就得写进命令）");
         CHECK(Near(pi.closeRemainVolume, 0.0), "L16 没写 closeRemainVolume -> 缺省 0");
+    }
+
+    // ---- L17 全局 profitPct：一处配置写到所有对子，且**优先于快照** ----
+    // 为什么单独一组：这条配置项的价值全在"顺序"上 —— 写在 LoadSnapshot 之前会被旧快照
+    // 盖掉，写在 RecalcOrderParams 之后要等一次重算。字段级断言能把这两种写错都抓出来。
+    {
+        // ① 写了这个键 -> 对子被统一覆盖
+        Fx fx; Boot(fx, "", "", true, -0.003);
+        CHECK(Near(fx.pi()->profitPct, -0.003), "L17 全局 profitPct 写到对子（-0.003）");
+
+        // ② 配置优先于快照：快照里放 -0.005，配置写 -0.003 -> 以配置为准
+        const std::string csv = "/tmp/ptsuite/out/global_pct.csv";
+        std::remove(csv.c_str());
+        {
+            Fx a; Boot(a, csv);
+            a.pi()->profitPct = -0.005;
+            PairInfoManager::Instance().SaveSnapshot(csv);
+        }
+        Fx b; Boot(b, csv, "", true, -0.003);
+        CHECK(Near(b.pi()->profitPct, -0.003),
+              "L17 配置优先于快照（快照 -0.005 被配置 -0.003 覆盖）");
+
+        // ③ 不写这个键 -> 老行为零变化，快照说了算（G2 也在守这条，这里再钉一次）
+        Fx c; Boot(c, csv);
+        CHECK(Near(c.pi()->profitPct, -0.005),
+              "L17 配置里没有 profitPct 时完全走老行为（快照 -0.005 保留）");
     }
 
     // ---- L12~L13 传播面：残余量绝不能漏进风控强平单 ----

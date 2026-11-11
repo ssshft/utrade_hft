@@ -113,6 +113,12 @@ void PairTradingContext::Init(const PairTradingConfig& cfg, sm::SecurityManager*
         }
     }
 
+    // ---- 全局 profitPct：一处配置写到所有对子 ----  
+    for (PairInfo* pi : pim.GetAllPairInfos()) {
+        LOG_INFO("全局 profitPct: pairKey:{} {} -> {}（配置项 op.pairTrading.profitPct，覆盖快照）", pi->pairInstrumentKey, pi->profitPct, cfg.profitPct);
+        pi->profitPct = cfg.profitPct;
+    }
+
     // 恢复价差统计（**重启免预热**） 重算一次 orderParams
     if (!cfg.spreadStatsStatePath.empty() && cfg.spreadStatsMaxStaleSec > 0) {
         const int restoredStats = pim.LoadSpreadStats(cfg.spreadStatsStatePath, cfg.spreadStatsMaxStaleSec);

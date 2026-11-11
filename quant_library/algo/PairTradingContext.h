@@ -44,6 +44,10 @@ struct PairTradingConfig {
     double maxAmount{50};       // 单个对子最大持仓金额 -> RecalcVolumeParams -> pi.maxVolume
     double targetAmount{50};    // 单个报单目标金额 -> pi.ttTargetVolume / mtTargetVolume
 
+    // ---- 全局 profitPct：一处配置，写到**所有**对子 ----
+    // 语义与 PairInfo::profitPct 完全相同：单位是价差本身，负数 = 让利平仓，默认 0.0001。
+    double profitPct{0.0001};
+
     FeeSlippageConfig feeSlippage; // 执行成本 / 滑点 / 价差阈值
     RiskConfig risk; // 风控门槛 + 渐进式平仓三档
 

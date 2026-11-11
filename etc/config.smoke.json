@@ -1,7 +1,7 @@
 {
     "_note_file": "【冒烟/联调专用】目标是让 DOGE 这个对子能自己转起来：开仓 -> 撤单 -> 平仓 -> 再开仓，一直跑。**不是给实盘赚钱用的**，见各字段的 _note。用法：./utrade_hft etc/config.smoke.json（配置文件是 argv[1]）。跟 etc/config.json 的差异全部标了 _note_smoke。",
-    "_note_band": "全篇按'价差带 21~53bp'标数：你报的 0.0002/0.0005 是**绝对价差**，除以 DOGE 腿价 ≈0.0937 得 21bp / 53bp 的**相对价差**（本系统的价差定义是 (GATEIO-BINANCE)/BINANCE，正 = GATEIO 更贵）。如果实际跑起来日志里 largeStats 的分位数不是这个量级，改法见 _note_pairCommands_profitPct 里的公式，不用重算别的东西。",
-    "_note_cost": "这套参数下每轮往返的真实成本是 14bp（MT 口径：开 7 + 平 7），而开平线之间只留 5.6bp ⇒ 每轮净亏约 8.4bp。跑一天大概烧掉 (轮数 x 8.4bp x 200 USDT) 的手续费，先算好再挂。",
+    "_note_band": "现在这套参数**不依赖价差带**：spreadAdjPct=0 ⇒ 开仓触发点恒为 0，价差为负就开多、为正就开空，带子在哪、多宽都无所谓。带子只影响经济性（见 _note_cost）。最初的假设是 21~53bp（0.0002/0.0005 绝对价差 / DOGE 腿价 ≈0.0937），若实测是 ±5bp 请读 _note_cost。",
+    "_note_cost": "🔴 价差带 ±5bp（带宽 10bp）时**任何配置都不可能盈利**：单程成本 7bp、往返 14bp > 带宽 10bp，最好情况（+5bp 开空、-5bp 平）赚 10bp 仍亏 4bp。所以这份配置只能当'管道通不通'的冒烟，别当赚钱配置。21~53bp 带下每轮净亏约 8.4bp（往返 14bp vs 间隔 5.6bp）。要真在这个窄带里做，唯一的路是把费率降下来：配置里四个费率填 0 会让 CalcExecCost 归零、连带算法单的 takerTakerFs/makerTakerFs 归零，但那只在交易所真收 0 或纸面账户时才成立，别在实盘上这么填。",
     "tag": "utrade_hft",
     "log": {
         "level": "info",
@@ -32,6 +32,8 @@
             "_note_smoke_amount": "【冒烟】maxAmount 1000 -> 100、targetAmount 10 -> 100。为什么两个都要改：① maxAmount 决定开仓目标量 maxVolume ≈ maxAmount/腿价，1000 会开到 1000 USDT/腿，测试没必要；② targetAmount 是单张配对单的量，**必须 >= 25**（PairInfoManager.h:146 MIN_ORDER_USDT），填 10 时算出来的 ttTargetVolume ≈ 107 张而最小下单量 ≈ 267 张，单子根本报不出去（日志里是 'invalid targetVolume' 或交易所拒单）。两者都填 100 时 maxVolume ≈ ttTargetVolume ≈ 1067 张，**一张配对单就能开到目标仓**，循环最快。",
             "maxAmount": "100",
             "targetAmount": "100",
+            "_note_globalProfitPct": "【新增】全局 profitPct：一处配置写到**所有**对子，不用再在 pairCommands 里逐条列。语义与 PairInfo::profitPct 完全相同（单位是价差本身，负数 = 让利平仓）。优先级：本项是默认值，pairCommands 里列出的对子会**单独覆盖**它（那条路还能热改）。⚠️ 只在启动时落地一次，运行中改本项不生效，要重启；想热改走 pairCommands。⚠️ 写了这个键就会**覆盖快照第 30 列**恢复出来的值（配置优先于旧快照）；不写这个键则完全走老行为。本文件下面 pairCommands 里那条值相同、是冗余的，留着当'单对子覆盖'的示例。",
+            "profitPct": "-0.002",
             "csvStatePath": "./data/pair_info.csv",
 
             "_note_closeOnly": "只平不开（运维急停）。**可以热改**：保存后约 1 秒生效。true = 压掉全部开仓、平仓照常。⚠️ 必须写裸 true/false（加引号会被读成 false 且不报错）。",
@@ -41,9 +43,9 @@
             "stopAllAlgo": false,
 
             "_note_pairCommands": "【冒烟】这里是本文件唯一一处'运维命令'，作用是把 profitPct 从默认 +1bp 改成 -2bp（让利平仓）。为什么非要用它：profitPct 不是普通配置项，它挂在 PairInfo 上（PairInfo.h:309 默认 0.0001），配置文件的唯一写入口就是 pairCommands 的 cmdType=3。cmdType=3 = 恢复：清 stopFlag/closeFlag 并把两个数值字段写进去。",
-            "_note_pairCommands_risk": "⚠️ 三条必须知道的：① **单向**——删掉这条不会把 profitPct 变回去，它会一直粘着（快照第 30 列），要改只能再发一条命令；② 它只在**配置文件变化时**落地一次（PairTradingContext.cpp:1684 的 m_cfgQ），所以运行中如果被 CheckExposureAbnormal 置了 stopFlag，不会自己解开，要么发 cmdType=3，要么 touch 一下本文件让配置重新下发；③ 启动时如果快照里 hasActiveAlgoOrder=true 会先被孤儿冻结（stopFlag），RESUME 能不能解开取决于两者谁先到——真冻住了就删 ./data/pair_info.csv 再重启。",
-            "_note_pairCommands_profitPct": "profitPct 是**加在平仓阈值上的让利**，负数才是让利。平仓触发价 = 分位数边界 x spreadAdjPct - profitPct。为什么必须让利：spreadAdjPct=0.8 会把平仓线往 0 拉，默认 +1bp 又往外推，两者叠加后平仓线会落到价差带**外面**（算下来是 15.8bp，而带的下沿是 21bp）⇒ 开得出去、平不回来，最后靠 24h 风控强平。⚠️ 让利平仓必须同时把 minProfitTarget 设 0，否则开仓的净利闸永远过不去（它拿平仓线反算净利）。",
-            "_note_pairCommands_formula": "本文件填 -0.002（让利 20bp），算出来的数：开空线 42.4bp、平空线 36.8bp、两者间隔 5.6bp。间隔的公式是 **间隔 = spreadAdjPct x (UQ - DQ) + profitPct**（这里是 0.8 x 32 + (-20) = 5.6）。间隔越小循环越密、每轮越亏；间隔越大越难等到。想改成'打平'就填 -0.001（间隔 15.6bp，每轮毛赚 15.6bp 扣 14bp 成本 ≈ +1.6bp）；填 0 则平仓线回到 16.8bp，又掉到带外，变成只开不平。",
+            "_note_pairCommands_risk": "⚠️ 三条必须知道的：① **单向**——删掉这条不会把 profitPct 变回去，它会一直粘着（快照第 30 列），要改只能再发一条命令（⚠️ **重启后会被上面的全局 profitPct 覆盖回来**，所以「粘住」只在同一次运行内成立；不设全局 profitPct 时才真的跨重启粘住）；② 它只在**配置文件变化时**落地一次（PairTradingContext.cpp:1684 的 m_cfgQ），所以运行中如果被 CheckExposureAbnormal 置了 stopFlag，不会自己解开，要么发 cmdType=3，要么 touch 一下本文件让配置重新下发；③ 启动时如果快照里 hasActiveAlgoOrder=true 会先被孤儿冻结（stopFlag），RESUME 能不能解开取决于两者谁先到——真冻住了就删 ./data/pair_info.csv 再重启。",
+            "_note_pairCommands_profitPct": "profitPct 是**净利下限**，不是普通配置项：它挂在 PairInfo 上（PairInfo.h:309 默认 0.0001），配置文件的唯一写入口就是 pairCommands 的 cmdType=3。它有**两层**作用：① 策略层把平仓线平移 profitPct（平仓触发点 = 分位 x spreadAdjPct - profitPct）；② **执行层** AlgoPairOrder.cpp:353/472 拿它卡 `lockedSpread - tempSpread < profitPct`，一夹就把目标量夹回满仓、一条子单都不报 —— 这一层用的是**扣完费的真实成交价**，才是'净赚够才平'的真正执行者。",
+            "_note_pairCommands_formula": "间隔公式：**间隔 = spreadAdjPct x (UQ - DQ) + profitPct**。本文件 spreadAdjPct=0 ⇒ 间隔 = profitPct = **-20bp**（负 = 平仓线在开仓线**之上** ⇒ 平仓信号恒成立 ⇒ 建完仓下一个 tick 就平）。⚠️ **这一项不要往上调**：±5bp 带 + 往返 14bp 成本下，平仓的净额永远是负的（毛赚最多 10bp、扣 14bp），所以 profitPct 必须 ≤ 约 -13bp 才能让执行层那道守卫放行。把它改成 +1bp 的后果是：平仓信号照常触发、但执行层一单都不报，算法单挂到 algoOrderTimeoutMs 才被撤 —— 换个形式的'开得出去、平不回来'。想让平仓有真实间隔，只能先把费率降到 0（见 _note_cost）。",
             "pairCommands": [
                 {
                     "pairKey": "BINANCE.USDT_SWAP.DOGE-USDT|GATEIO.USDT_SWAP.DOGE-USDT",
@@ -151,12 +153,13 @@
             "_note_ttAddPercent": "TT 比 MT 多要求的边际，单位是价差本身（3bp）。它**不会**和 F 抵消：TT 的触发价 = 分位数 x spreadAdjPct **+** ttAddPercent。所以 TT 开空要 45.4bp、MT 开空只要 42.4bp。于是两种路径都会跑到：价差刚到 42.4~45.4bp 时走 MT（主动腿 POST_ONLY，挂不上就撤，撤单主要来自这条路径），冲到 45.4bp 以上时 TT 抢先（两腿都吃单，必成交）。想只保留 MT（撤单更多）就把本值调大，想只保留 TT（必成交）就调成 0 并把 mtActiveOrderType 一起改。",
             "ttAddPercent": "0.0003",
 
-            "_note_spreadAdjPct": "分位数放大系数，同时缩放**开仓线和平仓线**（0.8 = 两条线都朝 0 拉 20%）。拉得越狠，开仓越容易碰到，但平仓线也被拉进带内更深的地方 ⇒ 循环变快、单笔变小。⚠️ 它只改变'在哪成交'，不产生任何 edge。",
-            "spreadAdjPct": "0.8",
-            "minSpreadSpan": "0.0001",
+            "_note_spreadAdjPct": "【冒烟改 0.8 -> 0】分位数放大系数，同时缩放开仓线和平仓线。关键恒等式（已用真实 SignalGenerator 实测四组交叉验证）：**MT 开仓触发点 = 分位数 x spreadAdjPct**，F 精确抵消、与费率无关（TT 再叠加 ttAddPercent）。0.8 时触发点是 ±0.8x分位；填 0 时**恒为 0** ⇒ 价差为负开多、为正开空，与带子在哪、多宽完全无关 —— 这就是'不论实时价差在什么范围都能建算法单'的那个旋钮。⚠️ 它只改变'在哪成交'，不产生任何 edge。⚠️ 价差正好等于 0 时两个方向都不打（判据是严格不等号）。",
+            "spreadAdjPct": "0",
+            "_note_minSpreadSpan": "【冒烟改 0.0001 -> 0】带宽闸：`spreadSpan = bidBidUQ - askAskDQ < 本值` 就把 4 个开仓开关**静默**全关（SignalGenerator.cpp:77，一行日志都没有）。±5bp 带时 spreadSpan=10bp 还够，但带子窄到 ±0.4bp 就会被这条悄悄关掉。填 0 = 关掉这道闸。",
+            "minSpreadSpan": "0",
 
-            "_note_smoke_minSpreadTarget": "【冒烟】0.0012 -> -0.001。这是本文件最关键的一处。它有两个作用：① >0 时把 4 个开仓阈值**夹**到至少 ±minSpreadTarget，等价于'每笔必须做到 12bp 深'；② 无论正负，canOpen 都用它当门槛（canOpenShort 要求 mtOSStartSpread > minSpreadTarget）。填 0.0012 时两条开仓线被钉在 +19.05bp / -5.05bp：前者在这条 21~53bp 的带里几乎一直满足（所以会不停地开），但平仓线被留在 15.8bp（带外）⇒ **开得出去、平不回来**。填 -0.001 时夹逼关闭，两条开仓线回到分位数决定（42.4bp / 16.8bp），门槛也退化成'允许在 +10bp 的浅价差上开多'，等于把开关交给分位数。为什么不是 0：canOpen 是**严格不等号**，0 在窄带上很容易把两个方向一起卡死；填个足够负的值最稳。",
-            "minSpreadTarget": "-0.001",
+            "_note_smoke_minSpreadTarget": "【冒烟】0.0012 -> -0.001 -> -0.003。两个作用：① >0 时把 4 个开仓阈值**夹**到至少 ±(本值+5e-6)，等价于'每笔必须做到这么深'；② 无论正负，canOpen 都用它当门槛（SignalGenerator.cpp:202-203，注意**符号不对称**）：canOpenLong = mtOLStartSpread < -minSpreadTarget，canOpenShort = mtOSStartSpread > minSpreadTarget。⚠️ 填负数时开多要求 `mtOLStartSpread < |本值|`，而价差带整体为正时 mtOLStartSpread 也是正的（21~53bp 带、adj=0.8 下是 +23.8bp）⇒ 填 -0.001 只给到 +10bp 的门槛，23.8 < 10 为假 ⇒ **开多两个开关都是 false，价差扫到 -20bp 也不触发**。这是之前配置里'只做空头'的真正原因。现在 spreadAdjPct=0，mtOLStartSpread=+F_mt=+7bp，-0.001 其实也够（7<10），留余量到 -0.003（门槛 +30bp）是为了以后改 adj 或费率时不用再想这件事。为什么不是 0：canOpen 是严格不等号，0 会把两个方向一起卡死。",
+            "minSpreadTarget": "-0.003",
 
             "_note_smoke_minProfitTarget": "【冒烟】0.0005 -> 0。开仓的'预期往返净利'门槛，判据是 净利 = 对向平仓线 - 本向开仓线（F 已抵消），>= 本值才允许开仓。⚠️ 这条不是'顺手关掉'，是**必须**关：本文件的 profitPct=-0.002 会把平仓线推到 36.8bp，而开仓线在 42.4bp，于是阈值处预期净利 = 15.4 - 23.8 = **-8.4bp**，永远小于默认的 5bp ⇒ 一单都发不出去。只要 profitPct 写负数（让利平仓），这道闸就必须设 0。",
             "minProfitTarget": "0",

@@ -61,6 +61,12 @@ void PairTradingStrategy::pre_start(Config* config) {
             m_ptCfg.targetAmount = std::stod(s["targetAmount"].GetString());
         }
 
+        // 全局 profitPct：一处配置写到**所有**对子（单位是价差本身，负数 = 让利平仓）。
+        // 与 pairCommands[].profitPct 的区别：本项作用于全部对子、只在启动时落地；
+        if (s.HasMember("profitPct")) {
+            m_ptCfg.profitPct = std::stod(s["profitPct"].GetString());
+        }
+
         // 快照路径（空 = 不落盘、也不从快照恢复）
         if (s.HasMember("csvStatePath")) {
             m_ptCfg.csvStatePath = s["csvStatePath"].GetString();
