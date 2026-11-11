@@ -39,7 +39,7 @@ struct FeeSlippageConfig {
     double spreadAdjPct{0.8};     // 分位数调节比例（祖先 spread_adj_pct=0.8）。
                                   // 入口阈值 = Q*spreadAdjPct，|Q*adj| 越小越容易触发：
                                   // 祖先注释「在 spread 收缩时有更多的开平机会」
-    double minSpreadSpan{0.000};   // 最小分位数差值(套利空间门槛)（祖先 min_spread_span_org=0.0002）。
+    double minSpreadSpan{0.0001};   // 最小分位数差值(套利空间门槛)（祖先 min_spread_span_org=0.0002）。
                                     // 低于此值 RecalcOrderParams 直接关掉全部开仓开关并 return
     // 开仓阈值的"绝对地板"，单位就是价差本身（0.002 = 千2 = 20bp）。
     //   > 0 : RecalcOrderParams 末尾把 4 个开仓 StartSpread 夹到至少 ±(值+5e-6) 深
@@ -71,7 +71,7 @@ struct FeeSlippageConfig {
     // <= 0 = 关掉这一层（与 minSpreadTarget 同一约定）。
     // ⚠️ 祖先的 min_profit_target 是**毛口径**（`_q_org` 与 `_n_org` 两边 F 抵消），这里故意改成
     //    净口径 —— 否则 4bp 的毛门槛盖不住十几 bp 的往返费。
-    double minProfitTarget{0.0005};
+    double minProfitTarget{0.0};
     // ⚠️ **未接线**：只解析 + 打日志，RecalcOrderParams 不读它。
     // 祖先（cc_pricespread_gb_ltp.py:774-779）用它做"按期望平仓反推开仓价"的第二分支：
     //   entry = min(本向分位 + F, 反向分位 − F − openProfitPct)   // 开多；开空对称取 max

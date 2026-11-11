@@ -1006,16 +1006,14 @@ BaseAlgoOrder* PairTradingContext::BuildAlgoOrderJson(const PairInfo& pi, const 
     }
 
     // 4. 创建算法单对象
-    const char* algoStrategyName = "pair_trading";
     AlgoPairOrder* pAlgoOrder = new AlgoPairOrder();
-    pAlgoOrder->algoType = stra::AlgoType_PairTrading;
     pAlgoOrder->algoOrderId = GenerateStrategyAlgoPairId();
     pAlgoOrder->role = role;
     pAlgoOrder->commandType = stra::CommandType_NEW;
     pAlgoOrder->algoOrderStatus = stra::ALGO_OS_NEW;
     pAlgoOrder->insertTime = crypto::getCurrentTime();
     pAlgoOrder->updateTime = pAlgoOrder->insertTime;
-    strncpy(pAlgoOrder->algoStrategyName, algoStrategyName, sizeof(pAlgoOrder->algoStrategyName) - 1);
+    strncpy(pAlgoOrder->algoStrategyName, "pair_trading", sizeof(pAlgoOrder->algoStrategyName) - 1);
     strncpy(pAlgoOrder->pairInstrumentKey, pi.pairInstrumentKey, sizeof(pAlgoOrder->pairInstrumentKey) - 1);
     strncpy(pAlgoOrder->activeInstrumentKey, pi.activeInstrumentKey, sizeof(pAlgoOrder->activeInstrumentKey) - 1);
     strncpy(pAlgoOrder->passiveInstrumentKey, pi.passiveInstrumentKey, sizeof(pAlgoOrder->passiveInstrumentKey) - 1);
@@ -1300,12 +1298,7 @@ BaseAlgoOrder* PairTradingContext::BuildExposureRebalanceOrder(const PairInfo& p
     pAlgoOrder->activeDriveType = stra::DriveType_ACTIVE;
     pAlgoOrder->passiveDriveType = stra::DriveType_PASSIVE;
 
-    // ---- 交易模式：TAKER_TAKER（主动腿吃对手价）----
-    // 为什么是 taker 而不是与风控强平单一致的 MAKER_TAKER：强平单要同时平两条腿，
-    // 主动腿挂 maker 是为了压价差成本；这里只动一条腿，而对冲已经破了，
-    // 需要的是"确定地平掉"而不是"便宜地平掉"。要改成 maker 只需把下面三行的
-    // TAKER_TAKER 换成 MAKER_TAKER、并打开 mtRebalanceSwitch / mtXXSwitch。
-    pAlgoOrder->tradingTypeOrder = stra::TAKER_TAKER;
+    pAlgoOrder->tradingTypeOrder = stra::MAKER_TAKER;
     pAlgoOrder->activeOrderType = aoc.ttActiveOrderType;
     pAlgoOrder->passiveOrderType = aoc.passiveOrderType;
 
@@ -1431,13 +1424,12 @@ BaseAlgoOrder* PairTradingContext::BuildExposureRebalanceOrder(const PairInfo& p
     // *RebalanceFlag 为 true，否则一条子单都不报（AlgoContext.cpp 里那两支）。
     // Switch 是"允许 OnTimer 每 5 秒把 Flag 重新置 true"的许可，这里也一起打开，
     // 免得某个分支把 Flag 清掉之后这张风控单就哑了。
-    pAlgoOrder->ttRebalanceSwitch = true;
-    pAlgoOrder->ttRebalanceFlag = true;
-    pAlgoOrder->mtRebalanceSwitch = false;
-    pAlgoOrder->mtRebalanceFlag = false;
+    pAlgoOrder->ttRebalanceSwitch = false;
+    pAlgoOrder->ttRebalanceFlag = false;
+    pAlgoOrder->mtRebalanceSwitch = true;
+    pAlgoOrder->mtRebalanceFlag = true;
 
-    LOG_WARN("create exposure rebalance algo order pairKey:{} activeTrade:{} legLedger:{} endVolume:{} mode:{} closeShort:{}",
-             pi.pairInstrumentKey, activeTrade, legLedger, endVolume, "TT", useCloseShort);
+    LOG_WARN("create exposure rebalance algo order pairKey:{} activeTrade:{} legLedger:{} endVolume:{} mode:{} closeShort:{}", pi.pairInstrumentKey, activeTrade, legLedger, endVolume, "MT", useCloseShort);
 
     return pAlgoOrder;
 }
