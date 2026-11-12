@@ -30,7 +30,7 @@
             "maxPositionValue": "1000",
 
             "_note_smoke_amount": "【冒烟】maxAmount 1000 -> 100、targetAmount 10 -> 100。为什么两个都要改：① maxAmount 决定开仓目标量 maxVolume ≈ maxAmount/腿价，1000 会开到 1000 USDT/腿，测试没必要；② targetAmount 是单张配对单的量，**必须 >= 25**（PairInfoManager.h:146 MIN_ORDER_USDT），填 10 时算出来的 ttTargetVolume ≈ 107 张而最小下单量 ≈ 267 张，单子根本报不出去（日志里是 'invalid targetVolume' 或交易所拒单）。两者都填 100 时 maxVolume ≈ ttTargetVolume ≈ 1067 张，**一张配对单就能开到目标仓**，循环最快。",
-            "maxAmount": "100",
+            "maxAmount": "1000",
             "targetAmount": "100",
             "_note_globalProfitPct": "【新增】全局 profitPct：一处配置写到**所有**对子，不用再在 pairCommands 里逐条列。语义与 PairInfo::profitPct 完全相同（单位是价差本身，负数 = 让利平仓）。优先级：本项是默认值，pairCommands 里列出的对子会**单独覆盖**它（那条路还能热改）。⚠️ 只在启动时落地一次，运行中改本项不生效，要重启；想热改走 pairCommands。⚠️ 写了这个键就会**覆盖快照第 30 列**恢复出来的值（配置优先于旧快照）；不写这个键则完全走老行为。本文件下面 pairCommands 里那条值相同、是冗余的，留着当'单对子覆盖'的示例。",
             "profitPct": "-0.002",
