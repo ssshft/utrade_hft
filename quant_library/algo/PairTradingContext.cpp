@@ -44,6 +44,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <exception>
 #include <sys/stat.h>
@@ -62,6 +63,21 @@ int64_t FileMtimeNs(const struct stat& st) {
     return static_cast<int64_t>(st.st_mtim.tv_sec) * 1000000000LL + static_cast<int64_t>(st.st_mtim.tv_nsec);
 #endif
 }
+
+// ---- 周期性播报（对子算法单 / 敞口）的参数 ----
+// 节奏写死 60s，不做配置项：它只决定"多久看一次飞书"，不参与任何交易决策，
+// 而加一个配置键要连带改解析、字段核对测试、两份 config 和文档，代价远大于收益。
+constexpr int64_t kPairReportIntervalUs = 60LL * 1000000LL;
+
+// 飞书正文的字节上限。**这不是随手取的**：LarkRebot::SendMsg 的实现是
+// `strncpy(content.msg, msg.c_str(), 1024)`（LarkRebot.cpp:55-60），而
+// ContentMsg::msg 是 `char[1024]`，源串不短于 1024 时 strncpy **不补 '\0'** ⇒
+// 超长消息会被截断，甚至让后面的 Send 读出界。留 100 多字节余量。
+constexpr size_t kLarkMaxBytes = 900;
+
+// 飞书正文最多列多少个对子。一个对子一行约 100 字节，再多必然撞上面的上限。
+// 超出的部分只在日志里，并在正文末尾注明条数。
+constexpr size_t kMaxPairLinesInLark = 12;
 } // namespace
 
 PairTradingContext* PairTradingContext::s_instance = nullptr;
@@ -1797,6 +1813,145 @@ void PairTradingContext::OnTimer(int64_t nowUs) {
 
         m_lastCsvSaveUs = nowUs;
     }
+
+    // 7. 周期性播报：每个对子的算法单 / 敞口 + 全组合总敞口（默认 60s 一次）
+    if (m_lastReportUs == 0) {
+        m_lastReportUs = nowUs;
+    } else if (nowUs - m_lastReportUs >= kPairReportIntervalUs) {
+        m_lastReportUs = nowUs;
+        ReportPairStatus();
+    }
+}
+
+// ============================================================================
+// 周期性播报：每个对子有没有算法单 / 该对子的净敞口 / 全组合总敞口
+//
+// 为什么落在策略侧这个函数、而不是执行侧 AlgoContext::OnTimer（那里已经有两处播报）：
+//   ① "这个对子有没有算法单" 只有 PairInfo 上有（hasActiveAlgoOrder / currentAlgoOrderId）。
+//      AlgoContext 的 allAlgoOrders 只装**活着的**单，答不了"没有单"这件事；
+//      而它那两个 60s 播报（infoReportCount / algoOrderReportCount）也只覆盖活单。
+//   ② 敞口口径必须跟风控闸门一致 —— 这里算的就是 CalcExposureExcess 里那个
+//      `|a*am + p*pm| / am`，同一个类里写，将来改口径两边不会漂。
+//   ③ GetAllPairInfos() 已经缓存成 vector<PairInfo*>（500 对子 0.88µs），
+//      60s 走一遍的代价可以忽略；反过来让 AlgoContext 去拿 PairInfo 就要多一条跨层依赖。
+//
+// ⚠️ 与 CalcExposureExcess 的唯一差别：那个函数是**闸门**，单腿有仓（开仓中间态）时
+//    直接 return false、把 netExposure 记成 0；本播报是**测量**，单腿有仓时照样把
+//    那一腿的敞口算出来 —— 否则"刚开了一半"会显示成 0，而那正是最该看的时刻。
+//
+// ⚠️ 只列"有内容"的对子（有算法单 / 有持仓 / stopFlag / closeFlag），其余只计数。
+//    原因是 LarkRebot::SendMsg 有 1024 字节硬上限（见 kLarkMaxBytes 的注释）：
+//    一个对子一行 ~100 字节，几百个对子全列必然被截断。需要逐个对子核对时看
+//    data/pair_info.csv 快照（csvSaveIntervalSec，默认 10s）。
+// ============================================================================
+void PairTradingContext::ReportPairStatus() {
+    auto& pim = PairInfoManager::Instance();
+    const auto& all = pim.GetAllPairInfos();
+
+    int nWithAlgo = 0;
+    int nWithPos = 0;
+    int nStopped = 0;
+    double sumNetUsdt = 0.0;
+
+    std::string body = ”“;
+    size_t listed = 0;
+    size_t hidden = 0;
+
+    for (const PairInfo* pi : all) {
+        const double a = pi->activeRealPosition;
+        const double p = pi->passiveRealPosition;
+        const double am = pi->activeParam.multiple;
+        const double pm = pi->passiveParam.multiple;
+
+        const bool hasAlgo = pi->hasActiveAlgoOrder;
+        const bool hasPos = (std::abs(a) > 1e-9) || (std::abs(p) > 1e-9);
+        if (hasAlgo) { 
+            ++nWithAlgo; 
+        }
+
+        if (hasPos) { 
+            ++nWithPos; 
+        }
+
+        if (pi->stopFlag) { 
+            ++nStopped; 
+        }
+
+        // 敞口：与 CalcExposureExcess 同式 —— 把被动腿按面值折回主动腿口径（单位=张）。
+        // am <= 0 表示合约信息还没到（首条行情之前），折不了，只报两腿原始量。
+        const bool canCalc = (am > 0.0);
+        const double netVol = canCalc ? (std::abs(a * am + p * pm) / am) : 0.0;
+        const double threshold = (std::isfinite(pi->ttTargetVolume) && pi->ttTargetVolume > 0.0) ? (m_cfg.exposureCancelTimes * pi->ttTargetVolume) : 0.0;
+
+        // 折成 USDT 才能跨对子相加。calcType 分支与 PairInfo::CalcSignedPositionValue 一致：
+        // 0（现货 / USDT 本位）= 量 x 价；1（币本位）= 量本身就是名义价值，不再乘价。
+        if (canCalc) {
+            const double netBase = std::abs(a * am + p * pm);
+            sumNetUsdt += (pi->activeParam.calcType != 0) ? netBase : (netBase * pi->LegPrice());
+        }
+
+        if (!hasAlgo && !hasPos && !pi->stopFlag && !pi->closeFlag) {
+            ++hidden;
+            continue;
+        }
+        if (listed >= kMaxPairLinesInLark) {
+            ++hidden;
+            continue;
+        }
+
+        // 用 snprintf 而不是 fmt::format：本项目链进来的 fmt 版本对 `{:.4f}` 这类
+        // 浮点格式说明**不生效**（占位符会原样留在正文里、参数被甩到末尾），
+        // 实测踩过一次。这里的格式化口径与 GetLastestStatusInfo / GeneratePubStr 一致，
+        // 全部走 C 的 printf 族，不受 fmt 版本影响。
+        char lineBuf[320];
+        const std::string algoId = hasAlgo ? std::to_string(pi->currentAlgoOrderId) : std::string("-");
+        std::string flags = ”“;
+        if (pi->stopFlag) { 
+            flags += "STOP "; 
+        }
+
+        if (pi->closeFlag) { 
+            flags += "CLOSEONLY "; 
+        }
+
+        if (!pi->autoFlag) { 
+            flags += "MANUAL "; 
+        }
+
+        snprintf(lineBuf, sizeof(lineBuf), "%s 单:%s a:%.4f p:%.4f 净:%.4f/%.4f%s%s\n",
+                 pi->pairInstrumentKey, algoId.c_str(), a, p, netVol, threshold, flags.c_str());
+
+        const std::string line = lineBuf;
+        // 逐行做预算：宁可少列一条，也不要让 SendMsg 的 strncpy 截在 UTF-8 中间。
+        if (body.size() + line.size() > kLarkMaxBytes) {
+            ++hidden;
+            continue;
+        }
+        body += line;
+        ++listed;
+    }
+
+    char headBuf[512];
+    snprintf(headBuf, sizeof(headBuf),
+             "[配对交易] 算法单/敞口 对子:%zu 有单:%d 有仓:%d 停手:%d\n"
+             "总持仓市值:%.4f USDT (闸门 maxPositionValue:%.4f)\n"
+             "净敞口合计:%.4f USDT\n",
+             all.size(), nWithAlgo, nWithPos, nStopped,
+             pim.TotalPositionValue(), m_cfg.maxPositionValue, sumNetUsdt);
+
+    std::string msg = headBuf;
+    msg += body;
+    if (hidden > 0) {
+        char tailBuf[128];
+        snprintf(tailBuf, sizeof(tailBuf), "其余 %zu 个对子未列出（无单无仓，或超出条数上限）\n", hidden);
+        msg += tailBuf;
+    }
+    msg += m_cfg.closeOnly ? "closeOnly:1 " : "closeOnly:0 ";
+    msg += m_cfg.stopAllAlgo ? "stopAllAlgo:1" : "stopAllAlgo:0";
+
+    LarkRebot::GetInstance().SendMsg(msg);
+    LOG_INFO("配对交易播报: 对子:{} 有单:{} 有仓:{} 停手:{} 总持仓市值:{} 净敞口合计:{} 已列:{} 未列:{}",
+             all.size(), nWithAlgo, nWithPos, nStopped, pim.TotalPositionValue(), sumNetUsdt, listed, hidden);
 }
 
 // 启动对账

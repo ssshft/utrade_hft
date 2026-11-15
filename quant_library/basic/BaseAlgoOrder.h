@@ -108,8 +108,14 @@ struct BaseAlgoOrder {
     int passivePriceTickNum;
 
     double pairActiveTotalPrice;
-    double pairTotalVolume;
+    double pairTotalVolume;          // 主动腿成交量账本（带符号：买正卖负）
     double pairPassiveTotalPrice;
+    // 被动腿成交量账本（带符号：**取被动腿自己的方向**，买正卖负）。
+    // 所以正常对冲的对子里它与 pairTotalVolume **符号相反**，两个数一起看才是"两腿各成交了多少"。
+    //   普通配对单：BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder 末尾累加（真实成交量，
+    //               取 pairOrder.passiveTotalVolumeOnOrder）；
+    //   再平衡单  ：AlgoRebalanceOrder::UpdateAlgoPairOrderByPairOrder 的被动分支维护。
+    // 普通配对单只用于展示（GetLastestStatusInfo / GeneratePubStr）；再平衡单的结束判据还读它。
     double pairPassiveTotalVolume;
 
     double activePriceTakerPct;

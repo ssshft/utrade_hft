@@ -159,9 +159,8 @@ void AlgoContext::SubmitAlgoOrder(int64_t algoOrderId, stra::CommandType cmd, co
         pAlgoOrder->updateTime = crypto::getCurrentTime();
 
         LarkRebot::GetInstance().SendMsg(pAlgoOrder->GeneratePubStr());
-        WriteAlgoOrder(pAlgoOrder);
-        LOG_INFO("SubmitAlgoOrder(CANCEL): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELLING",
-                 algoOrderId, pAlgoOrder->pairInstrumentKey);
+        // WriteAlgoOrder(pAlgoOrder);
+        LOG_INFO("SubmitAlgoOrder(CANCEL): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_CANCELLING", algoOrderId, pAlgoOrder->pairInstrumentKey);
         return;
     }
 
@@ -237,10 +236,9 @@ void AlgoContext::SubmitAlgoOrder(int64_t algoOrderId, stra::CommandType cmd, co
         pAlgoOrder->commandType = stra::CommandType_MODIFIED;
         pAlgoOrder->updateTime = crypto::getCurrentTime();
 
-        LarkRebot::GetInstance().SendMsg(pAlgoOrder->GeneratePubStr());
-        WriteAlgoOrder(pAlgoOrder);
-        LOG_INFO("SubmitAlgoOrder(MODIFY): algoOrderId:{} pairInstrumentKey:{} profitSwitch:{} profitPct:{}",
-                 algoOrderId, pAlgoOrder->pairInstrumentKey, pAlgoOrder->profitSwitch, pAlgoOrder->profitPct);
+        // LarkRebot::GetInstance().SendMsg(pAlgoOrder->GeneratePubStr());
+        // WriteAlgoOrder(pAlgoOrder);
+        LOG_INFO("SubmitAlgoOrder(MODIFY): algoOrderId:{} pairInstrumentKey:{} profitSwitch:{} profitPct:{}", algoOrderId, pAlgoOrder->pairInstrumentKey, pAlgoOrder->profitSwitch, pAlgoOrder->profitPct);
         return;
     }
 

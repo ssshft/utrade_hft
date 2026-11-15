@@ -330,7 +330,7 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 
 | 字段 | 状态 |
 |---|---|
-| `pairPassiveTotalVolume` | 0 写入。`UpdateOnAlgoOrder:296-298` 只写 `pairTotalVolume`/`pairActiveTotalPrice`/`pairPassiveTotalPrice`；`PairTradingContext.cpp:722` 读它（恒 0）赋给算法单；`SaveToCSV:80` 写出去的值也恒 0。`BaseAlgoOrder`/`AlgoRebalanceOrder` 里的同名成员是**另一个结构** |
+| `pairPassiveTotalVolume` | 0 写入。`UpdateOnAlgoOrder:296-298` 只写 `pairTotalVolume`/`pairActiveTotalPrice`/`pairPassiveTotalPrice`；`PairTradingContext.cpp:722` 读它（恒 0）赋给算法单；`SaveToCSV:80` 写出去的值也恒 0。`BaseAlgoOrder`/`AlgoRebalanceOrder` 里的同名成员是**另一个结构**（2026-11-13 起普通配对单也会在 `UpdateAlgoPairOrderByPairOrder` 里累加真实被动腿成交量，但那是算法单自己的账本，**不回写** `PairInfo`，所以这里说的"恒 0"和"不进快照"都还成立） |
 | `floatPnl`、`totalPnl`、`ttFloatPnl`、`ttTotalPnl`、`mtFloatPnl`、`mtTotalPnl` | 0 写入（`PositionManager` 里的同名 `totalPnl` 是另一个结构） |
 | `activeMarginStatus`、`passiveMarginStatus` | 0 写入；只在 `SignalGenerator.cpp:139` 被读 → 恒 0 |
 | `manualFlag` | 0 写入；只在 `PairTradingContext.cpp:744` 被读 → `isManual` 恒 false |

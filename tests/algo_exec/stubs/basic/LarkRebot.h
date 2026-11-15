@@ -17,7 +17,9 @@ public:
     ~LarkRebot() {}
 
     void Run() {}
-    void SendMsg(string) {}
+    // 记录正文（真实实现是 HTTP 请求）。用 push_back 而不是留空，
+    // 是为了让"播报类"行为可以被断言 —— 否则只能靠读日志确认它到底发没发。
+    void SendMsg(string s) { sent.push_back(s); }
     void SendMsg(string, ReceiveInfo&) {}
     void SendGroupMsg(string, ReceiveGroupInfo&) {}
     void SendGroupMsgCard(MsgCard&, ReceiveGroupInfo&) {}

@@ -209,6 +209,7 @@ private:
 
     int64_t m_lastVolumeRecalcUs{0};
     int64_t m_lastCsvSaveUs{0};
+    int64_t m_lastReportUs{0};   // 上次"算法单/敞口"播报时刻；0 = 还没起算（首次只起算不发）
 
     // ---- 启动闸门（§5.2）----
     // Init 读完快照后停在 Reconciling：五个交易入口全部直接 return，
@@ -242,6 +243,11 @@ private:
 
     // 快照里 hasActiveAlgoOrder == true 的启动处理（告警 + 可选冻结），§5.4
     void HandleOrphanAlgoOrders();
+
+    // 周期性播报（OnTimer 第 7 步，60s 一次）：每个对子有没有算法单 / 该对子的净敞口 /
+    // 全组合总敞口，正文发飞书（受 LarkRebot 1024 字节上限约束，只列"有内容"的对子），
+    // 摘要进日志。口径与风控闸门 CalcExposureExcess 一致。
+    void ReportPairStatus();
 
     // ---- T_signal：IO 线程分位数计算/分位数落盘/pairinfo定期落盘/配置轮询
     void StartSignalThread();

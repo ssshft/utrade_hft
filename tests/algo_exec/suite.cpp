@@ -1628,6 +1628,14 @@ static void TestG_FillLoop() {
         //   （BaseAlgoOrder.cpp:757-765 与 863）
         CHECK(fx.PairOrders(o).empty(), "G4 两腿成交 -> pairOrder 收口并从 pairOrderMgr 删除");
         CHECK(fx.NNew() == 2, "G4 收口后不再报新单");
+
+        // ---- 两腿成交量账本 ----
+        // 修之前 pairPassiveTotalVolume **恒 0**：BaseAlgoOrder 的完结分支只写主动腿的
+        // pairTotalVolume，被动腿那一份只在 AlgoRebalanceOrder 里维护 ⇒
+        // GetLastestStatusInfo 打印的"被动腿成交量"永远是 0，看不出两腿成交是否对得上。
+        // TT 开多 = 卖主动腿 + 买被动腿，所以两个数必须**符号相反、量级相等**。
+        CHECK(Near(o->pairTotalVolume, -1.0), "G4 主动腿账本 = -1.0（TT 开多 = 卖主动腿）");
+        CHECK(Near(o->pairPassiveTotalVolume, 1.0), "G4 被动腿账本 = +1.0（与主动腿符号相反）");
     }
 
     // ---- 6) 策略层收到执行侧回传：对子拿到持仓 ----
@@ -2188,6 +2196,72 @@ static void TestJ_ExposureRebalance() {
 }
 
 // ===========================================================================
+// K. 周期性播报：每个对子有没有算法单 / 该对子的净敞口 / 全组合总敞口
+//
+// 播报本体在 PairTradingContext::OnTimer 第 7 步（60s 一次），落在**策略侧**而不是
+// AlgoContext —— 因为"这个对子有没有算法单"只有 PairInfo 知道（hasActiveAlgoOrder），
+// AlgoContext 的 allAlgoOrders 只装活着的单，答不了"没有单"。理由详见该函数上方注释。
+//
+// 这里钉三件事：
+//   ① 首次 OnTimer 只起算、不播报（启动那一 tick 场上本来就没单没仓）；
+//   ② 跨过 60s 播一条，且带对子键 + 算法单计数；
+//   ③ 净敞口 = |a*am + p*pm| / am，且**单腿有仓时也照样报** —— 这是它和风控闸门
+//      CalcExposureExcess 唯一的差别（闸门在开仓中间态直接算 0）。
+// ===========================================================================
+static void TestK_Report() {
+    Section("K. 周期性播报（算法单 / 净敞口 / 总敞口）");
+
+    Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+
+    PairInfo& pi = *fx.pi();
+    MakeHoldable(pi, 0.0);
+    ArmOpen(pi, "ttOL", 0.0);
+    dbp::DbpTopic topic = MakeTopic(kPairKey);
+    dbp::DbpData pdata = FreshStrategyData();
+    fx.ptCtx.OnSpread(&topic, &pdata);
+    fx.ptCtx.ProcessPairSignal(pi);
+    CHECK(fx.Order0() != nullptr, "K1 前置：场上有一张算法单");
+    if (!fx.Order0()) return;
+
+    auto& lark = LarkRebot::GetInstance();
+    const int64_t t0 = crypto::getCurrentTime();
+    const size_t base = lark.sent.size();
+
+    // ---- 1) 首次 OnTimer 只起算，不发 ----
+    fx.ptCtx.OnTimer(t0);
+    CHECK(lark.sent.size() == base, "K2 首次 OnTimer 只起算，不播报");
+
+    // 取最近一条配对交易播报（OnTimer 里别的分支也可能发通知，所以按前缀找）
+    auto lastReport = [&]() {
+        std::string found;
+        for (size_t i = base; i < lark.sent.size(); ++i) {
+            if (lark.sent[i].find("[配对交易]") != std::string::npos) { found = lark.sent[i]; }
+        }
+        return found;
+    };
+
+    // ---- 2) 跨过 60s -> 播一条；对冲持仓净敞口 = 0 ----
+    pi.activeRealPosition  = -1000.0;   // 主动腿卖出 1000（= 做多这一对）
+    pi.passiveRealPosition =  1000.0;   // 被动腿买入 1000 ⇒ 两腿抵平
+    fx.ptCtx.OnTimer(t0 + 61LL * 1000 * 1000);
+
+    const std::string r1 = lastReport();
+    CHECK(!r1.empty(), "K3 跨过 60s -> 播报了配对交易摘要");
+    CHECK(r1.find("有单:1") != std::string::npos, "K3 摘要里带「有算法单」的计数");
+    CHECK(r1.find(kPairKey) != std::string::npos, "K3 明细里列出了该对子");
+    // ⚠️ 只钉净敞口，不钉阈值：OnTimer 第 1 步会 RecalcVolumeParams 重算 ttTargetVolume，
+    //    阈值跟着变，钉死数字会变成一条跟本用例无关的脆弱断言。
+    CHECK(r1.find("净:0.0000/") != std::string::npos, "K3 对冲持仓的净敞口 = 0");
+
+    // ---- 3) 只剩一条腿（开仓中间态）：闸门会说"不算敞口"，播报必须照算 ----
+    pi.passiveRealPosition = 0.0;
+    fx.ptCtx.OnTimer(t0 + 122LL * 1000 * 1000);
+    const std::string r2 = lastReport();
+    CHECK(r2.find("净:1000.0000/") != std::string::npos,
+          "K4 只剩主动腿 -> 净敞口 = 1000 张（闸门此时记 0，播报不能跟着记 0）");
+}
+
+// ===========================================================================
 // 主
 // ===========================================================================
 int main() {
@@ -2204,6 +2278,7 @@ int main() {
     TestH_CancelLoop();
     TestI_RoleTermination();
     TestJ_ExposureRebalance();
+    TestK_Report();
 
     std::printf("\n=================================================\n");
     std::printf("PASS: %d   FAIL: %d\n", g_pass, g_fail);

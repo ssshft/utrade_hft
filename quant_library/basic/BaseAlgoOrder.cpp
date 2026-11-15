@@ -300,6 +300,17 @@ void BaseAlgoOrder::UpdateAlgoPairOrderByPairOrder(PairOrder& pairOrder) {
         }
 
     }
+
+    // ---- 被动腿成交量账本 ----
+    if (pairOrder.passiveTotalVolumeOnOrder > stra::MIN_FLOAT) {
+        const double passiveFillVolume = pairOrder.passiveTotalVolumeOnOrder;
+        if (pairOrder.passiveDirection == DT_LONG) {
+            pairPassiveTotalVolume += passiveFillVolume;
+        } 
+        else if (pairOrder.passiveDirection == DT_SHORT) {
+            pairPassiveTotalVolume -= passiveFillVolume;
+        }
+    }
 }
 
 double BaseAlgoOrder::GetExpectActiveVolume() {
