@@ -178,10 +178,10 @@ if self.continue_flag:  # 如果选择继续则会同步
 
 ### 2.1 `pairTotalVolume` 是策略唯一的持仓账本
 
-它的**唯一**写入方是 `PairInfoManager::UpdateOnAlgoOrder`（`PairInfoManager.cpp:846-863`）：
+它的**唯一**写入方是 `PairInfoManager::UpdateOnAlgoOrder`（`PairInfoManager.cpp:846-859`）：
 
 ```cpp
-pi->pairTotalVolume = volume;   // :853，数据来自算法单回调
+pi->pairTotalVolume = activeVolume;   // :852，数据来自算法单回调
 ```
 
 重启后它 = 0。而 `HasPosition()`（`PairInfo.h:290-292`）= `std::abs(pairTotalVolume) > 1e-9` 是下面所有地方的**总闸**：
@@ -294,7 +294,7 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 
 | # | 分组 | 字段 | 为什么交易所给不了 |
 |---|---|---|---|
-| 1 | **持仓账本** | `pairTotalVolume`、`pairActiveTotalPrice`、`pairPassiveTotalPrice`、`pairPassiveTotalVolume` | 唯一写入方是算法单回调（`UpdateOnAlgoOrder:853-859`，写这 4 个）。`pairTotalVolume` **就是主动腿持仓**，平仓与四条风控全建立在它上面（见 §5.3.1）。`pairPassiveTotalVolume` 2026-11-15 起才有写入方（之前恒 0，见 §5.1.3c）。注意它们**没有**持久化路径以外的来源：算法单不落盘 |
+| 1 | **持仓账本** | `pairTotalVolume`、`pairActiveTotalPrice`、`pairPassiveTotalPrice`、`pairPassiveTotalVolume` | 唯一写入方是算法单回调（`UpdateOnAlgoOrder:852-855`，写这 4 个）。`pairTotalVolume` **就是主动腿持仓**，平仓与四条风控全建立在它上面（见 §5.3.1）。`pairPassiveTotalVolume` 2026-11-15 起才有写入方（之前恒 0，见 §5.1.3c）。注意它们**没有**持久化路径以外的来源：算法单不落盘 |
 | 2 | **建仓基准** ~~`openSmallSpreadBidBidUQ`、`openSmallSpreadAskAskDQ`~~ | ⚠️ **2026-09-29 起已无人读取**。原先的"建仓那一刻的 1h 分位数快照"（`CaptureOpenSpreadSnapshot`，只在 `wasFlat → HasPosition` 那一次取）有两个致命问题：`smallStats` 全工程没有生产者（`UpdateSmallStats` 零调用者）→ 恒为 NaN → `isnan` 哨兵永不触发；且轴错配（多头比 `spreadAskAsk`、空头比 `spreadBidBid`，正好是对方方向的平仓轴）。"价差不回归"已改为复用执行端平仓阈值（`SignalGenerator::CloseSpreadReached`）。这两列**暂留仅为保持列布局**，待格式统一迁移时删除 |
 | 3 | **风控档位** | `adlClose` / `spreadNoRegression` / `fundingAbnormal` 各 6 个字段（`triggered`、`currentTier`、`startTime`、`tier1Times`、`tier2Times`、`tier3Times`） | 是"强平档位"的**跨轮次累积**状态（`AdvanceTier:43-60`、`OnAlgoFinished:318-332`、`GetCurrentTier:6-40`）。丢了 → 档位从 tier1 重来、`startTime` 归零让 `elapsed` 从 0 起算，等于每次重启都把风控的耐心重置一遍 |
 | 4 | **风控计时起点** | `positionExceedThresholdStartTime`、`spreadNoRegressionStartTime` | 同上，是"持仓超时 / 价差不回归"的计时起点（`RiskManager.cpp:104/112-113/163/195-196/311-312`）。丢了 = 时钟重置，4 天门槛要重新等。**注意 `positionStartTime`（2026-09-29 新增，最短持有期门槛）刻意不进快照** —— 它是运行态字段，重启后重新起算，方向是"推迟风控"，落在安全侧 |
@@ -421,6 +421,10 @@ a:-16917.0000 p:1705.0000 净:133.0000                               ← 实盘�
    （`PairTradingContext.cpp:1520`）传 `order->pairPassiveTotalVolume`，内部
    `pi->pairPassiveTotalVolume = passiveVolume;` —— 与 `pairTotalVolume` 完全对称，
    这样账本能跨算法单延续；
+   ⚠️ **参数顺序是 `(pairKey, activeVolume, passiveVolume, activePrice, passivePrice)`**
+   —— 两个量挨着传。按旧顺序 `(volume, activePrice, passivePrice, passiveVolume)` 写会
+   静默串位：`pairActiveTotalPrice` 拿到被动腿价、`pairPassiveTotalPrice` 拿到被动腿量，
+   编得过、测试才会红（`market_to_algo` F11 就是这个症状）。
 2. ✅ **对账**：`ReconcilePair`（`:1968-1986`）把 `pairPassiveTotalVolume` 也对齐
    `passiveRealPosition`，否则**已经存在的**残量永远补不回来（第 1 条只能保证以后不再漏）。
 

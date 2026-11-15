@@ -911,7 +911,7 @@ string BaseAlgoOrder::GetLastestStatusInfo() {
     std::string pairOrderStr = "";
     unordered_map<int64_t, PairOrder>& m = pairOrderMgr.GetAllPairOrders();
     for (auto iter = m.begin(); iter != m.end(); ++iter) {
-        pairOrderStr += std::to_string(pairId) + " " + stra::TradingTypeEnum2Str[iter->second.tradingTypeOrder] + " " + stra::TradingTypeEnum2Str[iter->second.tradingTypeOffset] + "\n";
+        pairOrderStr += std::to_string(iter->first) + " " + stra::TradingTypeEnum2Str[iter->second.tradingTypeOrder] + " " + stra::TradingTypeEnum2Str[iter->second.tradingTypeOffset] + "\n";
     }
 
     char s[stra::STR_LEN];
