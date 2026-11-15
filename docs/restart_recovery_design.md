@@ -178,10 +178,10 @@ if self.continue_flag:  # 如果选择继续则会同步
 
 ### 2.1 `pairTotalVolume` 是策略唯一的持仓账本
 
-它的**唯一**写入方是 `PairInfoManager::UpdateOnAlgoOrder`（`PairInfoManager.cpp:290-302`）：
+它的**唯一**写入方是 `PairInfoManager::UpdateOnAlgoOrder`（`PairInfoManager.cpp:846-863`）：
 
 ```cpp
-pi->pairTotalVolume = volume;   // :296，数据来自算法单回调
+pi->pairTotalVolume = volume;   // :853，数据来自算法单回调
 ```
 
 重启后它 = 0。而 `HasPosition()`（`PairInfo.h:290-292`）= `std::abs(pairTotalVolume) > 1e-9` 是下面所有地方的**总闸**：
@@ -294,7 +294,7 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 
 | # | 分组 | 字段 | 为什么交易所给不了 |
 |---|---|---|---|
-| 1 | **持仓账本** | `pairTotalVolume`、`pairActiveTotalPrice`、`pairPassiveTotalPrice` | 唯一写入方是算法单回调（`UpdateOnAlgoOrder:296-298`，只写这 3 个）。`pairTotalVolume` **就是主动腿持仓**，平仓与四条风控全建立在它上面（见 §5.3.1）。注意它**没有**持久化路径以外的来源：算法单不落盘 |
+| 1 | **持仓账本** | `pairTotalVolume`、`pairActiveTotalPrice`、`pairPassiveTotalPrice`、`pairPassiveTotalVolume` | 唯一写入方是算法单回调（`UpdateOnAlgoOrder:853-859`，写这 4 个）。`pairTotalVolume` **就是主动腿持仓**，平仓与四条风控全建立在它上面（见 §5.3.1）。`pairPassiveTotalVolume` 2026-11-15 起才有写入方（之前恒 0，见 §5.1.3c）。注意它们**没有**持久化路径以外的来源：算法单不落盘 |
 | 2 | **建仓基准** ~~`openSmallSpreadBidBidUQ`、`openSmallSpreadAskAskDQ`~~ | ⚠️ **2026-09-29 起已无人读取**。原先的"建仓那一刻的 1h 分位数快照"（`CaptureOpenSpreadSnapshot`，只在 `wasFlat → HasPosition` 那一次取）有两个致命问题：`smallStats` 全工程没有生产者（`UpdateSmallStats` 零调用者）→ 恒为 NaN → `isnan` 哨兵永不触发；且轴错配（多头比 `spreadAskAsk`、空头比 `spreadBidBid`，正好是对方方向的平仓轴）。"价差不回归"已改为复用执行端平仓阈值（`SignalGenerator::CloseSpreadReached`）。这两列**暂留仅为保持列布局**，待格式统一迁移时删除 |
 | 3 | **风控档位** | `adlClose` / `spreadNoRegression` / `fundingAbnormal` 各 6 个字段（`triggered`、`currentTier`、`startTime`、`tier1Times`、`tier2Times`、`tier3Times`） | 是"强平档位"的**跨轮次累积**状态（`AdvanceTier:43-60`、`OnAlgoFinished:318-332`、`GetCurrentTier:6-40`）。丢了 → 档位从 tier1 重来、`startTime` 归零让 `elapsed` 从 0 起算，等于每次重启都把风控的耐心重置一遍 |
 | 4 | **风控计时起点** | `positionExceedThresholdStartTime`、`spreadNoRegressionStartTime` | 同上，是"持仓超时 / 价差不回归"的计时起点（`RiskManager.cpp:104/112-113/163/195-196/311-312`）。丢了 = 时钟重置，4 天门槛要重新等。**注意 `positionStartTime`（2026-09-29 新增，最短持有期门槛）刻意不进快照** —— 它是运行态字段，重启后重新起算，方向是"推迟风控"，落在安全侧 |
@@ -302,7 +302,14 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 | 6 | **错误态** | `errorFlag` | 由 `CheckExposureAbnormal:427/461`（**每 tick 重算**）与 `HandleOrphanAlgoOrders:137`（**只在 Init 跑一次**）写入，语义是"该对子判死、留人工处理"。清除方 = `PairCmd_RESUME`（`PairInfoManager.cpp:913-920`）→ 不存的话，重启会让一个已判死的对子静默复活。**⚠️ "到底存不存"必须分这两条写入路径看，结论不一样，见 §5.5 问题 1b** |
 | 7 | **上一轮残留标记** | `hasActiveAlgoOrder`、`currentAlgoOrderId` | **只用于启动告警**（见 5.4）。重启后 `alogOrderManager` 是空的，恢复 id 本身没有意义。⚠️ **但实现把它恢复进了运行时字段本身**，而不是一个独立的告警触发器 —— 这会让"策略说有单、执行侧没有"短暂成真，并经由 `errorFlag` 造成永久冻结。**2026-10-03 复查，见 §5.4.1（建议改为读完告警立刻 `ClearActiveAlgoOrder`）** |
 
-字段数：1（行键）+ 3 + 2 + 18 + 2 + 4 + 1 + 2 = **33 列**。
+字段数：1（行键）+ 3（持仓账本）+ 2（建仓基准）+ 18（风控档位）+ 2（风控计时）
++ 4（运维意图）+ 2（残留标记）+ 1（被动腿账本）= **33 列**。
+
+> ⚠️ **33 这个列数历史上出现过两次**，含义完全不同：2026-10-29 之前是
+> `profitPct(29)` 之后多一列 `errorFlag`；2026-11-15 起是末尾追加
+> `pairPassiveTotalVolume`。所以 `LoadSnapshot` 的表头校验**比的是表头文本、不是列数**
+> —— 只比个数的话，一份遗留的旧 33 列文件会被当成新格式读进来，整行错位还不报错
+> （详见 §5.1.5 的"容错"行）。
 
 两个序列化细节：
 
@@ -330,7 +337,7 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 
 | 字段 | 状态 |
 |---|---|
-| `pairPassiveTotalVolume` | 0 写入。`UpdateOnAlgoOrder:296-298` 只写 `pairTotalVolume`/`pairActiveTotalPrice`/`pairPassiveTotalPrice`；`PairTradingContext.cpp:722` 读它（恒 0）赋给算法单；`SaveToCSV:80` 写出去的值也恒 0。`BaseAlgoOrder`/`AlgoRebalanceOrder` 里的同名成员是**另一个结构**（2026-11-13 起普通配对单也会在 `UpdateAlgoPairOrderByPairOrder` 里累加真实被动腿成交量，但那是算法单自己的账本，**不回写** `PairInfo`，所以这里说的"恒 0"和"不进快照"都还成立） |
+| `pairPassiveTotalVolume` | ✅ **2026-11-15 起有写入方**：`UpdateOnAlgoOrder` 加了 `passiveVolume` 参数（`OnAlgoOrderUpdate` @`PairTradingContext.cpp:1520` 传 `order->pairPassiveTotalVolume`），`ReconcilePair` @`:1968-1986` 启动时对齐 `passiveRealPosition` ⇒ 快照第 33 列落的是真值。**修之前**它是 0 写入、落盘恒 0（见 §5.1.3b / §5.1.3c）。下游读点：`PairTradingContext.cpp:720`（被动腿账本）、`:1108`/`:1364`（拷给新建算法单）、`AlgoContext.cpp:1413`（Rebalance 结束判据）。注意 `BaseAlgoOrder`/`AlgoRebalanceOrder` 里的同名成员是**另一个结构**（算法单自己的账本，不回写 `PairInfo`） |
 | `floatPnl`、`totalPnl`、`ttFloatPnl`、`ttTotalPnl`、`mtFloatPnl`、`mtTotalPnl` | 0 写入（`PositionManager` 里的同名 `totalPnl` 是另一个结构） |
 | `activeMarginStatus`、`passiveMarginStatus` | 0 写入；只在 `SignalGenerator.cpp:139` 被读 → 恒 0 |
 | `manualFlag` | 0 写入；只在 `PairTradingContext.cpp:744` 被读 → `isManual` 恒 false |
@@ -343,6 +350,87 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 | `smallStats` + `UpdateSmallStats` + `CaptureOpenSpreadSnapshot` | **2026-09-29 起确认是死链**：`UpdateSmallStats`（`PairInfoManager.cpp:415`）零调用者 → `smallStats` 恒无效 → `CaptureOpenSpreadSnapshot` 的 `IsValid()` 守卫永远早退 → `openSmallSpread*` 恒 NaN。原先唯一读取方 `CheckSpreadNoRegression` 已改用 `SignalGenerator::CloseSpreadReached`。可整体删除（含快照 2 列） |
 | `riskCloseOrderInFlight` | 重启后必然没有在途单，恒 false |
 | `activeLiquidStatus`、`passiveLiquidStatus` | **有**写入，但由 `liquidPrice`/`markPrice` 算出（`UpdateSideLiquidStatus:243-261`）→ 随推送自愈，不用存 |
+
+#### 5.1.3b `pairPassiveTotalVolume` 进快照了，但源头曾经是空的（2026-11-15）
+
+按要求把 `PairInfo::pairPassiveTotalVolume` 写进快照第 33 列并读回，写法与
+`pairTotalVolume` 完全对称。**当时它在 `PairInfo` 上没有任何写入方**，所以落盘的是
+一个恒为 `0` 的字段。两个后果：
+
+1. **快照第 33 列恒 `0`** —— 写、读、断言都成立（e2e 07 手工赋值 `+3.2` 能往返），
+   但生产跑起来写出去的就是 `0`。✅ **已修**：`UpdateOnAlgoOrder` 加了
+   `passiveVolume` 参数，`OnAlgoOrderUpdate`（`PairTradingContext.cpp:1520`）传
+   `order->pairPassiveTotalVolume`，与 `pairTotalVolume` 完全对称。
+2. **被动腿的自动再平衡当时是死路** —— `ProcessExposureRebalance` 里
+   `legLedger = (activeTrade == 1) ? pi.pairTotalVolume : pi.pairPassiveTotalVolume;`
+   （`:720`），被动腿那支拿到 `0`，紧接着的
+   `if (legLedger * legReal <= 0.0)`（`:726`）**恒真** ⇒ 每次都会打一条
+   `账本 0 与实盘 X 不同号 -> 放弃自动再平衡，等人工对账` 然后早退。
+   ✅ **第 1 条修好后这条早退不再触发**（账本有值且与实盘同号）。
+
+⇒ 补第 1 条 = 让第 2 条那条早退不再触发，但**不会**让它真的下单 —— 再平衡单本身发不出子单
+（见 `docs/AlgoType_Rebalance-敞口再平衡.md` §4.1）。所以严格说第 1 条**不该单独做**，
+否则只是把"早退报错"换成"建一张死单占住对子"。
+
+> **2026-11-15 已按用户要求落地**（原话："把 `pairPassiveTotalVolume` 更新和 `pairTotalVolume`
+> 一致，都修改下"），A/B 尚未决定。落地后的实际表现（逐条按代码核对过）：
+>
+> - **"冻住对子"不是这次引入的**：置 `reBalance` 的地方（`CheckExposureAbnormal:645`）
+>   同一处就置了 `stopFlag`，而 `stopFlag` 让 `CanOpen`/`CanClose` 全 false。修之前对子也一样停；
+> - 差别只在**日志级别与 churn**：修之前 `:726` 的 `LOG_ERROR` 打**一次**、`reBalance` 被清掉、
+>   之后彻底无动作（一次性静默死路）；修之后账本与实盘同号，`:757` 打 `LOG_INFO`
+>   （`平 X -> 终点 Y`）并建单，`CheckAlgoOrderTimeout:588` 在 150s 后撤掉，而 `reBalance`
+>   仍为 true ⇒ 下一轮再建 ⇒ **每 150s 一轮"建-撤"，永不成功**；
+> - 两个状态都**不产生任何交易所报单**（§4.1 的矛盾让它发不出子单），所以不涉及资金安全；
+>   但 INFO 级的循环比一条 ERROR 更容易被运维忽略。
+>
+> ⇒ **A/B 定下来之前，这两条修法的收益是"账本正确"（播报/快照/Rebalance 结束判据都靠它），
+> 不是"自动再平衡能用"。** 想先止血就把该对子的 `reBalance` 用 `pairCommands` 清掉
+> （`PairCmd_RESUME` 会置 `reBalance = false`，见 `ApplyPairCommands:1601`）。
+
+##### 5.1.3c 现场症状：被动腿账本"始终比实盘少 1 手"（2026-11-15）
+
+```
+pairTotalVolume:-16917.000000  pairPassiveTotalVolume:1704.000000   ← 算法单自己的账本
+a:-16917.0000 p:1705.0000 净:133.0000                               ← 实盘持仓
+```
+
+主动腿分毫不差、被动腿恒少 1 手。**不是"少算了一笔成交"，是这个字段从来没有被回写/对账过。**
+三条保命绳，主动腿有三条、被动腿**当时**一条都没有（右列"修后"是 2026-11-15 的状态）：
+
+| # | 机制 | `pairTotalVolume` | `pairPassiveTotalVolume`（修前 → 修后） |
+|---|---|---|---|
+| 1 | 建单时从 `PairInfo` 取种子 | ✅ `PairTradingContext.cpp:1361` | ⚠️ 也取了（`:1364`），但源恒 `0` → ✅ 源已是真值 |
+| 2 | 算法单跑完回写 `PairInfo` | ✅ `UpdateOnAlgoOrder:852` | ❌ 只有 3 个参数、没有被动腿量 → ✅ 加了 `passiveVolume` |
+| 3 | 启动对账按实盘纠正 | ✅ `ReconcilePair:1995`（比 `activeRealPosition`） | ❌ 只对主动腿 → ✅ `:1968-1986` 单独对 `passiveRealPosition` |
+
+⇒ **每张算法单的 `pairPassiveTotalVolume` 都从 `0` 开始，只累加"这一张单自己"的被动腿成交。**
+凡是不属于当前这张单的被动腿量（上一张单的残量、上一轮进程留下的、启动对账前就存在的）
+一律看不见 —— 于是差额永久地停在那个残量上。现场的"1 手"就是这种残量。
+
+> 次要可能（同样会表现为"少一点"）：pairOrder 完结与最后一笔成交回报的先后。
+> `UpdateAlgoPairOrderByPairOrder` 只在**两腿 frozen 都为 0** 时调用
+> （`BaseAlgoOrder.cpp:772-775`），正常情况下能兜住；但如果算法单在最后一次
+> `CreatePairOrder` 之前就终结，最后那批成交不会进账本。
+> 判别方法：把仓位彻底平到 0 再重新建一次 —— 差额消失 ⇒ 是残量/延续问题（本文这条）；
+> 差额复现 ⇒ 是完结时序问题。
+
+**修法（两处，缺一不可）—— 2026-11-15 两处均已落地**：
+
+1. ✅ **回写**：`UpdateOnAlgoOrder` 加 `double passiveVolume`，`OnAlgoOrderUpdate`
+   （`PairTradingContext.cpp:1520`）传 `order->pairPassiveTotalVolume`，内部
+   `pi->pairPassiveTotalVolume = passiveVolume;` —— 与 `pairTotalVolume` 完全对称，
+   这样账本能跨算法单延续；
+2. ✅ **对账**：`ReconcilePair`（`:1968-1986`）把 `pairPassiveTotalVolume` 也对齐
+   `passiveRealPosition`，否则**已经存在的**残量永远补不回来（第 1 条只能保证以后不再漏）。
+
+⚠️ 第 2 条的**插入位置**有讲究：必须放在"主动腿一致就 `return true`"（`:1990-1993`）**之前**。
+主动腿对得上、被动腿对不上恰恰是常态（被动腿账本长期没有回写方），挂在早退后面就永远修不到。
+现在两条腿各判各的、互不牵连，判据同构（量在容差内 **且** 符号相同 —— 量级相同但多空翻转
+必须算不一致，否则会把"反手"当成"对账成功"）。
+
+⚠️ 落地后 §5.1.3b 第 2 条那条早退不再触发 —— 但**不会**让被动腿真的开始下单
+（再平衡单本身发不出子单，A/B 未定），实际后果见 §5.1.3b 末尾的引用块。
 
 #### 5.1.4 存了也没用的（顺带发现）
 
@@ -366,7 +454,7 @@ pairId, algoPairId, isActiveOrder, reduceOnly
 | 原子写 | 写 `path + ".tmp"` → `std::rename` 原子替换；`writeOk` 检查后才 rename |
 | 精度 | `ofs << std::setprecision(17)`，double 无损往返 |
 | NaN 往返 | `openSmallSpread*` 为 NaN 时写出 `nan`，`std::stod`（走 `strtod`）读回 NaN ✓ |
-| 容错 | 空串 → 保留默认值；坏值 → `LOG_WARN` + 回退默认；**列数不符 → 整行 skip**；表头列数不符 → 整个快照拒绝加载（挡住旧的 5 列 CSV） |
+| 容错 | 空串 → 保留默认值；坏值 → `LOG_WARN` + 回退默认；**列数不符 → 整行 skip**；**表头文本不符 → 整个快照拒绝加载**（挡住旧的 5 列 CSV，也挡住 2026-10-29 之前那份同样 33 列但含 `errorFlag` 的旧格式） |
 | 建目录 | `EnsureParentDir()` 逐级 `mkdir(..., 0755)`，忽略 `EEXIST` |
 | 行序 | 按 `m_pairKeys`（config 顺序）写，保证输出稳定可比对 |
 | 周期 | `csvSaveIntervalSec` **300 → 10**（`PairTradingContext.h:66`） |
@@ -384,10 +472,15 @@ spreadNoRegression.{同上 6},
 fundingAbnormal.{同上 6},
 positionExceedThresholdStartTime,spreadNoRegressionStartTime,
 autoFlag,stopFlag,closeFlag,profitPct,
-errorFlag,
 hasActiveAlgoOrder,
-currentAlgoOrderId
+currentAlgoOrderId,
+pairPassiveTotalVolume
 ```
+
+> `pairPassiveTotalVolume` 是 2026-11-15 **追加在末尾**的（下标 32），没有插到
+> `pairPassiveTotalPrice` 后面 —— 插中间会把 `profitPct`(29) / `hasActiveAlgoOrder`(30) /
+> `currentAlgoOrderId`(31) 的列号全部后移，而这三个列号在 docs/、`RuntimeConfig.h`
+> 和运维手册里是按**数字**写死的。
 
 **已验证**：用独立 harness 复刻同一套序列化逻辑做了 35 项往返断言（NaN 性、double 位精确、int64、列数 33、空字符串列），全部通过。
 **未验证**：真实工程编译 —— 本机缺 `cmake` / `fmt`，需在部署机上 `make`。
@@ -624,6 +717,11 @@ currentAlgoOrderId
 - **中期（独立任务）**：把逐单 CSV 从"事件流"改成"当前在途清单"，启动时对每张在途单走一次 `QuantTrade::QueryOrder` → 若仍 `OS_NEW` / `OS_PARTFILLED` 就 `CancelOrder`。这条路能落地，但依赖 §3.2 说的 id 持久化。
 
 #### 5.4.1 ⚠️ 复查（2026-10-03）：`hasActiveAlgoOrder` 不该被"恢复"
+
+> **历史记录（2026-10-03 的现场）**：下面说的 `errorFlag` 已随三态模型删除，
+> 表里的列号（第 30 / 32 列）也是当时那份 33 列（含 `errorFlag`）的布局，
+> **与当前 33 列格式不是一回事**（当前末列是 `pairPassiveTotalVolume`）。
+> 结论仍然有效的是"`hasActiveAlgoOrder` 被恢复进运行时字段会经由孤儿冻结误伤"这一条。
 
 **现象**：上一轮有在途算法单时重启，之后**开仓单和平仓单都报不出去**，而且重启也解不掉。
 

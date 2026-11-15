@@ -137,7 +137,7 @@ NN_xxx.cpp       一个功能一个文件，每个都有独立的 int main()
 | `04_cancel.cpp` | 定时撤单：机会连续不成立 -> CANCEL -> 被动腿撤掉 -> 终结 | `OnTimer` / `OnOrder` |
 | `05_risk_close.cpp` | 风控强平：碎单命中 -> RISK_CLOSE -> 平干净（含关掉盈利保护） | `ProcessRisk` |
 | `06_rebalance.cpp` | 敞口再平衡：净敞口超阈值 -> stopFlag + 只平超出部分 | `CheckExposureAbnormal` / `ProcessRisk` |
-| `07_snapshot.cpp` | `pair_info.csv` 落库 / 重启读回（32 列，账户真值故意不存） | `SaveSnapshot` / `Init` |
+| `07_snapshot.cpp` | `pair_info.csv` 落库 / 重启读回（33 列，账户真值故意不存；另守"旧 33 列表头必须被拒"） | `SaveSnapshot` / `Init` |
 | `08_spread_stats.cpp` | `spread_stats.csv` 落库 / 重启免预热（12 列，含陈旧度判断） | `WriteSpreadStatsFile` / `Init` |
 | `09_config_stop.cpp` | 配置停止交易（`cmdType=1`）：开仓平仓都不发 | `ApplyPairCommands` |
 | `10_config_close_only.cpp` | 配置只平不开（`cmdType=2`）：开仓压掉、平仓照常、`closeRemainVolume` 决定末端 | `ApplyPairCommands` |

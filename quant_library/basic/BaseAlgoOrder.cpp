@@ -908,6 +908,12 @@ void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
 }
 
 string BaseAlgoOrder::GetLastestStatusInfo() {
+    std::string pairOrderStr = "";
+    unordered_map<int64_t, PairOrder>& m = pairOrderMgr.GetAllPairOrders();
+    for (auto iter = m.begin(); iter != m.end(); ++iter) {
+        pairOrderStr += std::to_string(pairId) + " " + stra::TradingTypeEnum2Str[iter->second.tradingTypeOrder] + " " + stra::TradingTypeEnum2Str[iter->second.tradingTypeOffset] + "\n";
+    }
+
     char s[stra::STR_LEN];
     dbp::DbpData* pdata = SpreadManager::Instance().GetSpread(pairInstrumentKey);
     if (pdata) {
@@ -919,6 +925,7 @@ string BaseAlgoOrder::GetLastestStatusInfo() {
                 "lockSpread:%f \n"
                 "pairTotalVolume:%f  pairPassiveTotalVolume:%f \n"
                 "pairActiveTotalPrice:%f  pairPassiveTotalPrice:%f \n"
+                "pairOrderStr:%s\n"
                 "spreadBidAskTema:%f \n"
                 "spreadBidBidTema:%f \n"
                 "spreadAskBidTema:%f \n"
@@ -931,7 +938,7 @@ string BaseAlgoOrder::GetLastestStatusInfo() {
                 "activeAskVolume1:%f \n"
                 "activeBidPrice1:%f \n"
                 "activeBidVolume1:%f \n", 
-                algoStrategyName, algoOrderId, pairInstrumentKey, lockSpread, pairTotalVolume, pairPassiveTotalVolume, pairActiveTotalPrice, pairPassiveTotalPrice, 
+                algoStrategyName, algoOrderId, pairInstrumentKey, lockSpread, pairTotalVolume, pairPassiveTotalVolume, pairActiveTotalPrice, pairPassiveTotalPrice, pairOrderStr.c_str(),
                 pdata->spreadBidAskTema, pdata->spreadBidBidTema, pdata->spreadAskBidTema, pdata->spreadAskAskTema, 
                 pdata->passiveAskPrice[0], pdata->passiveAskVolume[0], pdata->passiveBidPrice[0], pdata->passiveBidVolume[0],
                 pdata->activeAskPrice[0], pdata->activeAskVolume[0], pdata->activeBidPrice[0], pdata->activeBidVolume[0]);

@@ -66,22 +66,25 @@ namespace pt {
     };
 
     // ------------------------------------------------------------------
-    // 落库用的一行（32 列）。**纯 POD、无 NSDMI**，两个用途：
+    // 落库用的一行（33 列）。**纯 POD、无 NSDMI**，两个用途：
     //   ① 交易线程把 PairInfo 拷成它（MakePairInfoRecord），避免别的线程直接读 PairInfo；
     //   ② 它能塞进 lockfree SPSC 队列（要求元素可平凡拷贝/平凡析构）。
     //
-    // ⚠️ 故意不写 `{}` 默认成员初值：写了之后 `PairInfoRecord r;` 会先清零一遍 32 列，
+    // ⚠️ 故意不写 `{}` 默认成员初值：写了之后 `PairInfoRecord r;` 会先清零一遍 33 列，
     //    构造时又全字段覆盖一遍 —— 500 行白写 120 KB（实测 +18 µs）。
     //    去掉之后：普通变量是"未初始化"，由 MakePairInfoRecord 填满；
     //    哨兵仍然用 `PairInfoRecord{}`（聚合值初始化 ⇒ 全零），语义不变。
     // ⚠️ 字段顺序**不是**文件列序（见 kSnapshotHeader）：这里按语义分组，
-    //    写文件时按表头顺序取值。改任何一边都要跑 G2/G6 的往返用例。
+    //    写文件时按表头顺序取值。改任何一边都要跑 e2e 07 的往返用例。
     // ------------------------------------------------------------------
     struct PairInfoRecord {
         char pairKey[stra::INST_KEY_LEN];    // 第 1 列，同时当队列里的"批结束"哨兵用（空串）
         double pairTotalVolume;
         double pairActiveTotalPrice;
         double pairPassiveTotalPrice;
+        // 被动腿成交量账本。⚠️ 它是**文件里的最后一列**，不跟在上面三个后面
+        // （列序见 PairInfoManager.cpp 的 kSnapshotHeader；这里只是按语义分组）。
+        double pairPassiveTotalVolume;
         double openSmallSpreadBidBidUQ;
         double openSmallSpreadAskAskDQ;
 

@@ -157,7 +157,7 @@ expectVolume = GetExpectActiveVolume() = pairTotalVolume + 在途已成交 + 冻
 | 字段 | 值 | 为什么 |
 |---|---|---|
 | `activeTrade` | 1 或 0 | 见 §3 挑腿。它同时决定阶梯读 `GetExpectActiveVolume` 还是 `GetExpectPassiveVolume`、报 `CreateActiveOrder` 还是 `CreateVolumePassiveOrder`、结束判据读哪个量 |
-| `tradingTypeOrder` | `TAKER_TAKER` | 对冲已经破了，要的是"确定地平掉"而不是"便宜地平掉"。风控强平单用 MT 是因为它要**同时**平两条腿、主动腿挂 maker 能压价差；这里只动一条腿，速度优先。改成 maker 只需把这一行换成 `MAKER_TAKER` 并打开 `mtRebalanceSwitch` / `mtXXSwitch` |
+| `tradingTypeOrder` | `TAKER_TAKER` | 对冲已经破了，要的是"确定地平掉"而不是"便宜地平掉"。风控强平单用 MT 是因为它要**同时**平两条腿、主动腿挂 maker 能压价差；这里只动一条腿，速度优先。改成 maker 只需把这一行换成 `MAKER_TAKER` 并打开 `mtRebalanceSwitch` / `mtXXSwitch`（⚠️ **现状只改了一半，见 §4.1**） |
 | `*CLEndVolume` / `*CSEndVolume` | 阶梯终点（带符号，账本坐标系） | 阶梯终点。**不是** `op.*EndVolume`（配置里通常是 0 = 平干净），也不是实盘残量（见 §3.2） |
 | 八个开关 | 只开**一个**平仓开关 | 方向由**账本符号**决定（`CreatePairOrder` 按 `expectVolume` 的符号选平多/平空），不是由终点的符号决定。另一个方向的开关关着 ⇒ 万一账本符号和这里算的不一致，`CreatePairOrder` 会走另一支并因为开关关着返回空单，**不会反手把敞口做大**（这是本功能最坏的失败模式） |
 | 四个开仓开关 | 全 `false` | 单腿单不许开仓，理由同风控强平单 |
@@ -169,6 +169,42 @@ expectVolume = GetExpectActiveVolume() = pairTotalVolume + 在途已成交 + 冻
 
 **被动腿的平多/平空是反的**：主动腿空 ⇔ 被动腿多。所以
 `activeTrade == 0` 时 `useCloseShort = !legShort`（见 `BuildExposureRebalanceOrder`）。
+
+### 4.1 🔴 2026-11-15 复查：这条链路当前**一条子单都报不出去**
+
+`BuildExposureRebalanceOrder` 现在的四处配置**互相矛盾**：
+
+| 位置 | 现值 | 应该是（按上表） |
+|---|---|---|
+| `PairTradingContext.cpp:1323` | `tradingTypeOrder = MAKER_TAKER` | `TAKER_TAKER` |
+| `:1397-1398` | `mtCLSwitch = mtCSSwitch = false` | — |
+| `:1399-1400` | `ttCLSwitch / ttCSSwitch` 开唯一一个 | ✓ 与 TT 一致 |
+| `:1408-1409` | `ttCLEndVolume / ttCSEndVolume = 残量` | ✓ 与 TT 一致 |
+| `:1449-1452` | `ttRebalanceSwitch/Flag = false`，`mtRebalanceSwitch/Flag = true` | `tt = true`、`mt = false` |
+
+后果是两条路都走不通：
+- `OnSpread` 的 **MT 分支**（`AlgoContext.cpp:917`）要求 `tradingTypeOrder == MAKER_TAKER`（成立），
+  进去后 `CreatePairOrder(MAKER_TAKER)` → `GetTargetPairOrder` 读 `mtCSSwitch / mtCLSwitch`
+  **两个都是 false** ⇒ `if (!swch) return pairOrder;`（`AlgoRebalanceOrder.cpp:115-119`）
+  ⇒ 空配对单 ⇒ 不报单；
+- **TT 分支**（`:964`）要求 `tradingTypeOrder == TAKER_TAKER`（不成立），且 `ttRebalanceFlag`
+  也是 false ⇒ 根本进不去。
+
+⇒ 自动再平衡**建得出单、但永远不会下单**，只能靠人工。`e2e 06_rebalance` 与
+`algo_exec` 的 J 段（J2/J3/J6）红的正是这一条。
+
+**修法二选一（需要明确决定，不要两边各改一半）**：
+
+- **A. 退回 TT（推荐）**：`:1323` 改回 `TAKER_TAKER`、`:1449-1452` 改成
+  `ttRebalanceSwitch = ttRebalanceFlag = true; mt* = false;`、日志 `mode:"TT"`。
+  理由：上表的"速度优先"论证仍然成立，而且 8 个阶梯开关 + 2 个终点 + 两套测试**全都还是 TT 口径**，
+  只有这 4 行是 MT —— 更像是一次没改完的试验。
+- **B. 完成 MT 迁移**：保留 `:1323` 的 `MAKER_TAKER`，把 `:1399-1400` 改成
+  `mtCLSwitch / mtCSSwitch`、`:1408-1409` 改成 `mtCLEndVolume / mtCSEndVolume`。
+  代价是主动腿变成挂单等成交，对冲破着的时候可能等不到。
+
+无论哪条，`06_rebalance` 的断言都要跟着落到对应口径（现在是 `ttRebalanceSwitch` + `FreshData()`，
+即 TT 口径）。
 
 ---
 

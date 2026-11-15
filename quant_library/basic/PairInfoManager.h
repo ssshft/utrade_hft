@@ -21,7 +21,7 @@
 
     bool WriteSpreadStatsFile(const std::string& path, const std::vector<SpreadStatsMsg>& v);
 
-    // 把 PairInfoRecord 列表按 32 列格式化成 CSV，写 .tmp 再 rename 原子替换。
+    // 把 PairInfoRecord 列表按 33 列格式化成 CSV，写 .tmp 再 rename 原子替换。
     // 空列表 ⇒ 写"只有表头"的文件（与老 SaveSnapshot 行为一致）。
     // 纯 IO + 格式化，不碰 PairInfo —— 可以在任何线程调（生产就在 T_signal 上调）。
     bool WritePairInfoRecordFile(const std::string& path, const std::vector<PairInfoRecord>& v);
@@ -94,7 +94,12 @@
         void UpdateOnTotalAccount(const pubsub::TotalAccount& totalAccount);
 
         // 算法单同步：执行端是唯一数据源，量 / 价直接覆盖（不做策略侧加权混合）
-        void UpdateOnAlgoOrder(const std::string& pairKey, double volume, double activePrice, double passivePrice);
+        //
+        // ⚠️ 两个量必须**成对**传：activeVolume / passiveVolume 分别是主动腿、被动腿的
+        //    带符号成交量（多正空负），少传一个的后果见 docs/restart_recovery_design.md
+        //    §5.1.3c —— 只传主动腿时被动腿账本永远是 0，ProcessExposureRebalance 的
+        //    被动腿分支会恒早退，且每张新算法单的被动腿账本都从 0 重新开始。
+        void UpdateOnAlgoOrder(const std::string& pairKey, double activeVolume, double passiveVolume, double activePrice, double passivePrice);
 
         void SetActiveAlgoOrder(const std::string& pairKey, int64_t algoOrderId);
 

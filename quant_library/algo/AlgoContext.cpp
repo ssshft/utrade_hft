@@ -1251,7 +1251,7 @@ void AlgoContext::OnTimer(int64_t eventTime) {
         bool stuckOrderFlag = false;
         bool errorOrderFlag = false;
         vector<string> vUnSubscribePairInstId;
-        string algoOrderStr = "";
+        // string algoOrderStr = "";
         auto& allAlgoOrders = alogOrderManager.GetAllAlgoOrders();
         for (auto it = allAlgoOrders.begin(); it != allAlgoOrders.end();) {
             bool deleteAlgoOrderFlag = false;
@@ -1282,9 +1282,9 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             }
 
             // 定时播报algoOrder信息
-            char algoOrderMsg[stra::MSG_LEN];
-            sprintf(algoOrderMsg, "algoOrder --- strategyName:%s algoOrderId:%ld pairInstrumentKey:%s", it->second->algoStrategyName, it->second->algoOrderId, it->second->pairInstrumentKey);
-            algoOrderStr += string(algoOrderMsg) + "\n";
+            // char algoOrderMsg[stra::MSG_LEN];
+            // sprintf(algoOrderMsg, "algoOrder --- strategyName:%s algoOrderId:%ld pairInstrumentKey:%s", it->second->algoStrategyName, it->second->algoOrderId, it->second->pairInstrumentKey);
+            // algoOrderStr += string(algoOrderMsg) + "\n";
             
             
             // 触发被动腿报单
@@ -1553,13 +1553,13 @@ void AlgoContext::OnTimer(int64_t eventTime) {
             lastAlgoUpdateTime = eventTime;
         }
 
-        if (algoOrderReportCount >= 60) {
-            if (algoOrderStr.length() > 0) {
-                LarkRebot::GetInstance().SendMsg(algoOrderStr);
-            } else {
-                LarkRebot::GetInstance().SendMsg("There are no algo orders!");
-            }
-        }
+        // if (algoOrderReportCount >= 60) {
+        //     if (algoOrderStr.length() > 0) {
+        //         LarkRebot::GetInstance().SendMsg(algoOrderStr);
+        //     } else {
+        //         LarkRebot::GetInstance().SendMsg("There are no algo orders!");
+        //     }
+        // }
 
         /*
         // 遍历，删除不需要的pairInstrumentKey

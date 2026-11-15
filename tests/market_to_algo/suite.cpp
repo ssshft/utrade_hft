@@ -241,9 +241,11 @@ static void Boot(Fx& fx, const std::string& csv = "", const std::string& statsPa
     cfg.spreadStatsStatePath = statsPath;
     cfg.spreadStatsMinSamples = 3;      // 让少量样本就能建立统计
     cfg.spreadSampleIntervalSec = 0;     // 不降频
-    // 全局 profitPct：setGlobalPct=false 表示"配置里没写这个键"（老行为，快照说了算）
+    // 全局 profitPct：`PairTradingConfig::profitPctSet` 这个"配置里写没写这个键"的标记
+    // **已从配置结构里删掉**，现在生产代码总是用 `cfg.profitPct` 覆盖快照值
+    // （见 `PairTradingContext.cpp:132-136`，e2e 07 有对应断言）。所以这里只赋 `pct`。
+    // `setGlobalPct` 形参保留只是为了不动 20 多处调用点，现在**没有效果**。
     cfg.profitPct = pct;
-    cfg.profitPctSet = setGlobalPct;
     fx.csvPath = csv;
 
     fx.Wire();
@@ -2351,7 +2353,11 @@ static void TestG_Restart() {
         CHECK(Near(pi.pairActiveTotalPrice, 0.111) && Near(pi.pairPassiveTotalPrice, 0.222), "G2 记账均价恢复");
         CHECK(pi.adlClose.triggered && pi.adlClose.currentTier == 2 && pi.adlClose.tier1Times == 1,
               "G2 风控档位恢复（跨轮次累积的耐心）");
-        CHECK(!pi.autoFlag && pi.stopFlag && Near(pi.profitPct, 0.003), "G2 运维意图恢复");
+        CHECK(!pi.autoFlag && pi.stopFlag, "G2 运维意图恢复（autoFlag/stopFlag 来自快照）");
+        // ⚠️ profitPct 是**例外**：`Init` 无条件用全局配置覆盖快照（`PairTradingContext.cpp:132-136`，
+        //    日志原文"覆盖快照"）。所以快照里的 0.003 不生效，值等于 Boot 的默认 `cfg.profitPct = 0.0001`。
+        //    原先这里断言 0.003 是"快照说了算"时代的写法，该语义已随 `profitPctSet` 字段一起删除。
+        CHECK(Near(pi.profitPct, 0.0001), "G2 profitPct 被全局配置覆盖（快照值不再生效）");
         CHECK(pi.positionExceedThresholdStartTime == 123456, "G2 风控计时起点恢复");
         CHECK(!pi.activePushArrived && !pi.passivePushArrived, "G2 推送标记是运行态 -> 不恢复");
         CHECK(pi.activeRealPosition == 0.0, "G2 账户真值不恢复（由推送自愈）");
@@ -2514,6 +2520,47 @@ static void TestG_Restart() {
         fx.ctx.TryReconcile(1000 * SEC);
         CHECK(Near(pi.pairTotalVolume, -10.0), "G13 容差内 -> 账本不动");
         CHECK(fx.ctx.IsTradingReady(), "G13 容差内 -> 放行");
+    }
+
+    // G13b 被动腿**单独**对账（2026-11-15 新增，见 restart_recovery_design.md §5.1.3c）
+    //
+    // 现场症状：主动腿分毫不差、被动腿恒少 1 手。这组用例专门锁"主动腿一致就 return true"
+    // 这个早退 —— 对账块必须放在它**之前**，否则"主动对得上"这个常态会让被动腿永远修不到。
+    {
+        Fx fx; Boot(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -10.0);
+        pi.pairPassiveTotalVolume = 1704.0;
+        pi.activeRealPosition  = -10.0;   // 主动腿一致 -> 会走到下面的 return true
+        pi.passiveRealPosition = 1705.0;  // 被动腿少 1
+        pi.activePushArrived = true; pi.passivePushArrived = true;
+        CHECK(fx.ctx.TryReconcile(1000 * SEC), "G13b 主动腿一致 -> 仍然放行");
+        CHECK(Near(pi.pairTotalVolume, -10.0), "G13b 主动腿账本不受被动腿对账影响");
+        CHECK(Near(pi.pairPassiveTotalVolume, 1705.0),
+              "G13b 被动腿按实时持仓纠正（修之前恒停在 1704，差额永久存在）");
+    }
+
+    // G13c 被动腿符号翻转同样算不一致 —— 不能把"反手"当成"对账成功"
+    {
+        Fx fx; Boot(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -10.0);
+        pi.pairPassiveTotalVolume = 5.0;
+        pi.activeRealPosition  = -10.0;
+        pi.passiveRealPosition = -5.0;    // 量级相同、多空翻转
+        pi.activePushArrived = true; pi.passivePushArrived = true;
+        fx.ctx.TryReconcile(1000 * SEC);
+        CHECK(Near(pi.pairPassiveTotalVolume, -5.0), "G13c 被动腿符号翻转 -> 判不一致，以实时为准");
+    }
+
+    // G13d 容差内不写 —— 防"无条件覆盖"（容差内抖动也被写进账本会让快照每次重启都变）
+    {
+        Fx fx; Boot(fx);
+        PairInfo& pi = *fx.pi(); MakeHoldable(pi, -10.0);
+        pi.pairPassiveTotalVolume = 1705.0;
+        pi.activeRealPosition  = -10.0;
+        pi.passiveRealPosition = 1705.0001;   // 差 1e-4 < 容差 |1705|*1e-6 ≈ 1.7e-3 ⇒ 判一致
+        pi.activePushArrived = true; pi.passivePushArrived = true;
+        fx.ctx.TryReconcile(1000 * SEC);
+        CHECK(pi.pairPassiveTotalVolume == 1705.0, "G13d 被动腿容差内 -> 账本一个字节都不动");
     }
 
     // G14 重启后闸门未开 -> 有信号也不报单
@@ -3815,10 +3862,12 @@ static void TestL_PairCommands() {
         CHECK(Near(b.pi()->profitPct, -0.003),
               "L17 配置优先于快照（快照 -0.005 被配置 -0.003 覆盖）");
 
-        // ③ 不写这个键 -> 老行为零变化，快照说了算（G2 也在守这条，这里再钉一次）
+        // ③ "配置里不写这个键" 这个语义**已经不存在了**：`PairTradingConfig::profitPctSet`
+        //    字段被删，`Init` 无条件覆盖 ⇒ 不显式配置时用默认 0.0001，快照 -0.005 一样被盖掉。
+        //    所以这里断言的是"默认值覆盖"，不再是"快照说了算"。
         Fx c; Boot(c, csv);
-        CHECK(Near(c.pi()->profitPct, -0.005),
-              "L17 配置里没有 profitPct 时完全走老行为（快照 -0.005 保留）");
+        CHECK(Near(c.pi()->profitPct, 0.0001),
+              "L17 未显式配置时用默认 0.0001 覆盖快照（'快照说了算'的老行为已删除）");
     }
 
     // ---- L12~L13 传播面：残余量绝不能漏进风控强平单 ----

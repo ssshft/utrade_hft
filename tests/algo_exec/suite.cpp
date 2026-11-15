@@ -1636,6 +1636,15 @@ static void TestG_FillLoop() {
         // TT 开多 = 卖主动腿 + 买被动腿，所以两个数必须**符号相反、量级相等**。
         CHECK(Near(o->pairTotalVolume, -1.0), "G4 主动腿账本 = -1.0（TT 开多 = 卖主动腿）");
         CHECK(Near(o->pairPassiveTotalVolume, 1.0), "G4 被动腿账本 = +1.0（与主动腿符号相反）");
+
+        // ---- 账本回写到 PairInfo ----
+        // 修之前 UpdateOnAlgoOrder 只有 3 个参数、没有被动腿量 ⇒ pi.pairPassiveTotalVolume
+        // **恒 0**。后果不只是显示：每建一张新算法单都从 0 起算（`:1364` 拿它当种子），
+        // 之前累积的被动腿量全部丢失，且 ProcessExposureRebalance 的被动腿分支
+        // `legLedger = 0` ⇒ `0 * legReal <= 0` 恒真 ⇒ 恒早退（§5.1.3c）。
+        CHECK(Near(pi.pairPassiveTotalVolume, 1.0),
+              "G4b 被动腿账本已回写 PairInfo（修之前恒 0，新单会从 0 重新起算）");
+        CHECK(Near(pi.pairTotalVolume, -1.0), "G4b 主动腿账本同时回写（两条腿必须成对）");
     }
 
     // ---- 6) 策略层收到执行侧回传：对子拿到持仓 ----
@@ -2251,14 +2260,19 @@ static void TestK_Report() {
     CHECK(r1.find(kPairKey) != std::string::npos, "K3 明细里列出了该对子");
     // ⚠️ 只钉净敞口，不钉阈值：OnTimer 第 1 步会 RecalcVolumeParams 重算 ttTargetVolume，
     //    阈值跟着变，钉死数字会变成一条跟本用例无关的脆弱断言。
-    CHECK(r1.find("净:0.0000/") != std::string::npos, "K3 对冲持仓的净敞口 = 0");
+    //    格式串见 ReportPairStatus 的 snprintf："净:%.4f threshold:%.4f"
+    CHECK(r1.find("净:0.0000 threshold:") != std::string::npos, "K3 对冲持仓的净敞口 = 0");
 
     // ---- 3) 只剩一条腿（开仓中间态）：闸门会说"不算敞口"，播报必须照算 ----
     pi.passiveRealPosition = 0.0;
     fx.ptCtx.OnTimer(t0 + 122LL * 1000 * 1000);
     const std::string r2 = lastReport();
-    CHECK(r2.find("净:1000.0000/") != std::string::npos,
-          "K4 只剩主动腿 -> 净敞口 = 1000 张（闸门此时记 0，播报不能跟着记 0）");
+    // ⚠️ 口径：2026-11-15 起逐对子的 `净` 从"张"改成了 **USDT 名义额**
+    //    （`netAmount = |a*am + p*pm| * LegPrice()`，见 PairTradingContext.cpp:1884）。
+    //    所以这里 1000 张 × 腿价 100 = 100000.0000。
+    //    `threshold` 仍然是"张"，两个数**不同量纲**，别拿它们直接比。
+    CHECK(r2.find("净:100000.0000 threshold:") != std::string::npos,
+          "K4 只剩主动腿 -> 净敞口照算（1000 张 × 100 = 100000 USDT；闸门此时记 0，播报不能跟着记 0）");
 }
 
 // ===========================================================================

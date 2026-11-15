@@ -289,7 +289,7 @@ profitPct = 0.0001         // ← 恢复默认（也可以不回，但要明确�
 |---|---|---|---|
 | 1 | §3.2「`stopFlag` 与 `closeFlag` 差别只有 `SignalGenerator.cpp:249` 一处」 | ❌ **失效**：`CanClose:389` 现在也判 `stopFlag` ⇒ 拿它 park 连平仓单都发不出去 | 结论不变（用 `closeFlag`），理由改成"`closeFlag` 是**唯一**能只平不开的状态" |
 | 2 | §3.3「`errorFlag` 让命令静默无效，日志里什么都没有」 | 🟡 **换壳 + 部分改善**：`errorFlag` 已删，`stopFlag` 接管；但 `ProcessPairSignal` 那个早退删了 ⇒ **有日志**（"信号触发…canClose:false reason:stopFlag = true"）却不下单 | 仍必须**显式拒绝 + LOG_ERROR**；"顺手清 `stopFlag`"现在**更**不能做（§3.9.1） |
-| 3 | §3.5「加一列会移动 30/31/32 三个索引」 | ❌ **失效**：`errorFlag` 已删、快照 32 列，加在尾部不动任何索引 | **仍不加**，换理由：32+1 = 33 撞上刚废弃的旧格式，而校验只数个数（§3.9.2） |
+| 3 | §3.5「加一列会移动 30/31/32 三个索引」 | ❌ **失效**：`errorFlag` 已删，加在尾部不动任何索引（2026-11-15 快照已是 33 列，新列都追加在末尾） | **仍不加**，但理由只剩语义；"列数会撞上旧格式"这个障碍已被表头文本校验消除（§3.9.2） |
 | 4 | §3.1 碰撞矩阵 | `limitFlag` / `errorFlag` 两行作废；`autoFlag` 现在只是标签，"绝对不要写"从"危险"降级为"无意义" | 按三态重画 |
 | 5 | 方案 B「`RuntimeConfig` 加 `pairCommands`」 | ⚠️ **新约束**：`m_cfgQ` 是 `boost::lockfree::spsc_queue<RuntimeConfig, capacity<16>>`（`PairTradingContext.h:31`），元素整份按值拷，现在 `RuntimeConfig` 是可平凡拷贝的 2 个 bool | 必须用**定长 POD**，不能 `std::string` / `std::vector` |
 | 6 | §3.6 恢复路径 | ⚠️ `ApplyCommand` 与三态脱节：`STOP` 仍写 `autoFlag=false`、`RESUME` 写 `autoFlag=true`，都不 `RecalcOrderParams`、不清 `algoModifyTime` | **二次简化后连恢复都不做了**（见 §3.9.5 开头）：命令只写 `closeFlag` / `profitPct` / `closeRemainVolume`，**不碰** `autoFlag` / `stopFlag`；恢复靠人工改快照 + 重启 |
@@ -301,14 +301,24 @@ profitPct = 0.0001         // ← 恢复默认（也可以不回，但要明确�
 ⇒ **刚发出去的平仓单被撤**；每一轮都这样 ⇒ 永远平不掉。
 敞口没解决之前 `stopFlag` 只能人工在交易所处理，不能靠策略自己解。
 
-#### 3.9.2 `closeRemainVolume` 仍然不进快照（理由换了）
+#### 3.9.2 `closeRemainVolume` 仍然不进快照（理由已换，2026-11-15 重写）
 
-`kSnapshotColumns` 现在是 32，再加一列就是 **33** —— 与 2026-10-29 之前的旧格式**列数相同**。
-而 `LoadSnapshot` 的表头校验只比较**个数**、不比名字 ⇒ 一份遗留的旧 33 列文件会被当成
-"新格式 + `closeRemainVolume`"读进来：`f[30]` 读到的是旧 `errorFlag` 的 `0/1` 却被当成
-`hasActiveAlgoOrder`，`f[31]` 读到的是旧 `hasActiveAlgoOrder` 却被当成 `currentAlgoOrderId`
-—— **整行错位且不报错**。
-⇒ 保持"不进快照"：重启后"平一半"退化成"平干净"（方向安全），写进运维文档即可。
+**原来的理由（已失效，2026-11-15）**：当时 `kSnapshotColumns` 是 32，再加一列就是 **33**
+—— 与 2026-10-29 之前的旧格式**列数相同**；而 `LoadSnapshot` 的表头校验只比较**个数**、
+不比名字 ⇒ 一份遗留的旧 33 列文件会被当成"新格式 + `closeRemainVolume`"读进来，
+`f[30]` 读到旧 `errorFlag` 的 `0/1` 却当成 `hasActiveAlgoOrder`、`f[31]` 读到旧
+`hasActiveAlgoOrder` 却当成 `currentAlgoOrderId` —— **整行错位且不报错**。
+
+**上面那个理由已经消失**：2026-11-15 为了存 `pairPassiveTotalVolume`，快照**已经变成 33 列**，
+同时把表头校验从"比列数"改成"比表头文本"（`PairInfoManager.cpp` 的 `LoadSnapshot`）。
+于是：
+
+- 旧的 33 列文件（含 `errorFlag`）现在**会被整份拒绝**，不会再整行错位读进来
+  —— e2e `07_snapshot.cpp` 末尾专门造了一份这种文件守这条；
+- "再加一列会不会撞上旧格式"这个顾虑**永久失效**（撞了也会被文本校验挡住）。
+
+所以 `closeRemainVolume` 不进的真正理由只剩**语义**一条：重启后"平一半"退化成"平干净"
+（方向安全），代价是运维手册要写清楚。要进随时可以进，列数不再是障碍。
 
 #### 3.9.3 ⚠️ per-pair `closeFlag` 与全局 `m_closeOnly` 的"只平不开"不是同一道闸门
 
@@ -641,7 +651,7 @@ inline bool CanCloseByGate(PairGate g) { return g != PairGate::kStopped; }
 | 1 | 只留 `autoFlag` / `closeFlag` / `stopFlag`，`limitFlag` / `errorFlag` 删除，注释与模型一致 | `PairInfo.h:313-315` |
 | 2 | `CanClose` 加 `stopFlag` ⇒ 全停档连平仓一起挡 | `SignalGenerator.cpp:389-392` |
 | 3 | `CanOpen` 删掉 `limitFlag` / `errorFlag` 两条，保留 `stopFlag` / `closeFlag` | `SignalGenerator.cpp:345-357` |
-| 4 | 快照 33 → 32 列，header / writer / parse **三处都是 32、列序一致**（逐列数过） | `PairInfoManager.cpp:95-110 / 298-335 / 435-443` |
+| 4 | 快照 33 → 32 列，header / writer / parse **三处都是 32、列序一致**（逐列数过）。<br>⚠️ 2026-11-15 又回到 **33 列**（末列 `pairPassiveTotalVolume`），且表头校验改成**比文本**（§3.9.2） | `PairInfoManager.cpp` 的 `kSnapshotHeader` / `WritePairInfoRecordFile` / `LoadSnapshot` |
 | 5 | 孤儿冻结与敞口失控都改置 `stopFlag`，RESUME 仍是唯一清除路径 | `PairTradingContext.cpp:284` / `:552` |
 | 6 | `ProcessModify` 仍按 `stopFlag \|\| closeFlag` 压 4 个开仓开关 | `PairTradingContext.cpp:690-695` |
 | 7 | `algo_exec` **212 / 0 全绿** | — |
@@ -655,19 +665,22 @@ inline bool CanCloseByGate(PairGate g) { return g != PairGate::kStopped; }
 **现在是空断言**（无论 autoFlag 是什么都是 MT），TT 分支没有任何覆盖 —— 想守住"强平走 MT"
 这个决定，应该把它改成直接断言 `algoMode`，否则将来谁改回去都不会红。
 
-**P0-2 旧快照（33 列）在升级后第一次重启会被整份拒绝** —— ✅ **已定：不做兼容，升级前删文件**
-- 现状：`LoadSnapshot` 表头列数不等于 `kSnapshotColumns` 就 `return -1`，`Init:101-105` 只
+**P0-2 旧快照在升级后第一次重启会被整份拒绝** —— ✅ **已定：不做兼容，升级前删文件**
+- 现状：`LoadSnapshot` 表头**文本**与 `kSnapshotHeader` 不一致就 `return -1`，`Init` 只
   `LOG_WARN` 一句"按无持仓启动"，**不中断**。
+- 当前格式是 **33 列**（2026-11-15 起，末列 `pairPassiveTotalVolume`）。会被拒的旧格式：
+  32 列（2026-10-29 ~ 11-15）、33 列含 `errorFlag`（2026-10-29 之前）、5 列（`SaveToCSV` 时代）。
+  ⚠️ 后两者与当前格式**列数相同/接近**，所以校验必须比文本 —— 只比个数会静默读歪。
 - `pairTotalVolume` 还能靠 `ReconcilePair`（`:1253`）从交易所纠正；但 `pairActiveTotalPrice` 会留在
   `-1` 哨兵 ⇒ `GetLockedSpread()`（`BaseAlgoOrder.cpp:361-364`）算成 `(-1)/(-1)-1 = 0`
   ⇒ 平仓阶梯的 `profitPct` 守卫用错基准。
-- **决定（2026-10-29）**：不写兼容分支，升级时直接删掉旧快照文件，一律按 32 列读。
+- **决定（2026-10-29）**：不写兼容分支，升级时直接删掉旧快照文件。
 - ⚠️ **删文件的前提**（整份被拒会同时丢三样东西，而且只 warn 不报错）：
   1. `hasActiveAlgoOrder` —— 孤儿单告警/冻结靠它，丢了会在残留子单上再开一笔；
   2. 风控档位（`adlClose` / `spreadNoRegression` / `fundingAbnormal`）—— 重置成"没耐心"；
   3. 建仓基准 `pairActiveTotalPrice` —— 见上面的 `-1` 哨兵。
   ⇒ **先平干净 + 确认没有在途算法单，再删文件重启**。
-- `LOG_ERROR` 已带提示："只认当前格式；33 列旧快照请先删除文件再启动"。
+- `LOG_ERROR` 现在打印"实际 N 列 / 当前格式 33 列 / 实际表头全文"，运维能一眼看出是哪一代格式。
 
 **P1-1 两套测试都编译不过** —— ✅ **已修：`market_to_algo` 493 / 0、`algo_exec` 212 / 0、`param_calc` 正常出报告**
 原来 `market_to_algo` **15 个错误**、`param_calc` **3 个**（`suite.cpp:644 pi.manualFlag` 是 `f8af754` 留下的，
@@ -727,7 +740,8 @@ inline bool CanCloseByGate(PairGate g) { return g != PairGate::kStopped; }
 | 项 | 动作 | 验证 |
 |---|---|---|
 | P0-1 | **不改代码**，保留 `ProcessRisk` 的 `"MT"`（用户决定） | — |
-| P0-2 | **不写兼容**：`LoadSnapshot` 只认 32 列，旧文件升级前删掉；`LOG_ERROR` 里带上提示 | `market_to_algo` 全绿（无 33 列用例） |
+| P0-2 | **不写兼容**：`LoadSnapshot` 只认当前格式，旧文件升级前删掉；`LOG_ERROR` 里带上提示 | `market_to_algo` 全绿（无 33 列用例） |
+| P0-2（2026-11-15 补） | 当前格式回到 **33 列**（末列 `pairPassiveTotalVolume`），与旧 33 列（含 `errorFlag`）**列数相同** ⇒ 表头校验从"比列数"改成**比表头文本**，否则旧文件会整行错位读进来 | e2e `07_snapshot.cpp` 末尾造了一份旧 33 列表头，断言被整份拒绝 |
 | P1-1 | 两套测试按三态语义重写（不是删断言）；另恢复 4 处被顺手删掉的运行时防御 | `market_to_algo` **493 / 0**、`algo_exec` **212 / 0**、`param_calc` 正常 |
 | P1-2 | `CheckExposureAbnormal` 开头加 `if (pi.stopFlag) return;` | `E10` 重新钉住"已标记 → 不重复撤单" |
 | 注释 | `PairInfoManager.cpp:291`、`PairTradingContext.h:144/:294` 的 `errorFlag` 改成 `stopFlag` | 编译通过 |

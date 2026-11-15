@@ -65,6 +65,10 @@ static void Case() {
 
     AlgoRebalanceOrder* r = (AlgoRebalanceOrder*)o;
     CHECK(o->algoType == stra::AlgoType_Rebalance, "algoType = AlgoType_Rebalance");
+    // 账本种子必须与 PairInfo 一致（`PairTradingContext.cpp:1364`）。
+    // 以前 pi.pairPassiveTotalVolume 恒 0 ⇒ 新单永远从 0 起算，跨单的被动腿量全部丢失。
+    CHECK(Near(o->pairPassiveTotalVolume, pi.pairPassiveTotalVolume),
+          "建单时被动腿账本从 PairInfo 取种子（不是从 0 起算）");
     CHECK(o->role == AlgoRole::CLOSE_SIGNAL, "role = CLOSE_SIGNAL（残量口径保证不会一建出来就 FILLED）");
     CHECK(r->activeTrade == 1, "主动腿敞口更大（20 > 5）-> 只动主动腿");
     CHECK(Near(r->targetResidualVolume, 15.0), "目标残量 = 20 - (15 - 10) = 15（只平超出阈值的 5）");

@@ -80,7 +80,7 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
 // 账户真值（持仓 / 均价 / 浮盈 / 强平价 / 标记价 / ADL / 强平状态）一律不存 ——
 // 由 pubsub 推送自愈。派生字段（ttTargetVolume / orderParams / *Stats）也不存。
 //
-// 列布局（32 列）。字符串列放最后，避免空字段 / 逗号带来的歧义：
+// 列布局（33 列）。字符串列放最后，避免空字段 / 逗号带来的歧义：
 //   1   pairInstrumentKey                      行键
 //   3   持仓账本   pairTotalVolume / pairActiveTotalPrice / pairPassiveTotalPrice
 //   2   建仓基准   openSmallSpreadBidBidUQ / openSmallSpreadAskAskDQ
@@ -88,10 +88,17 @@ void PairInfoManager::Init(const std::vector<std::string>& pairKeys, int activeA
 //   2   风控计时   positionExceedThresholdStartTime / spreadNoRegressionStartTime
 //   4   运维意图   autoFlag / stopFlag / closeFlag / profitPct
 //   2   残留标记   hasActiveAlgoOrder / currentAlgoOrderId
+//   1   被动腿账本 pairPassiveTotalVolume
+//
+// ⚠️ 最后那一列是 2026-11-15 **追加在末尾**的，没有插进上面"持仓账本"那一组。
+//    原因：插中间会把 profitPct / closeFlag / stopFlag 的下标全部后移，而这三个下标
+//    （29 / 28 / 27，**0 基**，与 LoadSnapshot 的 f[] 一致）在 docs/、RuntimeConfig.h
+//    和运维手册里是按**数字**写死的。
+//    代价是这个字段离它的兄弟列远了点，改列序前先看这段注释。
 // ---------------------------------------------------------------------------
 namespace {
 
-constexpr size_t kSnapshotColumns = 32;
+constexpr size_t kSnapshotColumns = 33;
 
 constexpr const char* kSnapshotHeader =
     "pairInstrumentKey,"
@@ -106,7 +113,8 @@ constexpr const char* kSnapshotHeader =
     "positionExceedThresholdStartTime,spreadNoRegressionStartTime,"
     "autoFlag,stopFlag,closeFlag,profitPct,"
     "hasActiveAlgoOrder,"
-    "currentAlgoOrderId";
+    "currentAlgoOrderId,"
+    "pairPassiveTotalVolume";
 
 // ---------------------------------------------------------------------------
 // 价差统计快照（独立文件，见 PairInfoManager.h 的说明）
@@ -203,12 +211,15 @@ void ReadAbnormalState(const std::vector<std::string>& f, size_t off, AbnormalCl
 
 // 快照：PairInfo -> PairInfoRecord / PairInfoRecord -> 文件
 void MakePairInfoRecord(const PairInfo& p, PairInfoRecord& r) {
-    // 不 memset：下面每个字段都写到了（32 列是"全字段覆盖"）。
+    // 不 memset：下面每个字段都写到了（33 列是"全字段覆盖"）。
+    // ⚠️ 往 PairInfoRecord 加字段时，**必须**在这里补一行赋值：CollectSnapshotRows 复用
+    //    out[k] 且不清零，漏赋值 = 沿用上一行的旧值，而且不报错。
     std::strncpy(r.pairKey, p.pairInstrumentKey, sizeof(r.pairKey) - 1);
 
     r.pairTotalVolume = p.pairTotalVolume;
     r.pairActiveTotalPrice = p.pairActiveTotalPrice;
     r.pairPassiveTotalPrice = p.pairPassiveTotalPrice;
+    r.pairPassiveTotalVolume = p.pairPassiveTotalVolume;
     r.openSmallSpreadBidBidUQ = p.openSmallSpreadBidBidUQ;
     r.openSmallSpreadAskAskDQ = p.openSmallSpreadAskAskDQ;
 
@@ -289,9 +300,12 @@ bool WritePairInfoRecordFile(const std::string& path, const std::vector<PairInfo
     ofs << kSnapshotHeader << "\n";
 
     // ⚠️ 列序必须与 kSnapshotHeader / LoadSnapshot 的下标严格一致。
-    //    尤其尾部：profitPct 在 29，hasActiveAlgoOrder / currentAlgoOrderId 在 30 / 31 ——
-    //    这几个换个位置，LoadSnapshot 不会报错，只会把 0/1 读成 profitPct（账读歪）。
-    //    （errorFlag 那一列已随三态模型删除；LoadSnapshot 只认当前列数，旧文件升级前直接删。）
+    //    尤其尾部：profitPct 在 29，hasActiveAlgoOrder / currentAlgoOrderId 在 30 / 31，
+    //    pairPassiveTotalVolume 在 32。
+    //    · 只改这里（行）不改表头 ⇒ 表头照样匹配，LoadSnapshot 不报错，**静默读歪**
+    //      （把 0/1 读成 profitPct）—— 唯一能被发现的方式是 e2e 07 的往返断言；
+    //    · 表头和数据一起改 ⇒ 表头文本变了，启动时整份拒掉（比静默读歪安全）。
+    //    所以**改列序 = 改表头 + 改这里 + 删旧快照**，三件一起做。
     for (size_t i = 0; i < v.size(); ++i) {
         const PairInfoRecord& r = v[i];
         ofs << r.pairKey << ","
@@ -332,7 +346,8 @@ bool WritePairInfoRecordFile(const std::string& path, const std::vector<PairInfo
             << static_cast<int>(r.closeFlag) << ","
             << r.profitPct << ","
             << static_cast<int>(r.hasActiveAlgoOrder) << ","
-            << r.algoOrderId << "\n";
+            << r.algoOrderId << ","
+            << r.pairPassiveTotalVolume << "\n";
     }
 
     ofs.flush();
@@ -374,21 +389,34 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
         return -1;
     }
 
-    // 先验表头列数：**只认当前列数，不兼容任何旧格式**
+    // 先验表头：**比文本，不比列数**（只认当前格式，不兼容任何旧格式）
     //
-    // 33 列 = 2026-10-29 之前（profitPct(29) 之后多一列已删除的 errorFlag）的旧格式。
-    // 不做兼容，升级时直接删掉旧快照文件 —— 但**删之前必须先平干净、并确认没有在途算法单**，
-    // 因为整份被拒等于同时丢掉三样东西（Init 只 warn 一句"按无持仓启动"，不会中断）：
+    // 为什么不能只比列数：33 这个数字历史上被用过两次，含义完全不同 ——
+    //   · 2026-10-29 之前：profitPct(29) 之后多一列 errorFlag；
+    //   · 2026-11-15 起  ：末尾追加 pairPassiveTotalVolume（当前格式）。
+    // 列数相同 ⇒ 拿旧文件当新格式读，**整行错位且不报错**：
+    //   f[30] 旧 errorFlag(0/1)     被当成 hasActiveAlgoOrder
+    //   f[31] 旧 hasActiveAlgoOrder 被当成 currentAlgoOrderId
+    //   f[32] 旧 currentAlgoOrderId 被当成 pairPassiveTotalVolume（1.7e18 这种量级）
+    // 比文本一次性解决，且启动只跑一次、代价可忽略。
+    //
+    // 整份被拒等于同时丢掉三样东西（Init 只 warn 一句"按无持仓启动"，不会中断）：
     //   · hasActiveAlgoOrder —— 孤儿单告警/冻结靠它，丢了就会在残留子单上再开一笔；
     //   · 风控档位（adlClose / spreadNoRegression / fundingAbnormal）—— 重置成"没耐心"；
     //   · 建仓基准 pairActiveTotalPrice —— 留在 -1 哨兵 ⇒ GetLockedSpread() 算成
     //     (-1)/(-1)-1 = 0 ⇒ 平仓阶梯的 profitPct 守卫用错基准。
     // （pairTotalVolume 例外：ReconcilePair 会从交易所实时持仓纠正。）
+    // ⇒ 删旧快照之前必须先平干净、并确认没有在途算法单。
     {
-        const auto header = SplitCsv(line);
-        if (header.size() != kSnapshotColumns) {
-            LOG_ERROR("LoadSnapshot: header has {} columns, expected {} -> 忽略该快照（只认当前格式；33 列旧快照请先删除文件再启动）",
-                      header.size(), kSnapshotColumns);
+        std::string headerLine = line;
+        if (!headerLine.empty() && headerLine.back() == '\r') {
+            headerLine.pop_back();  // 文件被 Windows 侧工具改过时的兜底
+        }
+        if (headerLine != kSnapshotHeader) {
+            const size_t ncols = SplitCsv(headerLine).size();
+            LOG_ERROR("LoadSnapshot: 表头不匹配（实际 {} 列，当前格式 {} 列）-> 忽略该快照。"
+                      "旧快照请先删掉 {} 再启动（删之前先平干净、确认无在途算法单）；实际表头: {}",
+                      ncols, kSnapshotColumns, path, headerLine);
             return -1;
         }
     }
@@ -448,6 +476,10 @@ int PairInfoManager::LoadSnapshot(const std::string& path) {
         // ---- 上一轮残留标记（只用于启动告警，见 §5.4）----
         p.hasActiveAlgoOrder = ParseBool(f[30], false);
         p.currentAlgoOrderId = ParseI64(f[31], 0, "currentAlgoOrderId", pk);
+
+        // ---- 被动腿成交量账本（带符号，取被动腿自己的方向；与 pairTotalVolume 反号）----
+        p.pairPassiveTotalVolume = ParseDouble(f[32], 0.0, "pairPassiveTotalVolume", pk);
+
         p.modifyTime = crypto::getCurrentTime();
 
         ++restored;
@@ -811,13 +843,14 @@ void PairInfoManager::UpdateOnTotalAccount(const pubsub::TotalAccount& totalAcco
 }
 
 // 算法单同步：执行端是唯一数据源，量 / 价直接覆盖
-void PairInfoManager::UpdateOnAlgoOrder(const std::string& pairKey, double volume, double activePrice, double passivePrice) {
+void PairInfoManager::UpdateOnAlgoOrder(const std::string& pairKey, double activeVolume, double passiveVolume, double activePrice, double passivePrice) {
     auto* pi = GetPairInfo(pairKey);
     if (!pi) {
         return;
     }
 
-    pi->pairTotalVolume = volume;
+    pi->pairTotalVolume = activeVolume;
+    pi->pairPassiveTotalVolume = passiveVolume;
     pi->pairActiveTotalPrice = activePrice;
     pi->pairPassiveTotalPrice = passivePrice;
 

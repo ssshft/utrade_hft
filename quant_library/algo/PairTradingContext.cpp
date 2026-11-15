@@ -1516,8 +1516,10 @@ void PairTradingContext::OnAlgoOrderUpdate(BaseAlgoOrder* order) {
     }
 
     // 量 / 价：执行端是唯一数据源，直接覆盖，不在策略侧做加权混合
+    // ⚠️ 参数顺序是 (主动腿量, 被动腿量, 主动腿价, 被动腿价) —— 两个量挨着传，别按旧顺序写。
     const bool wasFlat = !pi->HasPosition();
-    pim.UpdateOnAlgoOrder(pairKey, order->pairTotalVolume, order->pairActiveTotalPrice, order->pairPassiveTotalPrice);
+    pim.UpdateOnAlgoOrder(pairKey, order->pairTotalVolume, order->pairPassiveTotalVolume,
+                          order->pairActiveTotalPrice, order->pairPassiveTotalPrice);
 
     // 建仓瞬间的小周期统计快照：只在"场外 -> 场内"的那一次事件上取，
     // 这样基准就是刚建仓时的分位数，而不是建仓之后任意时刻的。
@@ -1880,7 +1882,7 @@ void PairTradingContext::ReportPairStatus() {
         // 敞口：与 CalcExposureExcess 同式 —— 把被动腿按面值折回主动腿口径（单位=张）。
         // am <= 0 表示合约信息还没到（首条行情之前），折不了，只报两腿原始量。
         const bool canCalc = (am > 0.0);
-        const double netVol = canCalc ? (std::abs(a * am + p * pm) / am) : 0.0;
+        const double netAmount = canCalc ? std::abs(a * am + p * pm) * pi->LegPrice() : 0.0;
         const double threshold = (std::isfinite(pi->ttTargetVolume) && pi->ttTargetVolume > 0.0) ? (m_cfg.exposureCancelTimes * pi->ttTargetVolume) : 0.0;
 
         // 折成 USDT 才能跨对子相加。calcType 分支与 PairInfo::CalcSignedPositionValue 一致：
@@ -1919,7 +1921,7 @@ void PairTradingContext::ReportPairStatus() {
         }
 
         snprintf(lineBuf, sizeof(lineBuf), "%s 单:%s a:%.4f p:%.4f 净:%.4f threshold:%.4f %s\n",
-                 pi->pairInstrumentKey, algoId.c_str(), a, p, netVol, threshold, flags.c_str());
+                 pi->pairInstrumentKey, algoId.c_str(), a, p, netAmount, threshold, flags.c_str());
 
         const std::string line = lineBuf;
         // 逐行做预算：宁可少列一条，也不要让 SendMsg 的 strncpy 截在 UTF-8 中间。
@@ -1955,13 +1957,34 @@ void PairTradingContext::ReportPairStatus() {
 }
 
 // 启动对账
-// 前提：pairTotalVolume 就是主动腿持仓（带符号，负 = 多），所以对账就是与
-// activeRealPosition 直接相等比较，不需要任何换算。被动腿不参与主判据。
+// 前提：pairTotalVolume / pairPassiveTotalVolume 与 activeRealPosition / passiveRealPosition
+// 都是"买正卖负"（UpdateOnPosition: DT_LONG -> +volume；账本累加同理），所以对账就是
+// 直接相等比较，不需要任何换算。两条腿各对一次，互不牵连。
 bool PairTradingContext::ReconcilePair(PairInfo& pi) {
     const double real = pi.activeRealPosition;  // 主动腿实时持仓（带符号；未推送 = 默认 0 = 空仓）
     const double ledger = pi.pairTotalVolume;     // 策略自己的账本（算法单回调累积）
 
     const double tol = std::max(1e-9, std::abs(real) * m_cfg.reconcileTolRatio);
+
+    // ---- 被动腿：**单独**对齐（2026-11-15，见 docs/restart_recovery_design.md §5.1.3c）----
+    //
+    // 必须放在下面"主动腿一致就 return true"**之前**：主动腿对得上、被动腿对不上是常态
+    // （被动腿账本长期没有回写方），挂在早退后面就永远修不到。
+    //
+    // 判据与主动腿同构：量在容差内 且 符号相同。符号同为正/同为负才有意义 ——
+    // 量级相同但多空翻转必须算不一致，否则会把"反手"当成"对账成功"。
+    {
+        const double pReal   = pi.passiveRealPosition;
+        const double pLedger = pi.pairPassiveTotalVolume;
+        const double pTol    = std::max(1e-9, std::abs(pReal) * m_cfg.reconcileTolRatio);
+        const bool pSameSign = (pLedger >= 0.0) == (pReal >= 0.0);
+        if (!(std::abs(pLedger - pReal) <= pTol && pSameSign)) {
+            LOG_ERROR("Reconcile MISMATCH(passive): pairKey:{} 账本 pairPassiveTotalVolume:{} vs 实时 passiveRealPosition:{} (tol:{}) -> 以系统推送为准",
+                      pi.pairInstrumentKey, pLedger, pReal, pTol);
+            // 与主动腿同一策略：以交易所推送为准。均价/档位不动（理由见下面主动腿那段）。
+            pi.pairPassiveTotalVolume = pReal;
+        }
+    }
 
     // 判据：量在容差内 且 符号相同（量级相同但多空翻转必须算不一致）
     const bool sameSign = (ledger >= 0.0) == (real >= 0.0);
