@@ -1853,7 +1853,7 @@ void PairTradingContext::ReportPairStatus() {
     int nStopped = 0;
     double sumNetUsdt = 0.0;
 
-    std::string body = ”“;
+    std::string body = "";
     size_t listed = 0;
     size_t hidden = 0;
 
