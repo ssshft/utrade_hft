@@ -1918,7 +1918,7 @@ void PairTradingContext::ReportPairStatus() {
             flags += "MANUAL "; 
         }
 
-        snprintf(lineBuf, sizeof(lineBuf), "%s 单:%s a:%.4f p:%.4f 净:%.4f/%.4f%s%s\n",
+        snprintf(lineBuf, sizeof(lineBuf), "%s 单:%s a:%.4f p:%.4f 净:%.4f threshold:%.4f %s\n",
                  pi->pairInstrumentKey, algoId.c_str(), a, p, netVol, threshold, flags.c_str());
 
         const std::string line = lineBuf;
