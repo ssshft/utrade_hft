@@ -1905,7 +1905,7 @@ void PairTradingContext::ReportPairStatus() {
         // 全部走 C 的 printf 族，不受 fmt 版本影响。
         char lineBuf[320];
         const std::string algoId = hasAlgo ? std::to_string(pi->currentAlgoOrderId) : std::string("-");
-        std::string flags = ”“;
+        std::string flags = "";
         if (pi->stopFlag) { 
             flags += "STOP "; 
         }
