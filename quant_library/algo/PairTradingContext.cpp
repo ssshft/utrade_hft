@@ -1933,7 +1933,7 @@ void PairTradingContext::ReportPairStatus() {
 
     char headBuf[512];
     snprintf(headBuf, sizeof(headBuf),
-             "[配对交易] 算法单/敞口 对子:%zu 有单:%d 有仓:%d 停手:%d\n"
+             "[配对交易] 算法单敞口 对子:%zu 有单:%d 有仓:%d 停手:%d\n"
              "总持仓市值:%.4f USDT (闸门 maxPositionValue:%.4f)\n"
              "净敞口合计:%.4f USDT\n",
              all.size(), nWithAlgo, nWithPos, nStopped,
