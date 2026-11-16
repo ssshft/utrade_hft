@@ -733,7 +733,7 @@ pairPassiveTotalVolume
 
 | 步骤 | 谁做的 | 结果 |
 |---|---|---|
-| 1 | `LoadSnapshot`（`PairInfoManager.cpp:352-353`） | `hasActiveAlgoOrder = true`（第 32 列）与 `errorFlag`（第 30 列）都恢复 |
+| 1 | `LoadSnapshot`（**当时**在 `PairInfoManager.cpp:352-353`；现在对应 `:477` 的 `ParseBool(f[30])`） | `hasActiveAlgoOrder = true`（第 32 列）与 `errorFlag`（第 30 列）都恢复。⚠️ `errorFlag` 那一列后来随三态模型删了，现在只剩 `hasActiveAlgoOrder` |
 | 2 | `HandleOrphanAlgoOrders`（`PairTradingContext.cpp:121-141`，`Init` 内紧接 `LoadSnapshot`） | `LOG_ERROR` + 飞书；`freezeOnOrphanAlgoOrder`（`etc/config.json:60` = `"true"`）→ **`errorFlag = true`** |
 | 3 | `ScanFinishedAlgoOrders`（`PairTradingStrategy.cpp:589-611`，**每个定时器 tick 都跑一次**，见下方"自愈的确切路径"；**不受启动闸门限制**） | `algoContext.GetAlgoOrder(id) == nullptr` → `ClearActiveAlgoOrder` → `hasActiveAlgoOrder = false` ✅ **自愈** |
 | 4 | —— | **`errorFlag` 没有任何人清** ❌ |

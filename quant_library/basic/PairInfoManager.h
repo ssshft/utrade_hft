@@ -148,7 +148,7 @@
 
         static void ParseInstrumentKey(const char* key, char* exchange, size_t exchLen, char* instType, size_t instTypeLen, char* symbol, size_t symLen);
 
-        static constexpr double MIN_ORDER_USDT = 25;
+        static constexpr double MIN_ORDER_USDT = 6;
 
         sm::SecurityManager* smc{nullptr};
 

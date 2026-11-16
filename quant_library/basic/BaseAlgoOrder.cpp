@@ -925,7 +925,7 @@ string BaseAlgoOrder::GetLastestStatusInfo() {
                 "lockSpread:%f \n"
                 "pairTotalVolume:%f  pairPassiveTotalVolume:%f \n"
                 "pairActiveTotalPrice:%f  pairPassiveTotalPrice:%f \n"
-                "pairOrderStr:%s\n"
+                "pairOrderStr:%s"
                 "spreadBidAskTema:%f \n"
                 "spreadBidBidTema:%f \n"
                 "spreadAskBidTema:%f \n"
