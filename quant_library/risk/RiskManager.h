@@ -50,6 +50,8 @@
         double fundingAbnormalUsdt{30.0};
 
         // 碎单
+        // 总开关：false ⇒ CheckTinyClose 恒返回 false，平碎单功能整体不生效。
+        bool tinyCloseEnabled{false};
         double tinyCloseThresholdUsdt{5};
         int64_t tinyCloseScanIntervalUs{60LL * 1000000LL};
 

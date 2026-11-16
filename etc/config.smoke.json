@@ -181,6 +181,8 @@
             "spreadNoRegressionSec": "300",
 
             "fundingAbnormalUsdt": "30",
+            
+            "tinyCloseEnabled": false,
             "tinyCloseThresholdUsdt": "5",
             "tinyCloseScanIntervalSec": "60",
 

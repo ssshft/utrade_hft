@@ -2109,6 +2109,60 @@ static void TestF_Risk() {
         CHECK(r.hasRisk && r.isTinyClose && r.needForceClose, "F5 持仓市值 < 5 USDT -> 碎单强平");
     }
 
+    // F5b 碎单总开关 RiskConfig::tinyCloseEnabled
+    //
+    // 钉两件事：
+    //   ① 关掉之后碎仓不再被认出来、也不再为它建算法单 —— 这才是运维要的效果；
+    //   ② 关掉的只是**碎单这一条**，闸门必须留在 CheckTinyClose 里，**不能上提到
+    //      CheckRisk 开头**。上提是最省事的写法，但会把 ADL / 价差不回归 / 资金费
+    //      三条一起关掉；而这个错误在"小仓位"场景下**完全看不出来**（那三条本来就
+    //      要求大仓位或长持仓），所以第二条断言专门用"大仓位 + 资金费异常"去踩它。
+    //
+    // ⚠️ RiskManager 是单例，ResetWorld() 不管它 ⇒ 本用例必须自己把配置还原，
+    //    否则"关掉"会带进后面所有强平用例（F6 起）让它们全变哑，而且症状极难定位
+    //    （跟 D13/K 组结尾漏清 closeOnly 是同一类坑）。
+    {
+        const RiskConfig saved = RiskManager::Instance().GetConfig();
+        CHECK(saved.tinyCloseEnabled, "F5b 默认 tinyCloseEnabled = true（引入开关前行为不变）");
+
+        RiskConfig off = saved;
+        off.tinyCloseEnabled = false;
+        RiskManager::Instance().SetConfig(off);
+
+        // ① 碎仓：关掉后不再命中，ProcessRisk 也不建单（场景与 F5 完全一致）
+        {
+            Fx fx; Boot(fx); GoTrading(fx);
+            PairInfo& pi = *fx.pi(); MakeHoldable(pi, -0.04);
+            pi.rtSpread.activePriceTema = 100.0;      // 市值 = 0.04 * 100 = 4 USDT < 5
+
+            CHECK(!RiskManager::Instance().CheckTinyClose(pi), "F5b 关掉 -> CheckTinyClose 恒 false");
+            RiskCheckResult r = RiskManager::Instance().CheckRisk(pi, t0);
+            CHECK(!r.isTinyClose, "F5b 关掉 -> CheckRisk 不再报 isTinyClose");
+
+            fx.ctx.ProcessRisk(pi, t0);
+            CHECK(fx.N() == 0, "F5b 关掉 -> ProcessRisk 不为碎仓建算法单");
+        }
+
+        // ② 闸门没上提：大仓位 + 资金费异常仍然强平（场景照抄 F13）
+        {
+            PairInfo pj; MakeHoldable(pj, -1.0);
+            pj.rtSpread.activePriceTema = 100.0;
+            pj.rtSpread.activeFundingRate = 0.0;
+            pj.rtSpread.passiveFundingRate = 0.4;     // fundingRisk = -100 * 0.4 = -40 <= -30
+            RiskCheckResult r = RiskManager::Instance().CheckRisk(pj, t0);
+            CHECK(r.needForceClose && r.riskType == AbnormalClose_FUNDING_ABNORMAL,
+                  "F5b 关掉碎单后资金费异常仍然强平（闸门留在 CheckTinyClose，没上提到 CheckRisk）");
+        }
+
+        // ③ 开关是双向的：还原之后碎仓重新命中（防止写成"一次性"的实现）
+        RiskManager::Instance().SetConfig(saved);
+        {
+            PairInfo pk; MakeHoldable(pk, -0.04);
+            pk.rtSpread.activePriceTema = 100.0;
+            CHECK(RiskManager::Instance().CheckTinyClose(pk), "F5b 还原开关 -> 碎仓重新命中");
+        }
+    }
+
     // F6 档位升级：撤单 -> OnAlgoFinished -> tierNTimes++ -> 下一档
     {
         Fx fx; Boot(fx); GoTrading(fx);

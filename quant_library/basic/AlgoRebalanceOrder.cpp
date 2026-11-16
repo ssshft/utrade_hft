@@ -186,10 +186,9 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
         }
     }
 
-    if (fabs(targetActiveVolume) < stra::MIN_FLOAT) {
-        pairOrder.reduceOnly = true;
-    }
-
+    pairOrder.reduceOnly = true;
+    
+    /*
     if (activeTrade == 1) {
         if (activeInfo.calcType == 0) {
             double midPrice = (pdata->activeBidPrice[0] + pdata->activeAskPrice[0]) / 2;
@@ -228,6 +227,7 @@ PairOrder AlgoRebalanceOrder::GetTargetPairOrder(stra::TradingType tradingTypeOr
             }
         }
     }
+    */
 
     // 报单量必须是**被操作那条腿** lotSize 的整数倍，否则交易所直接拒单。
     const md::InstrumentInfo& legInfo = (activeTrade == 1) ? activeInfo : passiveInfo;

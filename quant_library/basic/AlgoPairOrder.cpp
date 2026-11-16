@@ -751,10 +751,10 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
             if (pairOrder.pairId <= 0) {
                 if (ttOLSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::OPEN_LONG, pairOrderId);
+                }       
+                else {
+                    LOG_INFO("未报单: TAKER_TAKER: 开多/平多开关均关闭(ttOSSwitch/ttOLSwitch 都为 false) -> 不报单");
                 }
-            }
-            else {
-                LOG_INFO("未报单: TAKER_TAKER: 开多/平多开关均关闭(ttOSSwitch/ttOLSwitch 都为 false) -> 不报单");
             }
         }
     } 
@@ -801,9 +801,9 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
                 if (mtOLSwitch) {
                     pairOrder = GetTargetPairOrder(tradingType, stra::OPEN_LONG, pairOrderId);
                 }
-            }
-            else {
-                LOG_INFO("未报单: TAKER_TAKER: 开多/平多开关均关闭(mtOSSwitch/mtOLSwitch 都为 false) -> 不报单");
+                else {
+                    LOG_INFO("未报单: TAKER_TAKER: 开多/平多开关均关闭(mtOSSwitch/mtOLSwitch 都为 false) -> 不报单");
+                }
             }
         }
     }

@@ -445,7 +445,11 @@ void PairTradingStrategy::pre_start(Config* config) {
             c.fundingAbnormalUsdt = std::stod(s["fundingAbnormalUsdt"].GetString());
         }
 
-        // 碎单
+        // 碎单总开关。布尔值写成**裸** true/false（与 closeOnly / stopAllAlgo 同一套写法）。
+        if (s.HasMember("tinyCloseEnabled")) {
+            c.tinyCloseEnabled = s["tinyCloseEnabled"].GetBool();
+        }
+
         if (s.HasMember("tinyCloseThresholdUsdt"))  {
             c.tinyCloseThresholdUsdt  = std::stod(s["tinyCloseThresholdUsdt"].GetString());
         }
@@ -546,8 +550,8 @@ void PairTradingStrategy::pre_start(Config* config) {
         LOG_INFO("配置生效[分位数快照] path={} maxStaleSec={} ({})",
                  m_ptCfg.spreadStatsStatePath, m_ptCfg.spreadStatsMaxStaleSec,
                  m_ptCfg.spreadStatsMaxStaleSec > 0 ? "重启免预热已开" : "已关闭，每次重启正常预热");
-        LOG_INFO("配置生效[风控] tinyCloseThresholdUsdt={} fundingAbnormalUsdt={} minHoldDurationSec={} spreadNoRegressionSec={} tier1WaitSec={} tier2WaitSec={}",
-                 rc.tinyCloseThresholdUsdt, rc.fundingAbnormalUsdt,
+        LOG_INFO("配置生效[风控] tinyClose={} tinyCloseThresholdUsdt={} fundingAbnormalUsdt={} minHoldDurationSec={} spreadNoRegressionSec={} tier1WaitSec={} tier2WaitSec={}",
+                 rc.tinyCloseEnabled ? "开" : "关", rc.tinyCloseThresholdUsdt, rc.fundingAbnormalUsdt,
                  rc.minHoldDurationUs / 1000000LL, rc.spreadNoRegressionDuration / 1000000LL,
                  rc.tier1WaitUs / 1000000LL, rc.tier2WaitUs / 1000000LL);
         LOG_INFO("配置生效[算法单] ttActiveOrderType={} mtActiveOrderType={} passiveOrderType={} cancelOrderTimeMs={} cancelOrderPct={} algoOrderTimeoutMs={} modifyTimespanSec={}",

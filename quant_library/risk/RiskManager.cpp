@@ -83,6 +83,11 @@ namespace pt {
     }
 
     bool RiskManager::CheckTinyClose(const PairInfo& pi) const {
+        // 总开关：关掉之后这里恒 false，语义等价于"没有这个功能"。
+        if (!m_cfg.tinyCloseEnabled) {
+            return false;
+        }
+
         if (!pi.HasPosition()) {
             return false;
         }

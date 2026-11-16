@@ -733,6 +733,7 @@ void PairTradingContext::ProcessExposureRebalance(PairInfo& pi) {
     // netExposure / threshold 都是"主动腿张数"口径，所以这里先用主动腿单位判门槛，
     // 再换算成被操作那条腿自己的单位（被动腿要 × am/pm）。
     const double excess = netExposure - threshold;
+    /*
     if (pi.minVolume > 0.0 && excess < pi.minVolume) {
         // 不够一手：自动路径到此为止。不退出的话会陷入
         // "建单 -> 报不出去 -> 年龄超时撤掉 -> 再建" 的循环，每 150s 刷一次日志。
@@ -740,6 +741,7 @@ void PairTradingContext::ProcessExposureRebalance(PairInfo& pi) {
         LOG_ERROR("ProcessExposureRebalance: pairKey:{} 待平量 {} < 最小报单量 {} -> 放弃自动再平衡，等人工", pi.pairInstrumentKey, excess, pi.minVolume);
         return;
     }
+    */
 
     double closeAmount = (activeTrade == 1) ? excess : excess * am / pm;
 
