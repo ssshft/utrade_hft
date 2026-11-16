@@ -436,10 +436,10 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
             //     这是"等成交"的必然结果，不是漏写。
             bool cancelFlag = false;
             if (algoType == stra::AlgoType_Rebalance) {
-                cancelFlag = (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED);
+                cancelFlag = (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FAILED);
             }
             else {
-                cancelFlag = it->second.isActiveOrder && (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED);
+                cancelFlag = it->second.isActiveOrder && (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FAILED);
             }
 
             if (cancelFlag) {
@@ -459,7 +459,7 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
     } else {
         auto& allOrders = orderMgr.GetAllOrders();
         for (auto it = allOrders.begin(); it != allOrders.end(); ++it) {
-            if (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FILLED){
+            if (it->second.orderStatus == OS_NEW || it->second.orderStatus == OS_PARTFILLED || it->second.orderStatus == OS_FAILED) {
                 //bool pass = LimitManager::Instance().PassLimit(it->second.strategyAccountId);
                 bool pass = LimitManager::Instance().PassCancelLimit(it->second.strategyAccountId);
 		        if (!pass) {

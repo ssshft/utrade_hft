@@ -42,3 +42,6 @@
 
 build
 bin
+
+*.csv
+*.log

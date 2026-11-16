@@ -3,12 +3,14 @@ from PairOrderStatictis import PairOrderStatictis
 import pandas as pd
 import signal
 import os
+import re
 from datetime import datetime, date, timedelta
 from Object import smc
 import numpy as np
 import sys
 import time
 from MysqlManager import MysqlManager
+from ExposureStatictis import ExposureStatictis
 
 server_name = 'bn_gate'
  
@@ -540,7 +542,7 @@ def calc_values(df):
     total_active_cancel_order_system_delay = df['TotalActiveCancelOrderSystemDelay'].sum()
     total_active_cancel_order_system_delay_count = df['TotalActiveCancelOrderSystemDelayCount'].sum()
     s32 = 0
-    if total_active_order_count != 0:
+    if total_active_cancel_order_system_delay_count != 0:
         s32 = total_active_cancel_order_system_delay / total_active_cancel_order_system_delay_count # total_active_cancel_order_system_delay
 
     df['TotalActiveNewOrderExchangeDelay'] = df.apply(calc_total_active_new_order_exchange_delay, axis=1)
@@ -693,11 +695,24 @@ def generate_statistic(run_path, date_str, name=''):
     df_last_quant_order['TotalPassiveShortTradeAmount'] = df_last_quant_order.apply(lambda x: x['TotalTradeAmount'] if x['isActiveOrder'] != 1 and x['direction'] == 'Direction_SHORT' else 0, axis=1)
     df_last_quant_order['TotalPassiveShortTradeVolume'] = df_last_quant_order.apply(lambda x: x['totalVolumeOnOrder'] if x['isActiveOrder'] != 1 and x['direction'] == 'Direction_SHORT' else 0, axis=1)
 
-    df_last_quant_order['NewOrderSystemDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_new_order_system_delay)
-    df_last_quant_order['CancelOrderSystemDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_cancel_order_system_delay)
-    df_last_quant_order['CancelOrderExchangeDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_cancel_order_exchange_delay)
-    df_last_quant_order['NewOrderExchangeDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_new_order_exchange_delay)
-    df_last_quant_order['OrderNewToCancelDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_order_new_to_cancel_delay)
+    # 最新导出的 quantOrder.csv 已经不包含 orderTimeStatus，旧脚本会在这里 KeyError。
+    # 缺失时把延迟列置 0，保留其余成交量/价差统计；需要延迟统计时再从订单时间戳重建。
+    delay_columns = [
+        'NewOrderSystemDelay',
+        'CancelOrderSystemDelay',
+        'CancelOrderExchangeDelay',
+        'NewOrderExchangeDelay',
+        'OrderNewToCancelDelay',
+    ]
+    if 'orderTimeStatus' in df_last_quant_order.columns:
+        df_last_quant_order['NewOrderSystemDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_new_order_system_delay)
+        df_last_quant_order['CancelOrderSystemDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_cancel_order_system_delay)
+        df_last_quant_order['CancelOrderExchangeDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_cancel_order_exchange_delay)
+        df_last_quant_order['NewOrderExchangeDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_new_order_exchange_delay)
+        df_last_quant_order['OrderNewToCancelDelay'] = df_last_quant_order['orderTimeStatus'].map(calc_order_new_to_cancel_delay)
+    else:
+        for column in delay_columns:
+            df_last_quant_order[column] = 0.0
 
     if name == '':
         exchange_id_list = []
@@ -824,11 +839,38 @@ def generate_statistic(run_path, date_str, name=''):
     else:
         df.to_csv(f'{run_path}/Statictis_{date_str}.csv')
 
+    # 新增：按 pairId/algoPairId 重建主动腿成交到被动腿成交之间的瞬时敞口。
+    # 输出 Exposure_<date>.csv（逐 pair）和 Exposure_<date>_algo.csv（逐算法单）。
+    try:
+        exposure_statictis = ExposureStatictis()
+        exposure_statictis.load_file(pair_order_path, quant_order_path)
+        exposure_statictis.calc()
+        exposure_suffix = f'_{name}' if name else ''
+        exposure_path = f'{run_path}/Exposure_{date_str}{exposure_suffix}.csv'
+        exposure_statictis.write_report(exposure_path)
+        print(exposure_statictis.summary_text())
+        print(f'exposure report: {exposure_path}')
+    except Exception as exc:
+        print(f'[exposure] skipped: {exc}')
+
     #df.to_csv(f'{run_path}/Statictis_all.csv')
 
     end_time = datetime.now()
     total_time = end_time - start_time
     print(f'calc time: {total_time}')
+
+def find_latest_trade_date(run_path):
+    """从目录中的 <date>_pairOrder.csv 自动找最新交易日，避免硬编码昨天。"""
+    date_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2})_.*pairOrder\.csv$')
+    dates = []
+    for file_name in os.listdir(run_path):
+        match = date_pattern.match(file_name)
+        if match:
+            dates.append(match.group(1))
+    if dates:
+        return max(dates)
+    return f'{date.today() + timedelta(days=-1)}'
+
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
@@ -836,12 +878,14 @@ if __name__ == '__main__':
         sys.exit(0)
 
     run_path = sys.argv[1]
-    last_date = date.today() + timedelta(days=-1)
-    date_str = f'{last_date}'
+    date_str = sys.argv[2] if len(sys.argv) >= 3 else find_latest_trade_date(run_path)
+    print(f'statistics date: {date_str}')
     for file_name in os.listdir(run_path):
         if date_str in file_name and 'pairOrder' in file_name:
-            str_name = file_name.strip(f'{date_str}_')
-            str_name = str_name.rstrip("pairOrder.csv")
+            prefix = f'{date_str}_'
+            str_name = file_name[len(prefix):] if file_name.startswith(prefix) else file_name
+            if str_name.endswith('pairOrder.csv'):
+                str_name = str_name[:-len('pairOrder.csv')]
 
             generate_statistic(run_path, date_str, str_name)
             time.sleep(1)
