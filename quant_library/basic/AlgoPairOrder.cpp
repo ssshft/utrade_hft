@@ -707,6 +707,8 @@ PairOrder AlgoPairOrder::CreatePairOrder(stra::TradingType tradingType) {
     int64_t pairOrderId = GenerateStrategyPairId();
     double expectVolume = GetExpectActiveVolume();
     LOG_INFO("tradingType:{}  pairOrderId:{}  expectVolume:{}  minVolume:{} ttTargetVolume:{}  mtTargetVolume:{}", stra::TradingTypeEnum2Str[tradingType], pairOrderId, expectVolume, minVolume, ttTargetVolume, mtTargetVolume);
+    LOG_INFO("ttOSSwitch:{} ttCSSwitch:{} ttOLSwitch:{} ttCLSwitch:{}", ttOSSwitch, ttCSSwitch, ttOLSwitch, ttCLSwitch);
+    LOG_INFO("mtOSSwitch:{} mtCSSwitch:{} mtOLSwitch:{} mtCLSwitch:{}", mtOSSwitch, mtCSSwitch, mtOLSwitch, mtCLSwitch);
     if (tradingType == stra::TAKER_TAKER) {
         if (expectVolume >= minVolume - stra::MIN_FLOAT) {
             if (ttOSSwitch && ttCSSwitch) {
