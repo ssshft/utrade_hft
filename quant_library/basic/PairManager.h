@@ -87,6 +87,25 @@ struct PairOrder {
     double minOrderAmount{5};
     bool reduceOnly{false};
 
+    // 被动腿报单"上次被拒"的时间（µs，0 = 从未被拒），只给 PairOrderTrade 的退避用。
+    //
+    // 为什么需要：被动腿报单被拒之后，AlgoContext::OnOrder 会立刻回到 PairOrderTrade
+    // 重发；如果拒绝原因是本地的（连接池满 → no_stream_resources），重发同样立刻失败，
+    // 于是形成 0.3ms 级的自旋 —— 实测同一个对子 9ms 内重发了 26 次，把账户
+    // 30 笔/秒（strategy.ini maxpersec）的报单配额全烧在注定失败的请求上。
+    //
+    // 为什么是"被拒时间"而不是"上次尝试时间"：正常对冲是成交驱动的，一次主动腿成交
+    // 就该立刻补一笔，不能被限流；只有"刚刚被拒过"才需要压住，否则连正常的成交驱动
+    // 补单也会被误伤（也会让测试里连续两次 OnTimer 之间的补单消失）。
+    //
+    // 只对**被动腿**的拒绝打这个戳（见 AlgoContext::OnOrder）：主动腿被拒必须走完整的
+    // PairOrderTrade —— 那里面还有"没有敞口就收口删 pairOrder"的收尾逻辑。
+    //
+    // 这个字段同时充当"待补发"标记：非 0 表示有一笔被动腿还没补出去。
+    // 消费它的是 AlgoContext::OnSpread 的兜底扫描（50ms 级，先清标记再补），
+    // 所以"主动腿已经全部成交、没有新成交来触发"的情况也不会拖到 OnTimer 的 1 秒。
+    int64_t lastRejectUs{0};
+
     char pairInstrumentKey[stra::INST_KEY_LEN]{""};
 
     sm::SecurityManager* smc{nullptr};

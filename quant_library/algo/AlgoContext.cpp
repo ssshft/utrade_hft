@@ -1165,7 +1165,7 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
                 //LOG_INFO("OnOrder start update algoPairOrderByQuantOrder!");
                 // 更新algo_order的ps_mgr与pair_order
                 pAlgoOrder->UpdateAlgoPairOrderByQuantOrder(quantOrder);
-                if (quantOrder.orderStatus == OS_FILLED|| quantOrder.orderStatus == OS_REJECTED || quantOrder.orderStatus == OS_CANCELED) {
+                if (quantOrder.orderStatus == OS_FILLED || quantOrder.orderStatus == OS_REJECTED || quantOrder.orderStatus == OS_CANCELED) {
                     // 订单终结。报单被拒是"为什么没成交"的直接原因，单独提级。
                     if (quantOrder.orderStatus == OS_REJECTED) {
                         LOG_ERROR("报单被拒: algoOrderId:{} pairId:{} instrumentKey:{} strategyOrderId:{} 主动腿:{}",
@@ -1180,6 +1180,13 @@ void AlgoContext::OnOrder(const pubsub::OrderResponse& orderResponse) {
                     // 订单完结解冻
                     //LOG_INFO("OnOrder start update algoPairOrderByDeleteQuantOrder!");
                     pAlgoOrder->UpdateAlgoPairOrderByDeleteQuantOrder(quantOrder);
+                    // 被动腿被拒时打个时间戳：PairOrderTrade 据此在退避窗口内不再重发，
+                    // 掐掉"失败 → 立刻重发 → 再失败"的自旋（见 PairOrder::lastRejectUs）。
+                    // 只对被动腿生效：主动腿被拒必须走完整的 PairOrderTrade（那里面还有
+                    // "没有敞口就收口删 pairOrder"的收尾逻辑，跳过去会把这一轮锁死到超时）。
+                    if (quantOrder.orderStatus == OS_REJECTED && !quantOrder.isActiveOrder) {
+                        pairOrder.lastRejectUs = nowTime;
+                    }
                     //LOG_INFO("OnOrder start orderStatus filled rejected canceled PairOrderTrade!");
                     pAlgoOrder->PairOrderTrade(pairOrder);
 
@@ -1320,14 +1327,14 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             stuckOrderFlag = true;
                         }
 
-                        // 主动发起订单查询
-                        bool pass = LimitManager::Instance().PassLimit(order.strategyAccountId);
+                        // 主动发起订单查询（走查单配额，不占报单配额）
+                        bool pass = LimitManager::Instance().PassQueryLimit(order.strategyAccountId);
                         if (pass) {
                             QuantTrade::Instance().QueryOrder(order);
                             // 更新updatetime
                             order.updateTime = eventTime;
                         }
-                        if (order.queryCount > 5){
+                        if (order.queryCount > 3) {
                             it->second->commandType = stra::CommandType_ERROR;
                             it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
                             it->second->updateTime = eventTime;
@@ -1357,14 +1364,15 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             LarkRebot::GetInstance().SendMsg(msg);
                             errorOrderFlag = true;
                         }
-                        // 主动发起订单查询
-                        bool pass = LimitManager::Instance().PassLimit(order.strategyAccountId);
+                        // 主动发起订单查询（走查单配额，不占报单配额）
+                        bool pass = LimitManager::Instance().PassQueryLimit(order.strategyAccountId);
                         if (pass) {
                             QuantTrade::Instance().QueryOrder(order);
                             // 更新updatetime
                             order.updateTime = eventTime;
                         }
-                        if (order.queryCount > 5) {
+
+                        if (order.queryCount > 3) {
                             it->second->commandType = stra::CommandType_ERROR;
                             it->second->algoOrderStatus = stra::ALGO_OS_ERRORCANCELED; 
                             it->second->updateTime = eventTime;
@@ -1377,6 +1385,10 @@ void AlgoContext::OnTimer(int64_t eventTime) {
                             pt::PairTradingContext::NotifyAlgoOrderUpdate(it->second);
                             LOG_ERROR("算法单终结(状态未知): algoOrderId:{} pairInstrumentKey:{} -> ALGO_OS_ERRORCANCELED，子单 orderStatus 长期 OS_UNKNOWN 且查询超 5 次",
                                       it->second->algoOrderId, it->second->pairInstrumentKey);
+                        }
+
+                        if (pass) {
+                            order.queryCount += 1;
                         }
                     }
                 }

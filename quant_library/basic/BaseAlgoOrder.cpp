@@ -713,6 +713,16 @@ void BaseAlgoOrder::CancelOrderOnSpread(const dbp::DbpData* pdata) {
 }
 
 void BaseAlgoOrder::PairOrderTrade(PairOrder& pairOrder) {
+    // 被动腿报单被拒后的重发退避，见 PairOrder::lastRejectUs 的注释。
+    // 只在"刚刚被拒过"的窗口内压住：正常的成交驱动补单不受影响（那是 1 次成交补 1 笔，
+    // 本来就该立刻发），被压住的只有"失败 → 立刻重发 → 再失败"这条自旋链。
+    // 跳过的是**这一次调用**，不是"放弃补对冲"—— 残差还在，窗口过后的下一次触发
+    // （主动腿继续成交 / AlgoContext::OnSpread 的兜底扫描 / OnTimer）会带着累计后的
+    // 残差重新算量，不会漏量。窗口过后的主力是 OnSpread（50ms 级），OnTimer 只是最后一道网。
+    if (pairOrder.lastRejectUs > 0 && crypto::getCurrentTime() - pairOrder.lastRejectUs < PASSIVE_TRADE_BACKOFF_US) {
+        return;
+    }
+
     bool pass = LimitManager::Instance().PassLimit(pairOrder.passiveAccountId);
     if (!pass) {
         return;

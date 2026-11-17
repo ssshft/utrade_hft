@@ -35,6 +35,7 @@ void LimitManager::Init() {
             unit.maxCancelPersec = 30;
             unit.orderNum = 5000;  
         }
+        // maxQueryPersec 没有配置入口，保持 LimitUnit 的默认值（30/秒）
     	mAccountLimitBoard[accountId].SetLimitUnit(unit);
     }
 }
@@ -43,19 +44,22 @@ LimitCalcBoard& LimitManager::GetAccountBoard(int accountId) {
     return mAccountLimitBoard[accountId];
 }
 
-void LimitManager::OnOrder(const stra::QuantOrder& order) {
-    auto& accountBoard = GetAccountBoard(order.strategyAccountId);
-    accountBoard.OnOrder(order);
+void LimitManager::OnCreateOrder(const stra::QuantOrder& order) {
+    GetAccountBoard(order.strategyAccountId).OnCreate();
+}
+
+void LimitManager::OnCancelOrder(const stra::QuantOrder& order) {
+    GetAccountBoard(order.strategyAccountId).OnCancel();
+}
+
+void LimitManager::OnQueryOrder(const stra::QuantOrder& order) {
+    GetAccountBoard(order.strategyAccountId).OnQuery();
 }
 
 bool LimitManager::PassLimit(int accountId) {
     bool pass = true;
     if (check) {
-        auto& accountBoard = GetAccountBoard(accountId);
-        bool flagPersec = accountBoard.CheckPersec();
-        // bool flagNum = accountBoard.CheckNum();
-        // flagNum = true;  // 去掉报单总数量的限制
-        pass = flagPersec;
+        pass = GetAccountBoard(accountId).CheckPersec();
     }
     return pass;
 }
@@ -63,9 +67,15 @@ bool LimitManager::PassLimit(int accountId) {
 bool LimitManager::PassCancelLimit(int accountId) {
     bool pass = true;
     if (check) {
-        auto& accountBoard = GetAccountBoard(accountId);
-        bool flagPersec = accountBoard.CheckCancelPersec();
-        pass = flagPersec;
+        pass = GetAccountBoard(accountId).CheckCancelPersec();
+    }
+    return pass;
+}
+
+bool LimitManager::PassQueryLimit(int accountId) {
+    bool pass = true;
+    if (check) {
+        pass = GetAccountBoard(accountId).CheckQueryPersec();
     }
     return pass;
 }

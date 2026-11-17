@@ -34,6 +34,12 @@ enum class AlgoRole {
 };
 
 struct BaseAlgoOrder {
+    // 被动腿报单被拒后的最小重发间隔（µs）。详见 PairOrder::lastRejectUs 的注释：
+    // 报单被拒后会立刻回到 PairOrderTrade 重发，而"连接池满"这类本地失败重发也立刻失败，
+    // 不设间隔就是 0.3ms 级的自旋（实测 9ms 内 26 次），把账户 30 笔/秒的配额烧干。
+    // 50ms ⇒ 单对子上限 20 笔/秒 < 配额。
+    static constexpr int64_t PASSIVE_TRADE_BACKOFF_US = 50'000;
+
     // char sccId[stra::INST_ID_LEN]{""};
     // char toAec[stra::NAME_LEN]{""};
     // char clientOrderId[stra::ID_LEN]{""};

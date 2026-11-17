@@ -800,7 +800,6 @@ namespace stra {
         }
 
         QuantOrder UpdateOrderOnQueryOrder(const pubsub::OrderResponse& orderResponse) {
-            queryCount += 1;
             orderStatus = orderResponse.orderStatus;
             updateTime = crypto::getCurrentTime();
             errorId = orderResponse.errorId;

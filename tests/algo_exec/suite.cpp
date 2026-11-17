@@ -2276,6 +2276,114 @@ static void TestK_Report() {
 }
 
 // ===========================================================================
+// L. 被动腿被拒后的重发退避（PairOrder::lastRejectUs + OnSpread 兜底）
+//
+// 背景：被动腿报单被拒后，AlgoContext::OnOrder 会立刻回到 PairOrderTrade 重发。
+// 如果拒绝原因是本地的（连接池满 -> no_stream_resources），重发也立刻失败
+// ⇒ 0.3ms 级自旋，实测同一个对子 9ms 内重发 26 次，把账户 30 笔/秒的报单配额
+// 全烧在注定失败的请求上。
+//
+// 现在两道闸：PairOrderTrade 里的 50ms 退避（别太快）+ OnSpread 的兜底扫描（到点补）。
+// 本用例钉的就是这两件事：窗口内不补、窗口外补且只补一次。
+// ===========================================================================
+static void TestL_RejectBackoff() {
+    Section("L. 被动腿被拒后的重发退避");
+
+    Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+    BaseAlgoOrder* o = OpenTtOL(fx);
+    dbp::DbpTopic topic = MakeTopic(kPairKey);
+    dbp::DbpData pdata = FreshData();
+    fx.algoCtx.OnSpread(&topic, &pdata);
+
+    CHECK(fx.NNew() == 1, "L1 前置：主动腿已报出");
+    auto pos = fx.PairOrders(o);
+    if (fx.NNew() != 1 || pos.empty()) { CHECK(false, "L1 前置失败"); return; }
+
+    const int64_t pairId = pos[0].pairId;
+    const int64_t aoid   = fx.News()[0]->clientOrderId;
+    const double  px     = fx.News()[0]->limitPrice;
+    const std::string sref = MakeRef(o, pairId);
+
+    // 主动腿全成 -> 补出被动腿
+    fx.algoCtx.OnOrder(MakeRtn(aoid, sref.c_str(), OS_FILLED, 1.0, px, BINANCE, USDT_SWAP));
+    CHECK(fx.NNew() == 2, "L2 前置：主动腿成交后补出被动腿");
+    if (fx.NNew() != 2) { CHECK(false, "L2 前置失败"); return; }
+    const int64_t poid = fx.News()[1]->clientOrderId;
+
+    // ---- 被动腿被拒 ----
+    fx.algoCtx.OnOrder(MakeRtn(poid, sref.c_str(), OS_REJECTED, 0.0, px, GATEIO, USDT_SWAP));
+    CHECK(fx.NNew() == 2, "L3 被动腿被拒 -> 不立刻重发（否则就是自旋）");
+    CHECK(fx.NPassiveChild(o) == 0, "L3 被拒的被动腿已从 orderMgr 出清");
+    // 这一条是核心：被拒必须走 UpdateAlgoPairOrderByDeleteQuantOrder 释放冻结，
+    // 否则 CreatePassiveOrder 算出的残差恒为 0，这一对子再也补不出对冲腿。
+    CHECK(fx.PairOrders(o).size() == 1, "L3 pairOrder 还在（对冲腿没补出去，不能收口）");
+
+    PairOrder& po = o->pairOrderMgr.SelectPairOrderByPairId(pairId);
+    CHECK(po.pairId > 0 && po.lastRejectUs > 0, "L4 被拒时打了退避时间戳");
+
+    // ---- 窗口内（10ms）不补 ----
+    po.lastRejectUs = crypto::getCurrentTime() - 10 * 1000;
+    fx.algoCtx.OnSpread(&topic, &pdata);
+    CHECK(fx.NNew() == 2, "L5 退避窗口内（10ms < 50ms）-> OnSpread 也不补");
+
+    // ---- 窗口外（60ms）补一次 ----
+    po.lastRejectUs = crypto::getCurrentTime() - 60 * 1000;
+    fx.algoCtx.OnSpread(&topic, &pdata);
+    CHECK(fx.NNew() == 3, "L6 窗口过后（60ms > 50ms）-> OnSpread 把对冲腿补出去");
+
+    // 补完之后标记要清掉，否则每一帧都会再进一次
+    PairOrder& po2 = o->pairOrderMgr.SelectPairOrderByPairId(pairId);
+    CHECK(po2.pairId > 0 && po2.lastRejectUs == 0, "L6 补发后清掉标记（不会每帧重复进来）");
+}
+
+// ===========================================================================
+// M. 报单 / 撤单 / 查单三本配额互不吃
+//
+// 2026-11-17 之前三者共用一个 `ordertimes` 链表：QuantTrade 的 CreateOrder /
+// CancelOrder / QueryOrder 都往里面记一笔 ⇒ **查一次单就少一次报单额度**。
+// 行情剧烈、卡单多的时候，查单/撤单能把 30 笔/秒的报单配额吃光，
+// 外部表现就是"策略突然不报单了"，而且日志里只看得到 ordertimes.size，
+// 根本看不出是谁占的。
+// 这个用例钉的就是"拆开之后互不影响"。
+// ===========================================================================
+static void TestM_LimitQuota() {
+    Section("M. 报单/撤单/查单三本配额互不吃");
+
+    // LimitManager 是单例，board 会一直留着 ⇒ 用没人用的 accountId，别污染别的用例
+    const int acc = 987654;
+
+    LimitUnit u;
+    u.accountId       = acc;
+    u.maxPersec       = 3;
+    u.maxCancelPersec = 3;
+    u.maxQueryPersec  = 3;
+    LimitManager::Instance().GetAccountBoard(acc).SetLimitUnit(u);
+
+    stra::QuantOrder o{};
+    o.strategyAccountId = acc;
+
+    CHECK(LimitManager::Instance().PassLimit(acc), "M1 空账 -> 报单配额可过");
+
+    LimitManager::Instance().OnCreateOrder(o);
+    LimitManager::Instance().OnCreateOrder(o);
+    CHECK(LimitManager::Instance().PassLimit(acc), "M2 记 2 笔报单（< 3）-> 还能报");
+
+    // 关键断言：再记 3 笔查单。共用链表的话这里会变成 5 >= 3 -> false。
+    for (int i = 0; i < 3; ++i) LimitManager::Instance().OnQueryOrder(o);
+    CHECK(LimitManager::Instance().PassLimit(acc),
+          "M3 再记 3 笔查单 -> 报单配额不受影响（共用链表时这里会 false）");
+    CHECK(!LimitManager::Instance().PassQueryLimit(acc), "M3 查单配额自己满了（3/3）");
+
+    // 撤单同理，也不能吃报单配额
+    for (int i = 0; i < 3; ++i) LimitManager::Instance().OnCancelOrder(o);
+    CHECK(LimitManager::Instance().PassLimit(acc), "M4 再记 3 笔撤单 -> 报单配额仍不受影响");
+    CHECK(!LimitManager::Instance().PassCancelLimit(acc), "M4 撤单配额自己满了（3/3）");
+
+    LimitManager::Instance().OnCreateOrder(o);
+    CHECK(!LimitManager::Instance().PassLimit(acc), "M5 第 3 笔报单 -> 报单配额满（maxPersec=3）");
+}
+
+// ===========================================================================
 // 主
 // ===========================================================================
 int main() {
@@ -2293,6 +2401,8 @@ int main() {
     TestI_RoleTermination();
     TestJ_ExposureRebalance();
     TestK_Report();
+    TestL_RejectBackoff();
+    TestM_LimitQuota();
 
     std::printf("\n=================================================\n");
     std::printf("PASS: %d   FAIL: %d\n", g_pass, g_fail);

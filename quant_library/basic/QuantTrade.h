@@ -20,7 +20,7 @@ public:
     }
 
     bool CreateOrder(const stra::QuantOrder& order) {
-        LimitManager::Instance().OnOrder(order);
+        LimitManager::Instance().OnCreateOrder(order);
         string strategyId = StrategyConfig::GetInstance().GetStrategyIdByAccountId(order.strategyAccountId);
         char ref[stra::ID_LEN];
         sprintf(ref, "%ld_%ld", order.algoPairId, order.pairId);
@@ -29,14 +29,14 @@ public:
     }
 
     bool CancelOrder(const stra::QuantOrder& order) {
-	    LimitManager::Instance().OnOrder(order);
+	    LimitManager::Instance().OnCancelOrder(order);
         string strategyId = StrategyConfig::GetInstance().GetStrategyIdByAccountId(order.strategyAccountId);
         tradeClient->cancel_order(ExchangeType(order.exchangeType), InstType(order.instType), strategyId.c_str(), order.instrument, "", order.strategyOrderId);
         return true;
     }
 
     bool QueryOrder(const stra::QuantOrder& order) {
-        LimitManager::Instance().OnOrder(order);
+        LimitManager::Instance().OnQueryOrder(order);
         string strategyId = StrategyConfig::GetInstance().GetStrategyIdByAccountId(order.strategyAccountId);
         tradeClient->query_order(ExchangeType(order.exchangeType), InstType(order.instType), strategyId.c_str(), order.instrument, order.exchangeOrderId, order.strategyOrderId);
         return true;
