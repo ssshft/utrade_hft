@@ -7,12 +7,8 @@
 /*for limit units */
 struct LimitUnit{
     int accountId{0};
-    int maxPersec{20};
+    int maxPersec{30};
     int maxCancelPersec{30};
-    // 查单限频。**没有配置入口**（strategy.ini 里只有 maxpersec / maxcancelpersec），
-    // 用默认值：查单不是交易动作，只需要防住"卡单时每个 tick 都去查"这种风暴，
-    // 30/秒 已经远高于正常用量（OnTimer 里那两处查单都被 stuckOrderReportCount
-    // / errorOrderReportCount 卡着，正常一分钟才几条）。
     int maxQueryPersec{30};
     int orderNum{0};
 };
