@@ -81,6 +81,9 @@
             "_note_exposureCancelTimes": "敞口异常闸门：|净敞口| > 本值 x ttTargetVolume 就置 stopFlag（**永久，不会自愈**）。4.0 表示净敞口到 4 倍目标量才停。冒烟时建议别调小——一旦触发，循环就停在那里等人发 RESUME。",
             "exposureCancelTimes": "4.0",
 
+            "_note_exposureAbnormalConfirmTimes": "连续多少次 1s 风控检查都超阈值才置 stopFlag。默认 2：过滤平仓瞬间主动腿先成交、被动腿成交/持仓推送稍晚到的瞬时尖峰。1 = 旧行为（一次就停）。",
+            "exposureAbnormalConfirmTimes": "2",
+
             "volumeRecalcIntervalSec": "60",
             "csvSaveIntervalSec": "10",
 

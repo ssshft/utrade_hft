@@ -391,6 +391,9 @@ static void Boot(Fx& fx) {
     cfg.passiveAccountId = kPassiveAccountId;
     cfg.spreadStatsMinSamples = 3;
     cfg.spreadSampleIntervalSec = 0;
+    // 老 J 组断言的是"确认后"的行为；这里用 1 次确认保持原语义。
+    // 连续确认逻辑由 J0 单独覆盖。
+    cfg.exposureAbnormalConfirmTimes = 1;
     fx.ptCtx.SetAlgoCommandCallback([&fx](BaseAlgoOrder* o) {
         fx.created.push_back(o);
         // ★ 链路的关键一步：策略层建好的算法单，立刻注册进执行层
@@ -1893,6 +1896,54 @@ static void ArmExposureAbnormal(PairInfo& pi, double activePos, double passivePo
 
 static void TestJ_ExposureRebalance() {
     Section("J. 敞口再平衡（AlgoType_Rebalance：只平超出阈值的部分）");
+
+    // J0 连续确认：第一次超阈值只计数，连续第二次才判死；中间回到阈值内会清零。
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        fx.ptCtx.m_cfg.exposureAbnormalConfirmTimes = 2;
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+        pi.hasActiveAlgoOrder = true;
+        pi.currentAlgoOrderId = 555LL;
+
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        CHECK(!pi.stopFlag, "J0 第 1 次超阈值只计数，不判死");
+        CHECK(!pi.reBalance, "J0 第 1 次不置 reBalance");
+        CHECK(fx.modifyCalls.empty(), "J0 第 1 次不撤单");
+        CHECK(pi.exposureAbnormalCount == 1, "J0 计数 = 1");
+
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        CHECK(pi.stopFlag, "J0 连续第 2 次超阈值 -> stopFlag");
+        CHECK(pi.reBalance, "J0 第 2 次置 reBalance");
+        CHECK(fx.modifyCalls.size() == 1 &&
+              fx.modifyCalls[0].second == stra::CommandType_CANCEL,
+              "J0 第 2 次才撤单");
+        CHECK(pi.exposureAbnormalCount == 0, "J0 确认后计数清零");
+
+        PairInfoManager::Instance().ApplyCommand(kPairKey, PairCmd_RESUME);
+        CHECK(!pi.stopFlag && pi.exposureAbnormalCount == 0,
+              "J0 RESUME 同时清零计数");
+    }();
+
+    // J0b 中间回到阈值内：计数清零，下一次异常必须重新累计两次。
+    [&] {
+        Fx fx; Boot(fx); GoTrading(fx); SeedFunds(fx);
+        PairInfo& pi = *fx.pi();
+        fx.ptCtx.m_cfg.exposureAbnormalConfirmTimes = 2;
+        ArmExposureAbnormal(pi, 20.0, -5.0, 2.5);
+
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        CHECK(pi.exposureAbnormalCount == 1, "J0b 前置：计数 = 1");
+
+        pi.activeRealPosition = 10.0;   // |10 + (-5)| = 5 <= 阈值 10
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        CHECK(pi.exposureAbnormalCount == 0, "J0b 回到阈值内 -> 计数清零");
+
+        pi.activeRealPosition = 20.0;   // 再次异常
+        fx.ptCtx.CheckExposureAbnormal(pi);
+        CHECK(!pi.stopFlag, "J0b 清零后只异常一次，不判死");
+        CHECK(pi.exposureAbnormalCount == 1, "J0b 重新从 1 开始累计");
+    }();
 
     // J1 判据与标记：净敞口 > exposureCancelTimes * ttTargetVolume -> stopFlag + reBalance
     [&] {

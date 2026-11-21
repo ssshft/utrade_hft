@@ -386,6 +386,8 @@ static void Boot(Fx& fx, bool keepState = false) {
     cfg.passiveAccountId = kPassiveAccountId;
     cfg.spreadStatsMinSamples = 3;
     cfg.spreadSampleIntervalSec = 0;       // 逐 tick 全存，别降频
+    // 老用例一次调用就断言判死；连续确认由 algo_exec J0 覆盖。
+    cfg.exposureAbnormalConfirmTimes = 1;
     cfg.csvStatePath = snapPath;
     cfg.spreadStatsStatePath = statsPath;
     cfg.configPath = cfgPath;

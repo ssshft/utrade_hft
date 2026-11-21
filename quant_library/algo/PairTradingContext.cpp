@@ -634,6 +634,25 @@ void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
     double netExposure = 0.0;
     double threshold = 0.0;
     if (!CalcExposureExcess(pi, netExposure, threshold)) {
+        if (pi.exposureAbnormalCount != 0) {
+            LOG_INFO("CheckExposureAbnormal: pairKey:{} 敞口回到阈值内 -> 清零计数({})", pi.pairInstrumentKey, pi.exposureAbnormalCount);
+            pi.exposureAbnormalCount = 0;
+        }
+        return;
+    }
+
+    // 平仓瞬间主动腿可能连续成交，被动腿成交/持仓推送稍晚到；单次检查容易读到
+    // 过期的 passiveRealPosition。连续 N 次都超阈值才判死，过滤这种瞬时尖峰。
+    const int need = m_cfg.exposureAbnormalConfirmTimes > 0  ? m_cfg.exposureAbnormalConfirmTimes : 1;
+    if (need > 1 && pi.exposureAbnormalCount == 0) {
+        LOG_WARN("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (第 1/{} 次，等待确认) activePos:{} passivePos:{}", pi.pairInstrumentKey, netExposure, threshold, need, pi.activeRealPosition, pi.passiveRealPosition);
+    }
+
+    if (pi.exposureAbnormalCount < need) {
+        ++pi.exposureAbnormalCount;
+    }
+    
+    if (pi.exposureAbnormalCount < need) {
         return;
     }
 
@@ -641,6 +660,7 @@ void PairTradingContext::CheckExposureAbnormal(PairInfo& pi) const {
     // 交给 ProcessExposureRebalance —— 它下一轮用一张 AlgoType_Rebalance 单去做。
     // 对子仍然保持"判死、等人工 RESUME"的语义：再平衡单只负责把敞口压回阈值，
     // 压完不会自动解开 stopFlag（自动解开会与 pairCommands 的单向语义打架）。
+    pi.exposureAbnormalCount = 0;
     pi.stopFlag = true;
     pi.reBalance = true;
     LOG_ERROR("CheckExposureAbnormal: pairKey:{} netExposure:{} > {} (ttTargetVolume:{} activePos:{} passivePos:{}) -> stopFlag + 敞口再平衡单 + cancel", pi.pairInstrumentKey, netExposure, threshold, pi.ttTargetVolume, pi.activeRealPosition, pi.passiveRealPosition);
@@ -1602,6 +1622,7 @@ void PairTradingContext::ApplyPairCommands(const RuntimeConfig& rc) {
             // 人工恢复 = 撤掉"敞口异常自动再平衡"这条补救路径。不清的话，
             // 下一次 ProcessRisk 会立刻按旧敞口再建一张再平衡单，把恢复操作顶回去。
             pi->reBalance = false;
+            pi->exposureAbnormalCount = 0;
 
             // 两个数值字段照命令写（缺省 0）。`closeRemainVolume = 0` 正是"平干净"，
             // 也就是 RESUME 想要的效果；`profitPct` 不写会变成 0（比默认 0.0001 略严，

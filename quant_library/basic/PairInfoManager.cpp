@@ -1043,6 +1043,7 @@ void PairInfoManager::ApplyCommand(const std::string& pairKey, PairCommandType c
             pi->stopFlag = false;
             pi->closeFlag = false;
             pi->autoFlag = true;
+            pi->exposureAbnormalCount = 0;
             break;
         case PairCmd_MODIFY:
             for (const auto& kv : params) {

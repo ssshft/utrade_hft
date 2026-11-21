@@ -330,7 +330,12 @@ class ExposureStatictis:
                 m[c] = 0
             m[c] = pd.to_numeric(m[c], errors="coerce").fillna(0).astype("int64")
 
-        m["FinalNetBase"] = m["ActiveFilledBase"] - m["PassiveFilledBase"]
+        # 主动腿/被动腿的方向不一定都写成“主动=正、被动=负”：
+        # 例如 CLOSE_SHORT 是主动 DT_SHORT + 被动 DT_LONG，直接
+        # ActiveFilledBase - PassiveFilledBase 会把符号算反。
+        # 这里必须用成交事件里已经带方向的 signedBase 重新汇总。
+        signed_net_by_pair = events.groupby("pairId", sort=False)["signedBase"].sum()
+        m["FinalNetBase"] = m["pairId"].map(signed_net_by_pair).fillna(0.0)
         m["FinalNetNotional"] = m["FinalNetBase"] * m["LastMarkPrice"]
         m["FillNotionalDiff"] = (
             m["ActiveFilledNotional"] - m["PassiveFilledNotional"]

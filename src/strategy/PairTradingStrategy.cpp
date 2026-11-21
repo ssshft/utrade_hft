@@ -95,6 +95,10 @@ void PairTradingStrategy::pre_start(Config* config) {
             m_ptCfg.exposureCancelTimes  = std::stod(s["exposureCancelTimes"].GetString());
         }
 
+        if (s.HasMember("exposureAbnormalConfirmTimes")) {
+            m_ptCfg.exposureAbnormalConfirmTimes = std::stoi(s["exposureAbnormalConfirmTimes"].GetString());
+        }
+
         // 价差分位数。这两个直接决定 RecalcOrderParams 算出来的开平仓阈值
         if (s.HasMember("quantileUp")) {
             m_ptCfg.quantileUp = std::stod(s["quantileUp"].GetString());

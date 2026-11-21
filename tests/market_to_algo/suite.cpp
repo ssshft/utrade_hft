@@ -241,6 +241,8 @@ static void Boot(Fx& fx, const std::string& csv = "", const std::string& statsPa
     cfg.spreadStatsStatePath = statsPath;
     cfg.spreadStatsMinSamples = 3;      // 让少量样本就能建立统计
     cfg.spreadSampleIntervalSec = 0;     // 不降频
+    // 老 E8 断言的是"确认后"的行为；连续确认由 algo_exec J0 覆盖。
+    cfg.exposureAbnormalConfirmTimes = 1;
     // 全局 profitPct：`PairTradingConfig::profitPctSet` 这个"配置里写没写这个键"的标记
     // **已从配置结构里删掉**，现在生产代码总是用 `cfg.profitPct` 覆盖快照值
     // （见 `PairTradingContext.cpp:132-136`，e2e 07 有对应断言）。所以这里只赋 `pct`。

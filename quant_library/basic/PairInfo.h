@@ -338,6 +338,10 @@ namespace pt {
         bool reBalance{false};
         bool stopMarginTrade{false};
 
+        // 敞口异常连续确认计数：连续多少次 OnTimer 检查都超阈值才置 stopFlag。
+        // 运行态字段，**不进快照**；回到阈值内 / pairCommands RESUME 时清零。
+        int exposureAbnormalCount{0};
+
         OrderParams orderParams;
 
         // 状态时间戳

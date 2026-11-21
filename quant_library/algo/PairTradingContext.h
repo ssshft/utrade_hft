@@ -132,6 +132,11 @@ struct PairTradingConfig {
     // 双腿净敞口 / activeMultiple 超过 exposureCancelTimes * ttTargetVolume 即视为敞口失控
     double exposureCancelTimes{4.0};
 
+    // 连续多少次 OnTimer 检查都超阈值才判死。
+    // 1 = 旧行为（一次就停）；默认 2 = 约 1s 确认，过滤平仓瞬间的对冲延迟。
+    // 依赖 OnTimer 的 1s 节拍；timerInterval 改小时要一起评估。
+    int exposureAbnormalConfirmTimes{2};
+
     int64_t modifyTimespanSec{60}; // 改参周期 每隔这么久把 pair_info 的最新参数推给在跑的算法单
 
     double modifyShiftPct{0.0002}; // 流动性危险时的平仓让利 CL 的起止价差各减这么多、CS 的各加这么多，让平仓更容易成交

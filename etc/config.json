@@ -58,6 +58,7 @@
             "exposureMaxLimit": "10",
             "exposureMaxLimitCoff": "1.0",
             "exposureCancelTimes": "4.0",
+            "exposureAbnormalConfirmTimes": "2",
 
             "volumeRecalcIntervalSec": "60",
             "csvSaveIntervalSec": "10",
